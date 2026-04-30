@@ -24,6 +24,8 @@ derivedFvPatchFields/diffuseEmitter/diffuseEmitterMixedFvPatchScalarField.C
 derivedFvPatchFields/reflectiveSurface/reflectiveSurfaceMixedFvPatchScalarField.C
 derivedFvPatchFields/multiBandTransInterior/multiBandTransInteriorCoupledFvPatchScalarField.C
 
+fvModels/opticalRadiation/opticalRadiation.C
+
 LIB = $(FOAM_USER_LIBBIN)/libopticalRadiation
 
 
