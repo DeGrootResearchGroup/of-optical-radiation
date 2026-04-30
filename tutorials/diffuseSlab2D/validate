@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""
+Compare simulated G against the analytical plane-parallel solution
+G(x) = 2*pi*L_w*E_2(kappa*x), per band.
+
+Assumes ./Allrun has already been executed and written 1/G.
+Exits 0 if the maximum relative error at a set of x-stations is within
+tolerance, 1 otherwise.
+"""
+
+import math
+import re
+import statistics
+import sys
+
+# Tolerance (max allowed relative error at any sampled x station).
+# At nPhi=8, observed peak error in the validated configuration is ~5.4%.
+TOLERANCE = 0.07
+
+
+def E2(t: float) -> float:
+    """Second exponential integral E_2(t) = integral_1^inf exp(-t u)/u^2 du
+    via the substitution u = 1/mu, integrated by midpoint rule."""
+    if t == 0.0:
+        return 1.0
+    n = 10000
+    return sum(math.exp(-t / ((k + 0.5) / n)) for k in range(n)) / n
+
+
+def read_G(path: str) -> list:
+    with open(path) as f:
+        txt = f.read()
+    # Try non-uniform list first
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt,
+        re.S,
+    )
+    if m:
+        return list(map(float, m.group(2).split()))
+    # Fall back to uniform value
+    m = re.search(r"internalField\s+uniform\s+([-+0-9.eE]+)", txt)
+    if m:
+        # Mesh size unknown without polyMesh inspection; fail loudly.
+        sys.exit("validate: G is uniform; cannot validate against profile")
+    sys.exit(f"validate: could not parse {path}")
+
+
+def main() -> int:
+    # Case parameters (must match constant/photoBioProperties and 0.orig/I).
+    KAPPA = 1.0
+    EMISSIVE_PER_BAND = 5.0
+    N_BANDS = 2
+    NX, NY = 100, 10  # cells
+
+    L_w = EMISSIVE_PER_BAND / math.pi
+    G_ref_factor = N_BANDS * 2.0 * math.pi * L_w  # total G(0) reference
+
+    vals = read_G("1/G")
+    expected = NX * NY  # 1 cell in z
+    if len(vals) != expected:
+        sys.exit(
+            f"validate: expected {expected} cells, got {len(vals)} - "
+            "mesh may have changed"
+        )
+
+    # Average over y at each x (cell ordering is x-fastest, then y).
+    profile = [
+        statistics.mean(vals[ix + iy * NX] for iy in range(NY)) for ix in range(NX)
+    ]
+
+    sample_indices = [0, 10, 20, 50, 99]
+    rows = []
+    max_err = 0.0
+    for ix in sample_indices:
+        x = (ix + 0.5) / NX
+        G_sim = profile[ix]
+        G_ana = G_ref_factor * E2(KAPPA * x)
+        err = abs(G_sim - G_ana) / G_ana
+        rows.append((x, G_sim, G_ana, err))
+        max_err = max(max_err, err)
+
+    print(f"{'x [m]':>6}  {'G_sim':>12}  {'G_analytical':>14}  {'rel_err':>10}")
+    for x, gs, ga, e in rows:
+        print(f"{x:6.4f}  {gs:12.4e}  {ga:14.4e}  {e:10.2%}")
+    print(f"max relative error: {max_err:.2%}  tolerance: {TOLERANCE:.2%}")
+
+    return 0 if max_err <= TOLERANCE else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

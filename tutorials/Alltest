@@ -1,0 +1,101 @@
+#!/bin/sh
+#
+# Run every tutorial case and check the result.
+#
+# - Each case's Allrun is invoked.
+# - If a case has a `validate` script it is executed; non-zero exit
+#   means failure.
+# - The cross-case check at the end compares G fields between
+#   absorbingScatteringBox3D and variableExtinctionBox3D, which are
+#   mathematically equivalent and should produce identical results.
+#
+# Exit code: 0 if all checks pass, 1 otherwise.
+
+set -u
+cd "${0%/*}" || exit 1
+
+if [ -z "${WM_PROJECT_DIR:-}" ]; then
+    echo "Alltest: WM_PROJECT_DIR not set; source the OpenFOAM environment" >&2
+    exit 1
+fi
+
+overall=0
+
+# 1) Run every case.
+for case_dir in */ ; do
+    case_name="${case_dir%/}"
+    if [ -x "$case_name/Allrun" ]; then
+        echo "==> running $case_name"
+        if ! ( cd "$case_name" && ./Allrun ) > /dev/null 2>&1; then
+            echo "    FAIL (Allrun returned non-zero)"
+            overall=1
+            continue
+        fi
+        echo "    ok"
+    fi
+done
+
+# 2) Per-case validation scripts.
+for case_dir in */ ; do
+    case_name="${case_dir%/}"
+    if [ -x "$case_name/validate" ]; then
+        echo "==> validating $case_name"
+        if ( cd "$case_name" && ./validate ); then
+            echo "    PASS"
+        else
+            echo "    FAIL"
+            overall=1
+        fi
+    fi
+done
+
+# 3) Cross-case match: variableExtinctionBox3D should equal
+#    absorbingScatteringBox3D (same physics, different model path).
+if [ -f absorbingScatteringBox3D/1/G ] && [ -f variableExtinctionBox3D/1/G ]; then
+    echo "==> cross-case match: absorbingScatteringBox3D vs variableExtinctionBox3D"
+    if python3 - <<'PY'
+import re, sys
+
+def read_G(path):
+    with open(path) as f:
+        txt = f.read()
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt, re.S,
+    )
+    if not m:
+        sys.exit(f"could not parse {path}")
+    return list(map(float, m.group(2).split()))
+
+a = read_G("absorbingScatteringBox3D/1/G")
+b = read_G("variableExtinctionBox3D/1/G")
+if len(a) != len(b):
+    sys.exit(f"size mismatch: {len(a)} vs {len(b)}")
+
+# Strict tolerance: same equations and iterations, results should be
+# identical to within iterative-solver round-off.
+TOL = 1e-9
+max_abs = max(abs(av - bv) for av, bv in zip(a, b))
+scale = max(max(abs(av) for av in a), 1e-12)
+max_rel = max_abs / scale
+print(f"max |dG| = {max_abs:.3e}, max rel = {max_rel:.3e}, tol = {TOL:.0e}")
+sys.exit(0 if max_rel <= TOL else 1)
+PY
+    then
+        echo "    PASS"
+    else
+        echo "    FAIL"
+        overall=1
+    fi
+else
+    echo "==> cross-case match: skipping (one or both runs missing)"
+fi
+
+if [ "$overall" -eq 0 ]; then
+    echo
+    echo "Alltest: ALL PASS"
+else
+    echo
+    echo "Alltest: FAILURES"
+fi
+exit "$overall"

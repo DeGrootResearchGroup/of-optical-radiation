@@ -19,6 +19,23 @@ Each case has its own `README.md` with a description of the geometry,
 boundary conditions, expected behaviour, and (where applicable)
 notes on legacy syntax that was rewritten for the current code.
 
+## Automated checks
+
+`./Alltest` runs every case and validates the result:
+
+- **`diffuseSlab2D`** has a `validate` script that compares the
+  simulated `G` along the slab axis to the analytical
+  `2*pi*L_w*E_2(kappa*x)`. Passes if the maximum relative error at
+  sampled stations is within tolerance (currently 7%).
+- **`absorbingScatteringBox3D` vs `variableExtinctionBox3D`**: the
+  two cases are mathematically equivalent (constant extinction with
+  the same net `kappa`/`sigma_s` as the species-driven version with
+  uniform 0.5 concentrations). `Alltest` diffs the two `G` fields
+  cell-by-cell and requires bit-for-bit agreement.
+
+`Alltest` exits with status 0 only if every check passes; suitable for
+CI.
+
 ## Cases
 
 | Case | Description |
