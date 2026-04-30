@@ -96,11 +96,8 @@ private:
 
     // Private member functions
 
-        //- Disallow default bitwise copy construct
-        photoBioIntensityRay(const photoBioIntensityRay&);
-
-        //- Disallow default bitwise assignment
-        void operator=(const photoBioIntensityRay&);
+        photoBioIntensityRay(const photoBioIntensityRay&) = delete;
+        void operator=(const photoBioIntensityRay&) = delete;
 
 public:
 

@@ -94,21 +94,21 @@ transExteriorSurfaceMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    nNbg_(readScalar(dict.lookup("nNbg"))), //scalarField("n1", dict),
-	nOwn_(readScalar(dict.lookup("nOwn"))), // scalarField("n2", dict);
-    I0_(readScalar(dict.lookup("irradiation"))),
-	nBands_(readLabel(dict.lookup("nBand"))), // scalarField("n2", dict);
-    diffuseFraction_(readScalar(dict.lookup("diffuseFraction"))),
-    beamWidthPhi_(readScalar(dict.lookup("beamWidthPhi"))),
-    beamWidthTheta_(readScalar(dict.lookup("beamWidthTheta"))),
+    nNbg_(dict.get<scalar>("nNbg")), //scalarField("n1", dict),
+    nOwn_(dict.get<scalar>("nOwn")), // scalarField("n2", dict);
+    I0_(dict.get<scalar>("irradiation")),
+    nBands_(dict.get<label>("nBand")), // scalarField("n2", dict);
+    diffuseFraction_(dict.get<scalar>("diffuseFraction")),
+    beamWidthPhi_(dict.get<scalar>("beamWidthPhi")),
+    beamWidthTheta_(dict.get<scalar>("beamWidthTheta")),
     beamDir_(dict.lookup("beamDir")),
     initFlag_(0)
 {
 	
    photoBioBandDist_.setSize(nBands_);   
 
-   dict.lookup("photoBioBandDist") >> photoBioBandDist_;
-   dict.lookup("beamNormToSurf") >>beamNormToSurf_; 
+   dict.readEntry("photoBioBandDist", photoBioBandDist_);
+   dict.readEntry("beamNormToSurf", beamNormToSurf_);
 
  /*     Info << "\n nNbg_  \t" << nNbg_ << endl;
    Info << "\n nOwn_  \t" << nOwn_ << endl;

@@ -81,9 +81,9 @@ transInteriorSurfaceCoupledFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    nNbg_(readScalar(dict.lookup("nNbg"))), //scalarField("n1", dict),
-	nOwn_(readScalar(dict.lookup("nOwn"))), // scalarField("n2", dict);
-	diffuseFraction_(readScalar(dict.lookup("diffuseFraction")))
+    nNbg_(dict.get<scalar>("nNbg")), //scalarField("n1", dict),
+    nOwn_(dict.get<scalar>("nOwn")), // scalarField("n2", dict);
+    diffuseFraction_(dict.get<scalar>("diffuseFraction"))
 {
 
     if (!isA<mappedPatchBase>(this->patch().patch()))

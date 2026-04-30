@@ -85,13 +85,13 @@ multiBandTransInteriorCoupledFvPatchScalarField
 )
     :
     mixedFvPatchScalarField(p, iF),
-    nNbg_(readScalar(dict.lookup("nNbg"))), //scalarField("n1", dict),
-    nOwn_(readScalar(dict.lookup("nOwn"))), // scalarField("n2", dict);
-    diffuseFraction_(readScalar(dict.lookup("diffuseFraction"))),
-    nBands_(readLabel(dict.lookup("nBands")))
+    nNbg_(dict.get<scalar>("nNbg")), //scalarField("n1", dict),
+    nOwn_(dict.get<scalar>("nOwn")), // scalarField("n2", dict);
+    diffuseFraction_(dict.get<scalar>("diffuseFraction")),
+    nBands_(dict.get<label>("nBands"))
 {
     bandDist_.setSize(nBands_);
-    dict.lookup("bandDist") >> bandDist_;
+    dict.readEntry("bandDist", bandDist_);
    
     if (!isA<mappedPatchBase>(this->patch().patch()))
     {

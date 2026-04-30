@@ -78,17 +78,17 @@ Foam::photoBio::photoBioDOM::photoBioDOM(const volScalarField& intensity)
         mesh_,
         dimensionedScalar("diffusionScatter",dimMass/pow3(dimTime), 0.0)
     ),
-    nTheta_(readLabel(coeffs_.lookup("nTheta"))),
-    nPhi_(readLabel(coeffs_.lookup("nPhi"))),
+    nTheta_(coeffs_.get<label>("nTheta")),
+    nPhi_(coeffs_.get<label>("nPhi")),
     nAngle_(0),
     nRay_(0),
-    nBand_(coeffs_.lookupOrDefault<label>("nBand", 1)),
-    nPixelPhi_(coeffs_.lookupOrDefault<label>("nPixelPhi", 1)),
-    nPixelTheta_(coeffs_.lookupOrDefault<label>("nPixelTheta", 1)),
+    nBand_(coeffs_.getOrDefault<label>("nBand", 1)),
+    nPixelPhi_(coeffs_.getOrDefault<label>("nPixelPhi", 1)),
+    nPixelTheta_(coeffs_.getOrDefault<label>("nPixelTheta", 1)),
     GLambda_(nBand_),
     IRay_(0),
-    convergence_(coeffs_.lookupOrDefault<scalar>("convergence", 0.0)),
-    maxIter_(coeffs_.lookupOrDefault<label>("maxIter", 50))
+    convergence_(coeffs_.getOrDefault<scalar>("convergence", 0.0)),
+    maxIter_(coeffs_.getOrDefault<label>("maxIter", 50))
 {
     Info<< "Creating photoBioDOM model with " << nBand_ << " bands" << endl;
 
@@ -271,9 +271,9 @@ void Foam::photoBio::photoBioDOM::setRayId
     size_type i1 = name.find_first_of("_");
     size_type i2 = name.find_last_of("_");
 
-    label ib = readLabel(IStringStream(name.substr(i1+1, i2-1))());
-
-    label ia = readLabel(IStringStream(name.substr(i2+1, name.size()-1))());
+    label ib(0), ia(0);
+    IStringStream(name.substr(i1+1, i2-1))() >> ib;
+    IStringStream(name.substr(i2+1, name.size()-1))() >> ia;
 
     rayId = nAngle_*ib + ia;
 }

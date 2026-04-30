@@ -74,7 +74,7 @@ surroundingMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    surroundOptical_(readScalar(dict.lookup("surroundOptical")))
+    surroundOptical_(dict.get<scalar>("surroundOptical"))
 {
 
 

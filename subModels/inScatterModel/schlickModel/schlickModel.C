@@ -56,14 +56,14 @@ Foam::photoBio::schlickModel::schlickModel
      inScatterModel(dict),
     coeffsDict_(dict.subDict(typeName + "Coeffs"))
 {
-     coeffsDict_.lookup("subAngleNum") >> subAngleNum;
+     coeffsDict_.readEntry("subAngleNum", subAngleNum);
      
      const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
      const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
      
      nBands_ = dom.nBands();   //    coeffsDict_.lookup("nBand") >> nBands_;
      asymmetryFactor_.setSize(nBands_);   
-     coeffsDict_.lookup("asymmetryFactor") >> k_;
+     coeffsDict_.readEntry("asymmetryFactor", k_);
      
      nAngle_ = dom.nAngle();
      const  label nPhi = dom.nPhi();  

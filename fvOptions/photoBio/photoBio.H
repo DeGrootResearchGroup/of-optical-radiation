@@ -60,11 +60,8 @@ class photoBio
 
             // Private Member Functions
 
-        //- Disallow default bitwise copy construct
-        photoBio(const photoBio&);
-
-        //- Disallow default bitwise assignment
-        void operator=(const photoBio&);
+        photoBio(const photoBio&) = delete;
+        void operator=(const photoBio&) = delete;
 
 public:
 

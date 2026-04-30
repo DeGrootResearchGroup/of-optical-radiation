@@ -58,15 +58,15 @@ Foam::photoBio::schlickModel::schlickModel
     coeffsDict_(dict.subDict(typeName + "Coeffs"))
 {
     const dictionary& functionDicts = dict.subDict(typeName +"Coeffs");
-    functionDicts.lookup("inScatter") >> inScatter_;
-    
+    functionDicts.readEntry("inScatter", inScatter_);
+
     if(inScatter_)
     {
-        nBand_ = dom_.nBand();   
+        nBand_ = dom_.nBand();
         nAngle_ = dom_.nAngle();
-        functionDicts.lookup("subAngleNum") >> subAngleNum_;
-        k_.setSize(nBand_);   
-        functionDicts.lookup("asymmetryFactor") >> k_;
+        functionDicts.readEntry("subAngleNum", subAngleNum_);
+        k_.setSize(nBand_);
+        functionDicts.readEntry("asymmetryFactor", k_);
         const label nPhi = dom_.nPhi();  
         const label nTheta = dom_.nTheta();   
         const scalar deltaPhi   =  pi / (2.0*nPhi);

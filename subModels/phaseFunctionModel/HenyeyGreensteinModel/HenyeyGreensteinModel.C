@@ -58,15 +58,15 @@ Foam::photoBio::HenyeyGreensteinModel::HenyeyGreensteinModel
     coeffsDict_(dict.subDict(typeName + "Coeffs"))
 {
     const dictionary& functionDicts = dict.subDict(typeName +"Coeffs");
-    functionDicts.lookup("inScatter") >> inScatter_;
-    
+    functionDicts.readEntry("inScatter", inScatter_);
+
     if(inScatter_)
     {
-        nBand_ = dom_.nBand();   
+        nBand_ = dom_.nBand();
         nAngle_ = dom_.nAngle();
-        functionDicts.lookup("subAngleNum") >> subAngleNum_;
-        g_.setSize(nBand_);   
-        functionDicts.lookup("asymmetryFactor") >> g_;
+        functionDicts.readEntry("subAngleNum", subAngleNum_);
+        g_.setSize(nBand_);
+        functionDicts.readEntry("asymmetryFactor", g_);
         const label nPhi = dom_.nPhi();  
         const label nTheta = dom_.nTheta();   
         const scalar deltaPhi   =  pi / (2.0*nPhi);

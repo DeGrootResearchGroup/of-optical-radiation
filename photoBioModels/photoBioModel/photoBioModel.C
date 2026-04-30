@@ -58,7 +58,7 @@ Foam::photoBio::photoBioModel::photoBioModel(const volScalarField& intensity)
     time_(intensity.time()),
     photoBio_(false),
     coeffs_(dictionary::null),
-    extinction_(NULL)
+    extinction_(nullptr)
 {}
 
 
@@ -99,7 +99,7 @@ bool Foam::photoBio::photoBioModel::read()
 {
     if (regIOobject::read())
     {
-        lookup("photoBio") >> photoBio_;
+        readEntry("photoBio", photoBio_);
         coeffs_ = subDict(type() + "Coeffs");
 
         return true;

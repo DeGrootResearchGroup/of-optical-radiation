@@ -76,8 +76,8 @@ reflectiveSurfaceMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    diffuseFraction_(readScalar(dict.lookup("diffuseFraction"))),
-        reflectionCoef_(readScalar(dict.lookup("reflectionCoef")))
+    diffuseFraction_(dict.get<scalar>("diffuseFraction")),
+    reflectionCoef_(dict.get<scalar>("reflectionCoef"))
 {
 
 

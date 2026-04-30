@@ -116,11 +116,8 @@ class photoBioDOM
 
     // Private member functions
 
-        //- Disallow default bitwise copy construct
-        photoBioDOM(const photoBioDOM&);
-
-        //- Disallow default bitwise assignment
-        void operator=(const photoBioDOM&);
+        photoBioDOM(const photoBioDOM&) = delete;
+        void operator=(const photoBioDOM&) = delete;
 
         //- Check that dimension of the mesh is valid for simulation
         void checkDim_();

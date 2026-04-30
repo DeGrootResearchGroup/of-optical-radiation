@@ -54,14 +54,14 @@ Foam::photoBio::wideBandVariableExtinction::wideBandVariableExtinction
 :
     extinctionModel(dict, mesh),
     coeffsDict_((dict.subDict(typeName + "Coeffs"))),
-    nBands_(readLabel(coeffsDict_.lookup("nBands"))),
-    absorption_(readBool(coeffsDict_.lookup("absorption"))),
-    nAbsorbing_(readLabel(coeffsDict_.lookup("nAbsorbing"))),
+    nBands_(coeffsDict_.get<label>("nBands")),
+    absorption_(coeffsDict_.get<bool>("absorption")),
+    nAbsorbing_(coeffsDict_.get<label>("nAbsorbing")),
     aSpecies_(nAbsorbing_),
     aFields_(nAbsorbing_),
     aCoeffs_(nAbsorbing_),
-    scattering_(readBool(coeffsDict_.lookup("scattering"))),
-    nScattering_(readLabel(coeffsDict_.lookup("nScattering"))),
+    scattering_(coeffsDict_.get<bool>("scattering")),
+    nScattering_(coeffsDict_.get<label>("nScattering")),
     sSpecies_(nScattering_),
     sFields_(nScattering_),
     sCoeffs_(nScattering_)
@@ -90,12 +90,12 @@ Foam::photoBio::wideBandVariableExtinction::wideBandVariableExtinction
     }
 
     // Read the coefficients
-    if (absorption_) coeffsDict_.lookup("absorptionCoeff") >> aCoeffs_;
-    if (scattering_) coeffsDict_.lookup("scatteringCoeff") >> sCoeffs_;
+    if (absorption_) coeffsDict_.readEntry("absorptionCoeff", aCoeffs_);
+    if (scattering_) coeffsDict_.readEntry("scatteringCoeff", sCoeffs_);
 
     // Read the species names
-    if (absorption_) coeffsDict_.lookup("absorbingVars") >> aSpecies_;
-    if (scattering_) coeffsDict_.lookup("scatteringVars") >> sSpecies_;
+    if (absorption_) coeffsDict_.readEntry("absorbingVars", aSpecies_);
+    if (scattering_) coeffsDict_.readEntry("scatteringVars", sSpecies_);
 
     // Read the absorbing species fields'
     /*

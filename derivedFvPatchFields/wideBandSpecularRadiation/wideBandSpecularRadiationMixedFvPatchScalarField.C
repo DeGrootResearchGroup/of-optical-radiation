@@ -204,7 +204,7 @@ wideBandSpecularRadiationMixedFvPatchScalarField
 )
 :
     mixedFvPatchField<scalar>(p, iF),
-    receivedRayIDPtr_(NULL)
+    receivedRayIDPtr_(nullptr)
 {
     this->refValue() = 0;
     this->refGrad() = 0;
@@ -222,7 +222,7 @@ wideBandSpecularRadiationMixedFvPatchScalarField
 )
 :
     mixedFvPatchField<scalar>(ptf, p, iF, mapper),
-    receivedRayIDPtr_(NULL)
+    receivedRayIDPtr_(nullptr)
 {}
 
 
@@ -235,7 +235,7 @@ wideBandSpecularRadiationMixedFvPatchScalarField
 )
 :
     mixedFvPatchField<scalar>(p, iF),
-    receivedRayIDPtr_(NULL)
+    receivedRayIDPtr_(nullptr)
 {
     this->refValue() = 0;
     this->refGrad() = 0;
@@ -269,7 +269,7 @@ wideBandSpecularRadiationMixedFvPatchScalarField
 )
 :
     mixedFvPatchField<scalar>(ptf, iF),
-    receivedRayIDPtr_(NULL)
+    receivedRayIDPtr_(nullptr)
 {}
 
 
@@ -280,7 +280,7 @@ wideBandSpecularRadiationMixedFvPatchScalarField
 )
 :
     mixedFvPatchField<scalar>(ptf),
-    receivedRayIDPtr_(NULL)
+    receivedRayIDPtr_(nullptr)
 {}
 
 

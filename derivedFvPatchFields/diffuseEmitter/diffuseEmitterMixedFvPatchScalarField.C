@@ -74,11 +74,11 @@ diffuseEmitterMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    I0_(readScalar(dict.lookup("irradiation"))),
-    nBands_(readLabel(dict.lookup("nBands")))
+    I0_(dict.get<scalar>("irradiation")),
+    nBands_(dict.get<label>("nBands"))
 {
     bandDist_.setSize(nBands_);
-    dict.lookup("bandDist") >> bandDist_;
+    dict.readEntry("bandDist", bandDist_);
 }
 
 

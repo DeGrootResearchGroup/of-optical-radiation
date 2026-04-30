@@ -98,20 +98,20 @@ solarSurfaceMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    nNbg_(readScalar(dict.lookup("nNbg"))), //scalarField("n1", dict),
-    nOwn_(readScalar(dict.lookup("nOwn"))), // scalarField("n2", dict);
-    diffuseCoeff_(readScalar(dict.lookup("diffuseCoeff"))), 
-    directBeam_(readScalar(dict.lookup("directBeam"))), 
-    skyDiffuse_(readScalar(dict.lookup("skyDiffuse"))), 
-    groundReflected_(readScalar(dict.lookup("groundReflected"))), 
-    zenithAngle_(readScalar(dict.lookup("zenithAngle"))), 
-    azimuthAngle_(readScalar(dict.lookup("azimuthAngle"))), 
-//    visualAngle_(readScalar(dict.lookup("visualAngle"))), 
-    nBands_(readLabel(dict.lookup("nBand"))) // scalarField("n2", dict);
+    nNbg_(dict.get<scalar>("nNbg")), //scalarField("n1", dict),
+    nOwn_(dict.get<scalar>("nOwn")), // scalarField("n2", dict);
+    diffuseCoeff_(dict.get<scalar>("diffuseCoeff")),
+    directBeam_(dict.get<scalar>("directBeam")),
+    skyDiffuse_(dict.get<scalar>("skyDiffuse")),
+    groundReflected_(dict.get<scalar>("groundReflected")),
+    zenithAngle_(dict.get<scalar>("zenithAngle")),
+    azimuthAngle_(dict.get<scalar>("azimuthAngle")),
+//    visualAngle_(dict.get<scalar>("visualAngle")),
+    nBands_(dict.get<label>("nBand")) // scalarField("n2", dict);
 {
 	
    photoBioBandDist_.setSize(nBands_);   
-   dict.lookup("photoBioBandDist") >> photoBioBandDist_;
+   dict.readEntry("photoBioBandDist", photoBioBandDist_);
 	  
     if (dict.found("refValue"))
     {

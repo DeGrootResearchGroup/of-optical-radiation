@@ -92,11 +92,8 @@ private:
 
     // Private Member Functions
 
-        //- Disallow default bitwise copy construct
-        photoBioModel(const photoBioModel&);
-
-        //- Disallow default bitwise assignment
-        void operator=(const photoBioModel&);
+        photoBioModel(const photoBioModel&) = delete;
+        void operator=(const photoBioModel&) = delete;
 
 public:
 
