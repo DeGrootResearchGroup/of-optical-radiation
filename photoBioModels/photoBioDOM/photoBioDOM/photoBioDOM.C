@@ -326,8 +326,12 @@ Foam::label Foam::photoBio::photoBioDOM::dirToRayId
 {
     scalar tTheta = dirToTheta(dir);
     scalar tPhi = dirToPhi(dir);
-    label iPhi = label(tPhi/deltaPhi_);
-    label iTheta = label(tTheta/deltaTheta_);
+    // Clamp to last valid cell so directions at theta=pi or phi=2*pi
+    // (e.g. dir = -z, or floating-point round-off near the seam) are
+    // assigned to the last angular cell rather than overflowing into
+    // the next band.
+    label iPhi = min(label(tPhi/deltaPhi_), 2*nPhi_ - 1);
+    label iTheta = min(label(tTheta/deltaTheta_), nTheta_ - 1);
     return nAngle_*iBand + iTheta*2*nPhi_ + iPhi;
 }
 
