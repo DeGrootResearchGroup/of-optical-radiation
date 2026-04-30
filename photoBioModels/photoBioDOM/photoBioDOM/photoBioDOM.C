@@ -209,9 +209,9 @@ void Foam::photoBio::photoBioDOM::calculate()
     do
     {
         radIter++;
+        maxResidual = 0.0;
         forAll(IRay_, rayI)
 	{
-            maxResidual = 0.0;
             iBand = IRay_[rayI].iBand();
             iAngle = IRay_[rayI].iAngle();
 
