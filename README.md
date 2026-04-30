@@ -1,27 +1,203 @@
-# README #
+# opticalRadiation
 
-This is an implementation of the radiation library which excludes heat radiation and solves for multi-band, per-direction radiance fields - the idea is to have the same functionality as Ansys Fluent.
+An OpenFOAM library and standalone solver for the **radiative transfer
+equation** in absorbing/scattering participating media, focused on
+**optical wavelengths**. Discrete-ordinates method (DOM), multi-band
+spectral support, anisotropic phase functions, refractive interfaces,
+and Lambertian/specular boundary conditions. Decoupled from the energy
+equation — no thermal `n²σT⁴` term — so the model is suited to
+applications where light originates at boundaries or known external
+sources rather than from the temperature of the medium itself
+(photobioreactors, optical-property characterisation, photochemistry,
+solar receivers, etc.).
 
-### How do I get set up? ###
+The implementation is similar in scope to ANSYS Fluent's DO model, but
+stands alone from any energy-equation coupling.
 
-1. This library can be compiled with wmake in OpenFoam. To keep things segregated from the main development, please change your OpenFoam bashrc file to include an appropriate directory to have your $FOAM_USER_SRC, then place the optical directory within this one. You will need to source your ~/.bashrc file once you modify it.
+---
 
-2. The library can be compiled with the command;
+## Features
 
+- Discrete ordinates angular discretisation with Murthy-Mathur
+  pixelation for control-angle overhang at boundaries.
+- Multi-band spectral solve (one transport equation per direction per
+  band).
+- Constant or species-driven (variable) extinction coefficients.
+- Anisotropic Henyey-Greenstein and Schlick phase functions; in-scatter
+  source term.
+- Boundary conditions: Lambertian diffuse emitter, specular/diffuse
+  reflective surface, refractive transmissive interface (with the
+  étendue-correct n² factor and full Fresnel reflectivity).
+- Standalone solver `opticalRadiationFoam`.
+- `fvModel` wrapper for embedding into any host solver via the
+  `fvModels` dictionary, without modifying the host's source.
+- Tutorial cases with built-in regression validation against an
+  analytical reference and against a cross-case match.
+
+---
+
+## Requirements
+
+- **OpenFOAM 13 Foundation** (Linux, ARM64 or x86-64).
+- C++14 toolchain (provided by OpenFOAM's `wmake`).
+- Standard build dependencies: `g++`, `flex`, `make`, OpenMPI.
+
+The repository ships a `Dockerfile` that produces a ready-to-build
+image based on Ubuntu 22.04 with the OpenFOAM 13 packages installed:
+
+```sh
+docker build -t openfoam13 .
 ```
+
+You can then build and run inside the container:
+
+```sh
+docker run --rm -v $(pwd):/code -w /code openfoam13 \
+    /bin/bash -c "wmake libso && cd opticalRadiationFoam && wmake"
+```
+
+---
+
+## Building
+
+With OpenFOAM 13 sourced (`source /opt/openfoam13/etc/bashrc` or your
+local install):
+
+```sh
+# Library
 wmake libso
 
-```
-
-3. The most basic implementation can be seen in the "opticalFoam" directory. This includes the optical model in a SIMPLE implementation. 
-
-4. Compile the solver by placing it in an appropriate directory (e.g. $FOAM_USER_APP -> <name>-<versionNumber>/applications) and calling
-```
+# Standalone solver
+cd opticalRadiationFoam
 wmake
+```
+
+The library installs to `$FOAM_USER_LIBBIN/libopticalRadiation.so`; the
+solver to `$FOAM_USER_APPBIN/opticalRadiationFoam`.
+
+The top-level `Allwmake` calls `wmake libso` only; build the solver
+manually as shown.
+
+---
+
+## Running a tutorial
+
+Three tutorial cases ship under `tutorials/`. The simplest is a 2-D
+plane-parallel slab with an analytical reference:
+
+```sh
+cd tutorials/diffuseSlab2D
+./Allrun                # mesh + solve
+./validate              # check simulated G against 2*pi*L_w*E_2(kappa*x)
+```
+
+Or run every case and validate end-to-end:
+
+```sh
+cd tutorials
+./Alltest               # exits 0 only if all cases pass
+```
+
+Each case has its own `README.md` describing the geometry, BCs, and
+expected behaviour.
+
+---
+
+## Embedding in another solver
+
+The `fv::opticalRadiation` wrapper lets the radiation solve run as an
+fvModel inside any host solver (e.g. a flow solver). Add to your case's
+`constant/fvModels`:
+
+```c++
+opticalRadiation
+{
+    type    opticalRadiation;
+    libs    ("libopticalRadiation.so");
+}
+```
+
+Configure the model itself in `constant/opticalRadiationProperties`,
+exactly as for the standalone solver. The wrapper does not push source
+terms into host equations directly; the irradiance field `G` is exposed
+via the mesh registry and downstream couplings (e.g. `G` driving a
+species growth term) belong in the host's own fvModels.
+
+End-to-end runtime testing of the wrapper inside a host solver is
+deferred until a concrete coupled use case lands; build and registration
+are confirmed.
+
+---
+
+## Repository layout
 
 ```
-Any place can be defined for the destination of the binaries. It should be put in $FOAM_USER_APPBIN.
+opticalRadiationModels/
+    radiationModel/      base class (IOdictionary reader)
+    DOM/
+        DOM/             discrete-ordinates solver
+        intensityRay/    per-direction radiance ray
+subModels/
+    extinctionModel/     absorption + scattering coefficient models
+    phaseFunctionModel/  Henyey-Greenstein, Schlick, null
+derivedFvPatchFields/    boundary conditions
+fvModels/opticalRadiation/   fvModel wrapper for host-solver embedding
+opticalRadiationFoam/    standalone solver
+tutorials/               runnable cases + Alltest validation harness
+Dockerfile               OpenFOAM 13 build environment
+```
 
-5. The solver, with all its functionality can be run
+Several legacy boundary conditions (`transInteriorSurface`,
+`transExteriorSurface`, `solarSurface`, `surrounding`,
+`wideBandSpecularRadiation`) and the `subModels/inScatterModel` tree
+remain on disk but are **not** in the active build — superseded or
+not yet ported. See the developer guide for details.
 
-### Contribution guidelines ###
+---
+
+## Theory references
+
+The implementation follows:
+
+- Murthy, J. Y. & Mathur, S. R. (1998). *Finite Volume Method for
+  Radiative Heat Transfer Using Unstructured Meshes.* J. Thermophys.
+  Heat Transfer **12**(3), 313–321.
+- ANSYS Fluent Theory Guide, §"Discrete Ordinates (DO) Radiation Model".
+
+---
+
+## Status
+
+Active. The library and solver are working and validated. There are a
+few deferred items (CI workflow, end-to-end fvModel runtime test,
+multi-region solver rewrite, intensity → radiance identifier rename)
+documented in the developer guide.
+
+---
+
+## Contributing
+
+Contributions are welcome via pull request. Please:
+
+1. Fork the repository and create a feature branch.
+2. Run `cd tutorials && ./Alltest` and confirm all cases still pass.
+3. If your change is a bug fix or methodology change, add (or update)
+   a tutorial case that exercises it.
+4. Open a PR with a short description of the change and the test
+   results.
+
+For larger changes (new models, solvers, or BCs) it's worth opening
+an issue first so we can agree on scope.
+
+---
+
+## License
+
+This project is released under the **GNU General Public License v3.0**
+(GPL-3.0-or-later). See [`LICENSE`](LICENSE) for the full text.
+
+GPL v3 matches the license of OpenFOAM itself, so derivative-work
+issues are avoided. You are free to use, modify, and distribute this
+code (including for commercial purposes); however, anyone redistributing
+modified versions must release their modifications under the same
+GPL v3 terms.
