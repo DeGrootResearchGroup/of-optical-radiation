@@ -1,0 +1,14 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+# Source tutorial run functions
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# Restore stock initial fields
+rm -rf 0
+cp -r 0.orig 0
+
+runApplication blockMesh
+runApplication photoBioFoam
+
+# ----------------------------------------------------------------------------

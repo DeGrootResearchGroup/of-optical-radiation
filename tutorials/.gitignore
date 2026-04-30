@@ -1,0 +1,7 @@
+# Run outputs
+*/0/
+*/[1-9]*/
+*/constant/polyMesh/
+*/log.*
+*/postProcessing/
+*/processor*/
