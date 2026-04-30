@@ -35,8 +35,11 @@ SourceFiles
 #ifndef photoBioIntensityRay_H
 #define photoBioIntensityRay_H
 
+#include "surfaceFields.H"
+
 #include "extinctionModel.H"
 #include "phaseFunctionModel.H"
+
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -98,6 +101,12 @@ private:
 
         photoBioIntensityRay(const photoBioIntensityRay&) = delete;
         void operator=(const photoBioIntensityRay&) = delete;
+
+        //- Return the upwind Ji field
+        const surfaceScalarField Ji0_() const;
+
+        //- Return the downwind Ji field
+        const surfaceScalarField Ji1_() const;
 
 public:
 
@@ -165,6 +174,9 @@ public:
 
             //- Return the solid angle
             inline scalar omega() const;
+
+            //- Return the nearest pixel direction
+            const vector nearestPixelDir(const vector& dir) const;
 };
 
 

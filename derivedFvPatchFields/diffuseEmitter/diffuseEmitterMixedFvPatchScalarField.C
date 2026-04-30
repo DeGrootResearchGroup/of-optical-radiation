@@ -44,7 +44,6 @@ diffuseEmitterMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    I0_(0.0), 
     nBands_(1)
 {}
 
@@ -59,9 +58,8 @@ diffuseEmitterMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(ptf, p, iF, mapper),
-    I0_(ptf.I0_),
     nBands_(ptf.nBands_),
-    bandDist_(ptf.bandDist_)
+    emissivePower_(ptf.emissivePower_)
 {}
 
 
@@ -74,25 +72,11 @@ diffuseEmitterMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    I0_(dict.get<scalar>("irradiation")),
-    nBands_(dict.get<label>("nBands"))
+    nBands_(readLabel(dict.lookup("nBands")))
 {
-    bandDist_.setSize(nBands_);
-    dict.readEntry("bandDist", bandDist_);
+    emissivePower_.setSize(nBands_);
+    dict.lookup("emissivePower") >> emissivePower_;
 }
-
-
-Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::
-diffuseEmitterMixedFvPatchScalarField
-(
-    const diffuseEmitterMixedFvPatchScalarField& ptf
-)
-:
-    mixedFvPatchScalarField(ptf),
-    I0_(ptf.I0_),
-    nBands_(ptf.nBands_),
-    bandDist_(ptf.bandDist_)
-{}
 
 
 Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::
@@ -103,9 +87,8 @@ diffuseEmitterMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(ptf, iF),
-    I0_(ptf.I0_),
     nBands_(ptf.nBands_),
-    bandDist_(ptf.bandDist_)
+    emissivePower_(ptf.emissivePower_)
 {}
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
@@ -118,7 +101,7 @@ updateCoeffs()
     {
         return;
     }
-    
+
     // Change message for parallel communications
     int oldTag = UPstream::msgType();
     UPstream::msgType() = oldTag + 1;
@@ -127,7 +110,7 @@ updateCoeffs()
     scalarField& Iw = *this;
     const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
     const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
-    
+
     // Ensure model is compatible with boundary condition
     if (dom.nBand() == 0)
     {
@@ -138,29 +121,25 @@ updateCoeffs()
             << " absorption model" << nl << exit(FatalError);
     }
 
-    // Get the surface normals
+    // Get the surface normals for the boundary patch
     const vectorField n = patch().Sf()/patch().magSf();
-    
+
     // Get the ray id from the field name
-    label rayId;
-    dom.setRayId(internalField().name(), rayId);
+    label rayId = dom.nameToRayId(internalField().name());
 
     // Get the band index, ray direction, and solid angle from the ray
     const label iBand = dom.IRay(rayId).iBand();
     const vector& rayDir = dom.IRay(rayId).d();
-   
-    // Calculate boundary values for all faces
+
+    // Loop through all faces and set the boundary values
     forAll(Iw, iFace)
     {
         vector surfNorm = -n[iFace];
         scalar cosA = surfNorm & rayDir;
 
-        if (cosA > 0) // Away from the boundary
-        {  
-            // Boundary value is irradiation per unit solid angle.
-            // Since irradiation is specified only away from boundary,
-            // value is divided by 2*pi (solid angle for half sphere).
-            refValue()[iFace] = I0_*bandDist_[iBand]/(2.0*pi);
+        if (cosA > 0.0) // Out of the boundary
+        {
+            refValue()[iFace] = emissivePower_[iBand]/pi;
             refGrad()[iFace] = 0.0;
             valueFraction()[iFace] = 1.0;
         }
@@ -174,7 +153,7 @@ updateCoeffs()
 
     // Reset message for parallel communications
     UPstream::msgType() = oldTag;
-    mixedFvPatchScalarField::updateCoeffs(); 
+    mixedFvPatchScalarField::updateCoeffs();
 }
 
 
@@ -184,9 +163,8 @@ void Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::write
 ) const
 {
     mixedFvPatchScalarField::write(os);
-    os.writeKeyword("irradiation") << I0_ << token::END_STATEMENT << nl;
     os.writeKeyword("nBands") << nBands_ << token::END_STATEMENT << nl;
-    os.writeKeyword("bandDist") << bandDist_ << token::END_STATEMENT << nl;
+    os.writeKeyword("emissivePower") << emissivePower_ << token::END_STATEMENT << nl;
 }
 
 

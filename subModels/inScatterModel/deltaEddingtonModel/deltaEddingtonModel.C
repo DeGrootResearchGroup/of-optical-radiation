@@ -59,13 +59,13 @@ Foam::photoBio::deltaEddingtonModel::deltaEddingtonModel
  //  , totalWaveLength_(0)
 {
 
-     coeffsDict_.readEntry("nBand", nBands_);
+     coeffsDict_.lookup("nBand") >> nBands_;
 
      phaseFuncCoef_.setSize(nBands_);
 
-     coeffsDict_.readEntry("phaseFuncCoef", phaseFuncCoef_);
+     coeffsDict_.lookup("phaseFuncCoef") >> phaseFuncCoef_;
 
-     coeffsDict_.readEntry("forwardScatterFactor", forwardScatterFactor_);
+     coeffsDict_.lookup("forwardScatterFactor") >> forwardScatterFactor_;
       
 
 }

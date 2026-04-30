@@ -94,21 +94,21 @@ transExteriorSurfaceMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    nNbg_(dict.get<scalar>("nNbg")), //scalarField("n1", dict),
-    nOwn_(dict.get<scalar>("nOwn")), // scalarField("n2", dict);
-    I0_(dict.get<scalar>("irradiation")),
-    nBands_(dict.get<label>("nBand")), // scalarField("n2", dict);
-    diffuseFraction_(dict.get<scalar>("diffuseFraction")),
-    beamWidthPhi_(dict.get<scalar>("beamWidthPhi")),
-    beamWidthTheta_(dict.get<scalar>("beamWidthTheta")),
+    nNbg_(readScalar(dict.lookup("nNbg"))), //scalarField("n1", dict),
+    nOwn_(readScalar(dict.lookup("nOwn"))), // scalarField("n2", dict);
+    I0_(readScalar(dict.lookup("irradiation"))),
+    nBands_(readLabel(dict.lookup("nBand"))), // scalarField("n2", dict);
+    diffuseFraction_(readScalar(dict.lookup("diffuseFraction"))),
+    beamWidthPhi_(readScalar(dict.lookup("beamWidthPhi"))),
+    beamWidthTheta_(readScalar(dict.lookup("beamWidthTheta"))),
     beamDir_(dict.lookup("beamDir")),
     initFlag_(0)
 {
 	
    photoBioBandDist_.setSize(nBands_);   
 
-   dict.readEntry("photoBioBandDist", photoBioBandDist_);
-   dict.readEntry("beamNormToSurf", beamNormToSurf_);
+   dict.lookup("photoBioBandDist") >> photoBioBandDist_;
+   dict.lookup("beamNormToSurf") >> beamNormToSurf_;
 
  /*     Info << "\n nNbg_  \t" << nNbg_ << endl;
    Info << "\n nOwn_  \t" << nOwn_ << endl;
@@ -143,26 +143,6 @@ transExteriorSurfaceMixedFvPatchScalarField
     
 }
 
-
-Foam::photoBio::transExteriorSurfaceMixedFvPatchScalarField::
-transExteriorSurfaceMixedFvPatchScalarField
-(
-    const transExteriorSurfaceMixedFvPatchScalarField& ptf
-)
-:
-    mixedFvPatchScalarField(ptf),
-    nNbg_(ptf.nNbg_),
-    nOwn_(ptf.nOwn_),
-    I0_(ptf.I0_),
-    nBands_(ptf.nBands_),
-    diffuseFraction_(ptf.diffuseFraction_),
-    beamWidthPhi_(ptf.beamWidthPhi_),
-   beamWidthTheta_(ptf.beamWidthTheta_),
-    beamDir_(ptf.beamDir_),
-    beamNormToSurf_(ptf.beamNormToSurf_),
- //   photoBioBandDist_(ptf.photoBioBandDist_),
-    initFlag_(ptf.initFlag_)
-{}
 
 
 Foam::photoBio::transExteriorSurfaceMixedFvPatchScalarField::

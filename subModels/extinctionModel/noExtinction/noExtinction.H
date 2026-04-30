@@ -71,6 +71,9 @@ class noExtinction
     // Destructor
     virtual ~noExtinction();
 
+    // Member functions
+    virtual void correct() {}
+
 };
 
 

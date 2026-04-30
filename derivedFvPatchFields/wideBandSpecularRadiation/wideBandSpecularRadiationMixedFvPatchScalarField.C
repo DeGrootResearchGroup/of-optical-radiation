@@ -241,11 +241,6 @@ wideBandSpecularRadiationMixedFvPatchScalarField
     this->refGrad() = 0;
     this->valueFraction() = 0;
 
-    if (dict.found("patchType"))
-    {
-        word& pType = const_cast<word &>(this->patchType());
-        pType = word(dict.lookup("patchType"));
-}
 
     if (dict.found("value"))
     {
@@ -269,17 +264,6 @@ wideBandSpecularRadiationMixedFvPatchScalarField
 )
 :
     mixedFvPatchField<scalar>(ptf, iF),
-    receivedRayIDPtr_(nullptr)
-{}
-
-
-wideBandSpecularRadiationMixedFvPatchScalarField::
-wideBandSpecularRadiationMixedFvPatchScalarField
-(
-    const wideBandSpecularRadiationMixedFvPatchScalarField& ptf
-)
-:
-    mixedFvPatchField<scalar>(ptf),
     receivedRayIDPtr_(nullptr)
 {}
 
@@ -371,7 +355,7 @@ void wideBandSpecularRadiationMixedFvPatchScalarField::updateCoeffs()
 void wideBandSpecularRadiationMixedFvPatchScalarField::write(Ostream& os) const
 {
     fvPatchScalarField::write(os);
-    this->writeEntry("value", os);
+    writeEntry(os, "value", *this);
 }
 // * * * * * * * * * * * * * * * Member Operators  * * * * * * * * * * * * * //
 

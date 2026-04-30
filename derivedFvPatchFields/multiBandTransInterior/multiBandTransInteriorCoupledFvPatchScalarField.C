@@ -29,7 +29,6 @@ License
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
 #include "mappedPatchBase.H"
-#include "regionProperties.H"
 
 #include "photoBioDOM.H"
 #include "constants.H"
@@ -46,11 +45,8 @@ multiBandTransInteriorCoupledFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    nNbg_(0.0),
-    nOwn_(0.0),
-    diffuseFraction_(0.0), 
+    diffuseFraction_(0.0),
     nBands_(1)
- //  , bandDist_(null)
 {
     this->refValue() = 0.0;
     this->refGrad() = 0.0;
@@ -68,11 +64,10 @@ multiBandTransInteriorCoupledFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(ptf, p, iF, mapper),
-    nNbg_(ptf.nNbg_),
-    nOwn_(ptf.nOwn_),
     diffuseFraction_(ptf.diffuseFraction_),
     nBands_(ptf.nBands_),
-    bandDist_(ptf.bandDist_)
+    nNbg_(ptf.nNbg_),
+    nOwn_(ptf.nOwn_)
 {}
 
 
@@ -85,20 +80,22 @@ multiBandTransInteriorCoupledFvPatchScalarField
 )
     :
     mixedFvPatchScalarField(p, iF),
-    nNbg_(dict.get<scalar>("nNbg")), //scalarField("n1", dict),
-    nOwn_(dict.get<scalar>("nOwn")), // scalarField("n2", dict);
-    diffuseFraction_(dict.get<scalar>("diffuseFraction")),
-    nBands_(dict.get<label>("nBands"))
+    diffuseFraction_(readScalar(dict.lookup("diffuseFraction"))),
+    nBands_(readLabel(dict.lookup("nBands")))
 {
-    bandDist_.setSize(nBands_);
-    dict.readEntry("bandDist", bandDist_);
-   
+    // Read the refractive indices for each band
+    nNbg_.setSize(nBands_);
+    dict.lookup("nNbg") >> nNbg_;
+    nOwn_.setSize(nBands_);
+    dict.lookup("nOwn") >> nOwn_;
+
+    // Check that the patch is of the correct type
     if (!isA<mappedPatchBase>(this->patch().patch()))
     {
         FatalErrorIn
             (
-                "turbulentTemperatureRadCoupledMixedFvPatchScalarField::"
-                "turbulentTemperatureRadCoupledMixedFvPatchScalarField\n"
+                "multiBandTransInteriorCoupledFvPatchScalarField::"
+                "multiBandTransInteriorCoupledFvPatchScalarField\n"
                 "(\n"
                 "    const fvPatch& p,\n"
                 "    const DimensionedField<scalar, volMesh>& iF,\n"
@@ -111,7 +108,7 @@ multiBandTransInteriorCoupledFvPatchScalarField
                 << " in file " << internalField().objectPath()
                 << exit(FatalError);
     }
-    
+
     fvPatchScalarField::operator=(scalarField("value", dict, p.size()));
 
     if (dict.found("refValue"))
@@ -120,19 +117,16 @@ multiBandTransInteriorCoupledFvPatchScalarField
         refValue() = scalarField("refValue", dict, p.size());
         refGrad()  = scalarField("refGradient", dict, p.size());
         valueFraction() = scalarField("valueFraction", dict, p.size());
-        
-        
     }
     else
     {
-    
+
         // Start from user entered data. Assume fixedValue.
         refValue() = *this;
         refGrad() = 0.0;
         valueFraction() = 1.0;
-        
+
     }
-    
 }
 
 
@@ -144,11 +138,10 @@ multiBandTransInteriorCoupledFvPatchScalarField
 )
     :
     mixedFvPatchScalarField(wtcsf, iF),
-    nNbg_(wtcsf.nNbg_),
-    nOwn_(wtcsf.nOwn_),
     diffuseFraction_(wtcsf.diffuseFraction_),
     nBands_(wtcsf.nBands_),
-    bandDist_(wtcsf.bandDist_)
+    nNbg_(wtcsf.nNbg_),
+    nOwn_(wtcsf.nOwn_)
 {}
 
 
@@ -156,7 +149,7 @@ multiBandTransInteriorCoupledFvPatchScalarField
 
 void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::updateCoeffs()
 {
-	
+
     if (updated())
     {
         return;
@@ -166,255 +159,369 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::updateCoef
     // comms underway. Change the tag we use.
     int oldTag = UPstream::msgType();
     UPstream::msgType() = oldTag+1;
-    
-    
+
+    // Get the cell and boundary patch values
     scalarField Ic(patchInternalField());
     scalarField& Iw = *this;
-    
+
+    // Get the photoBio model and the associated DOM object
     const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
-
     const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
-    
-    label BDrayId = -1;
-    dom.setRayId(internalField().name(), BDrayId);
 
+    // Get the ray ID for this ray
+    label rayId = dom.nameToRayId(internalField().name());
+
+    // Get the surface normals
     const label patchI = patch().index();
     vectorField n = patch().Sf()/patch().magSf();
-    
-  
-    const  label iBand = dom.IRay(BDrayId).iBand();  
-    const  label nTheta = dom.nTheta();    
-    const  label nPhi = dom.nPhi();    
-    const  vector bdRayDir = dom.IRay(BDrayId).d();
-    const  scalar bdOmega  = dom.IRay(BDrayId).omega();
-    const  scalar deltaPhi   =  pi /(2.0*nPhi);
-    const  scalar deltaTheta =  pi  /nTheta;
 
-    const  label  nAngle  = dom.nAngle();    
-    const  scalar bdRayPhi  = dom.IRay(BDrayId).phi();
-    const  scalar bdRayTheta  = dom.IRay(BDrayId).theta();
-    label  npPhi  = dom.nPixelPhi();
-    label  npTheta = dom.nPixelTheta();
-    
+    // Get the angular discretization information
+    const label iBand = dom.IRay(rayId).iBand();
+    const vector rayDir = dom.IRay(rayId).d();
+    const scalar deltaTheta = dom.deltaTheta();
+    const scalar deltaPhi = dom.deltaPhi();
+    const label nAngle = dom.nAngle();
+    const scalar rayPhi = dom.IRay(rayId).phi();
+    const scalar rayTheta = dom.IRay(rayId).theta();
 
-    /*
-        angleDist.setSize(nPhi); 
-        scalar sumP =0;      
-        for(label i = 0;i < nPhi;i++)
-        {	
-        scalar alpha = i*deltaPhi ;
-        angleDist[i] = Foam::cos(alpha) ;  
-        sumP = sumP + angleDist[i];
+    // Get the pixel discretization information
+    label npPhi = dom.nPixelPhi();
+    label npTheta = dom.nPixelTheta();
 
-	}
-	sumP = 2*sumP - angleDist[0];
-	for(label i = 0;i < nPhi;i++)
-        {	angleDist[i]  = angleDist[i] /sumP;}
-        */
-	 
-    PtrList<scalarField> NbrRaySet(nAngle);
-	 
-    if(nBands_ > 1)
+    // Correct the pixel discretization information if case is not 3D
+    if (internalField().mesh().nSolutionD() == 2)
     {
-        // Get the coupling information from the mappedPatchBase
-        const mappedPatchBase& mpp = refCast<const mappedPatchBase>(patch().patch());
-        const label samplePatchI = mpp.samplePolyPatch().index();
-        const polyMesh& nbrMesh = mpp.sampleMesh();
-        const fvPatch& nbrPatch = refCast<const fvMesh>(nbrMesh).boundary()[samplePatchI];
-        const mapDistribute& distMap = mpp.map();
+        npTheta = 1;
+    }
+    if (internalField().mesh().nSolutionD() == 1)
+    {
+        npTheta = 1;
+        npPhi = 1;
+    }
 
+    // Create a list of scalarField objects to store the other rays
+    PtrList<scalarField> NbrRaySet(nAngle*nBands_);
+
+    // Get the coupling information from the mappedPatchBase
+    const mappedPatchBase& mpp = mappedPatchBase::getMap(patch().patch());
+    const label nbrPatchI = mpp.nbrPolyPatch().index();
+    const fvMesh& nbrMesh = refCast<const fvMesh>(mpp.nbrMesh());
+    const fvPatch& nbrPatch = nbrMesh.boundary()[nbrPatchI];
+
+    // Loop through all rays and store the internal cell values for the patch
+    for (label jBand = 0; jBand < nBands_; jBand++)
+    {
         for (label jAngle = 0; jAngle < nAngle; jAngle++)
-        {	
+        {
+            label rayI = jAngle + jBand*nAngle;
 
-            NbrRaySet.set(jAngle, new scalarField(patch().size(),0.0));
-        
-            label rayI = jAngle;   
             const multiBandTransInteriorCoupledFvPatchScalarField&
                 nbrField = refCast
                 <const multiBandTransInteriorCoupledFvPatchScalarField>
-                ( nbrPatch.lookupPatchField<volScalarField, scalar>(dom.IRay(rayI).I().name()) );
+                (nbrPatch.lookupPatchField<volScalarField, scalar>(dom.IRay(rayI).I().name()));
 
-            scalarField TcNbr(nbrField.patchInternalField());
-            distMap.distribute(TcNbr);
-            NbrRaySet[jAngle] = TcNbr;
+            NbrRaySet.set(rayI, mpp.fromNeighbour(nbrField.patchInternalField()));
         }
-    
-    }
-    
-    scalar specular = 0.0;
-    scalar diffusive = 0.0;
-
-	
-	
-    if (internalField().mesh().nSolutionD() == 2)    //2D (X & Y)
-    {	
-        npTheta = 1;
-    }
-    if (internalField().mesh().nSolutionD() == 1)    //2D (X & Y)
-    {	
-        npTheta = 1; npPhi =1;
     }
 
-    scalar nRatio = nOwn_/ nNbg_;
-	        	
-	     
+    // Store refractive indices for each side, as well as their ratio
+    const scalar nA = nNbg_[iBand];
+    const scalar nB = nOwn_[iBand];
+    const scalar nRatio = nB/nA;
+
+    // Loop through all faces on the boundary patch
     forAll(Iw, faceI)
     {
-        specular = 0.0;
-        diffusive= 0.0;	
-	     
-        vector surfNorm = -n[faceI] ;
-	     
-        scalar cosA = surfNorm& bdRayDir; 
- 
-        if(cosA > 0.0 )    // direction out of the wall   
-        {
-            if( diffuseFraction_ > 0)
-            {	 
-                for (label jAngle = 0; jAngle < nAngle; jAngle++)
-                {         
-                    label sweepRayId = jAngle + iBand*nAngle;    
-				
-                    vector sweepDir = dom.IRay(sweepRayId).d();
-                    vector sweepdAve = dom.IRay(sweepRayId).dAve();   
-				
-                    scalar cosB = surfNorm& sweepDir; 
-			
-                    if(  cosB > 0.0 )      // direction out of the wall   
-                    { 
-                        vector reflecIncidentDir = sweepDir - 2*cosB*surfNorm;		
-                        label reflecIncidentRay = -1;
-                        dom.dirToRayId(reflecIncidentDir, iBand, reflecIncidentRay);
-                        const scalarField&  reflecFace = dom.IRay(reflecIncidentRay).I().boundaryField()[patchI];     		
-                     
-                        if(cosB*cosB > 1 - 1/(nRatio*nRatio) )        
-                        {   
-                            vector refracIncidentDir = (sweepDir - cosB*surfNorm )*nRatio 
-                                + Foam::sqrt(1 -(nRatio*nRatio)*(1- cosB*cosB))*surfNorm ;
+        // Initialize values for specular and diffuse radiation for this face
+        scalar specular = 0.0;
+        scalar diffuse = 0.0;
 
-                            scalar cosA = surfNorm& refracIncidentDir;  
-					    
-                            scalar r1 = (nNbg_*cosB - nOwn_*cosA )
-                                /  (nNbg_*cosB + nOwn_*cosA );
-                            scalar r2 = (nNbg_*cosA - nOwn_*cosB )
-                                /  (nNbg_*cosA + nOwn_*cosB );
-            
+        // Initialize sums of integral of direction vector over solid angle
+        scalar magIntDirOmega = 0.0;
+        scalar posIntDirOmega = 0.0;
+
+        // Get the surface normal for this face (directed into domain)
+        vector surfNorm = -n[faceI];
+
+        // Calculate cosine of angle between this ray and surface normal
+        scalar cosR = rayDir & surfNorm;
+
+        // Check for control angle overhang
+        bool overhang = false;
+        for (label i = 1; i <= npTheta; i++)
+        {
+            scalar pxRayTheta = rayTheta - 0.5*deltaTheta + (i - 0.5)*deltaTheta/npTheta;
+            for (label j = 1; j <= npPhi; j++)
+            {
+                scalar pxRayPhi = rayPhi - 0.5*deltaPhi + (j - 0.5)*deltaPhi/npPhi;
+                vector pixelDir = dom.anglesToDir(pxRayTheta, pxRayPhi);
+                if (cosR*(pixelDir & surfNorm) < 0.0)
+                {
+                    overhang = true;
+                }
+            }
+        }
+
+        // Case 1: Ray is coming out of wall, or there is overhang -> Calculate intensity at the wall
+        if (cosR > 0.0 || overhang)
+        {
+            // Note: diffuse radiation code has not been checked at all; use at own risk!
+            if (diffuseFraction_ > 0)
+            {
+                for (label jAngle = 0; jAngle < nAngle; jAngle++)
+                {
+                    label sweepRayId = jAngle + iBand*nAngle;
+
+                    vector sweepDir = dom.IRay(sweepRayId).d();
+                    vector sweepdAve = dom.IRay(sweepRayId).dAve();
+
+                    scalar cosB = surfNorm & sweepDir;
+
+                    if (cosB > 0.0) // direction out of the wall
+                    {
+                        vector reflecIncidentDir = sweepDir - 2*cosB*surfNorm;
+                        label reflecIncidentRay = dom.dirToRayId(reflecIncidentDir, iBand);
+                        const scalarField& reflecFace = dom.IRay(reflecIncidentRay).I().boundaryField()[patchI];
+
+                        if (cosB*cosB > 1 - 1/(nRatio*nRatio))
+                        {
+                            vector refracIncidentDir = (sweepDir - cosB*surfNorm)*nRatio
+                                + Foam::sqrt(1 -(nRatio*nRatio)*(1- cosB*cosB))*surfNorm;
+
+                            scalar cosA = surfNorm & refracIncidentDir;
+
+                            scalar r1 = (nA*cosB - nB*cosA)/(nA*cosB + nB*cosA);
+                            scalar r2 = (nA*cosA - nB*cosB)/(nA*cosA + nB*cosB);
                             scalar R = 0.5*(r1*r1 + r2*r2);
-          			 
-                            if(nBands_ > 1)
-                            {
-                                label refracIncidentRay = -1;  
-                                dom.dirToRayId(refracIncidentDir, 0, refracIncidentRay);	
-          		    
-                                diffusive = diffusive
-                                    + (NbrRaySet[refracIncidentRay][faceI]*bandDist_[iBand]*(1-R) + reflecFace[faceI]*R) *mag(surfNorm & sweepdAve) ;    //
-                            }
-                            else
-                            {diffusive = diffusive + reflecFace[faceI]*R*mag(surfNorm & sweepdAve);  }  //
-					   
+
+                            label refracIncidentRay = dom.dirToRayId(refracIncidentDir, iBand);
+
+                            diffuse += (NbrRaySet[refracIncidentRay][faceI]*(1-R) + reflecFace[faceI]*R) *mag(surfNorm & sweepdAve);
+
                         }
                         else
                         {
-                            diffusive = diffusive + reflecFace[faceI] *mag(surfNorm & sweepdAve) ;  
+                            diffuse = diffuse + reflecFace[faceI]*mag(surfNorm & sweepdAve);
                         }
-
                     }
                 }
             }
 
+            // Create a list to store candidate rays for reflection and refraction
+            DynamicList<label> candidateReflectedRays;
+            DynamicList<label> candidateRefractedRays;
 
+            // Determine the rays contributing to outgoing intensity, looping though each theta pixel
             for (label i = 1; i <= npTheta; i++)
             {
-                scalar pxRayTheta = bdRayTheta - 0.5*deltaTheta + 0.5*(2*i -1)*deltaTheta/npTheta;
-				    
+                // Calculate the theta angle for this pixel
+                scalar pxRayTheta = rayTheta - 0.5*deltaTheta + (i - 0.5)*deltaTheta/npTheta;
+
+                // Loop through all phi pixels
                 for (label j = 1; j <= npPhi; j++)
                 {
-                    scalar pxRayPhi = bdRayPhi - 0.5*deltaPhi + 0.5*(2*j -1)*deltaPhi/npPhi;
-					
-                    scalar sinTheta = Foam::sin(pxRayTheta);
-                    scalar cosTheta = Foam::cos(pxRayTheta);
-                    scalar sinPhi = Foam::sin(pxRayPhi);
-                    scalar cosPhi = Foam::cos(pxRayPhi);
-					
-                    vector  pixelDir = vector(sinTheta*cosPhi , sinTheta* sinPhi , cosTheta);
-					
-                    scalar cosB =  pixelDir & surfNorm;
-					
-                    if ( cosB > 0.0)   
+                    // Calculate the phi angle for this pixel
+                    scalar pxRayPhi = rayPhi - 0.5*deltaPhi + (j - 0.5)*deltaPhi/npPhi;
+
+                    // Create a vector in the direction of this pixel
+                    vector pixelDir = dom.anglesToDir(pxRayTheta, pxRayPhi);
+
+                    // Get the cosine of the angle between the pixel direction and the surface normal
+                    scalar cosB = pixelDir & surfNorm;
+
+                    // Calculate integral of direction vector wrt solid angle over pixel
+                    vector intDirOmega = dom.intDirOmega(pxRayTheta, pxRayPhi, deltaTheta/npTheta, deltaPhi/npPhi);
+
+                    // Pixel ray is coming out of the surface (store incoming rays)
+                    if (cosB > 0.0)
                     {
-						
-                        scalar  pixelOmega = 2.0*sinTheta*Foam::sin(deltaTheta/2.0/npTheta)*deltaPhi/npPhi;
+                        // Calculate direction of reflected incident radiation for outgoing pixel ray
+                        vector reflectIncidentDir = pixelDir - 2.0*cosB*surfNorm;
 
-                        vector reflecIncidentDir = pixelDir - 2*cosB*surfNorm;		
-					
-                        label reflecIncidentRay = -1;
-                        dom.dirToRayId(reflecIncidentDir, iBand, reflecIncidentRay);
-                    
-                        const scalarField&  reflecFace = dom.IRay(reflecIncidentRay).I().boundaryField()[patchI];                                	
+                        // Get the ID of the ray in the direction of the reflected incident ray
+                        label reflectIncidentRay = dom.dirToRayId(reflectIncidentDir, iBand);
 
-                    
-                        if( cosB*cosB > 1-1/(nRatio*nRatio) )      // 
-                        { 
-                    
-                            vector refracIncidentDir = (pixelDir - cosB * surfNorm )*nRatio 
-                                + Foam::sqrt(1 -(nRatio*nRatio)*(1- cosB*cosB))*surfNorm ;
-					
-                            scalar cosA = surfNorm& pixelDir; // / mag(d);                //    /mag(n[faceI])
-          
-                            scalar r1 = (nNbg_*cosB - nOwn_*cosA )
-                                /  (nNbg_*cosB + nOwn_*cosA );
-                            scalar r2 = (nNbg_*cosA - nOwn_*cosB )
-                                /  (nNbg_*cosA + nOwn_*cosB );
-            
-                            scalar R =  0.5*(r1*r1 + r2*r2);
-          			
-                            if(nBands_ > 1)
-                            {
-							
-          			label refracIncidentRay = -1;  
-                                dom.dirToRayId(refracIncidentDir, 0, refracIncidentRay);	// this is important 
-            
-                                specular = specular 
-                                    + (NbrRaySet[refracIncidentRay][faceI]*bandDist_[iBand]*(1-R) +  reflecFace[faceI]*R )*pixelOmega;   //
-                            }
-                            else
-                            {
-                                specular = specular + reflecFace[faceI]*R *pixelOmega;   
-                            }
-					
-                        }					
-                        else
+                        // Add this ray to the list of candidate rays if it is not already added
+                        if (std::find(candidateReflectedRays.begin(), candidateReflectedRays.end(), reflectIncidentRay) == candidateReflectedRays.end())
                         {
-                            specular = specular + reflecFace[faceI]*pixelOmega;   
+                            candidateReflectedRays.append(reflectIncidentRay);
+                        }
+
+                        // Check that outgoing pixel ray is within the critical angle for refracted rays coming from side A
+                        if ((1 - (nRatio*nRatio)*(1 - cosB*cosB)) > 0.0)
+                        {
+                            // Calculate direction of refracted radiation
+                            vector refractIncidentDir = (pixelDir - cosB*surfNorm)*nRatio + Foam::sqrt(1 - (nRatio*nRatio)*(1 - cosB*cosB))*surfNorm;
+
+                            // Get the ID of the ray in the direction of the refracted incident ray
+                            label refractIncidentRay = dom.dirToRayId(refractIncidentDir, iBand);
+
+                            // Add this ray to the list of candidate rays if it is not already added
+                            if (std::find(candidateRefractedRays.begin(), candidateRefractedRays.end(), refractIncidentRay) == candidateRefractedRays.end())
+                            {
+                                candidateRefractedRays.append(refractIncidentRay);
+                            }
+                        }
+
+                        // Accumulate integrals of direction vector over solid angle
+                        magIntDirOmega += intDirOmega & surfNorm;
+                        posIntDirOmega += intDirOmega & surfNorm;
+                    }
+                    // Pixel ray is going into the surface (accumulate incident energy)
+                    else
+                    {
+                        // Accumulate integrals of direction vector over solid angle
+                        magIntDirOmega -= intDirOmega & surfNorm;
+                    }
+                }
+            }
+
+            // Calculate specularly reflected energy, looping through all candidate rays
+            forAll(candidateReflectedRays, rayIdx)
+            {
+                // Calculate the ray angles
+                label iRay = candidateReflectedRays[rayIdx];
+                scalar iRayTheta = dom.IRay(iRay).theta();
+                scalar iRayPhi = dom.IRay(iRay).phi();
+
+                // Loop though all theta pixels
+                for (label i = 1; i <= npTheta; i++)
+                {
+                    // Calculate the theta angle for this pixel
+                    scalar pxRayTheta = iRayTheta - 0.5*deltaTheta + (i - 0.5)*deltaTheta/npTheta;
+
+                    // Loop through all phi pixels
+                    for (label j = 1; j <= npPhi; j++)
+                    {
+                        // Calculate the phi angle for this pixel
+                        scalar pxRayPhi = iRayPhi - 0.5*deltaPhi + (j - 0.5)*deltaPhi/npPhi;
+
+                        // Create a vector in the direction of this pixel
+                        vector pixelDir = dom.anglesToDir(pxRayTheta, pxRayPhi);
+
+                        // Get the cosine of the angle between the pixel direction and the surface normal
+                        scalar cosP = - pixelDir & surfNorm;
+
+                        // Create a vector in the direction of the reflected ray
+                        vector reflectDir = pixelDir + 2.0*cosP*surfNorm;
+
+                        // Get the cosine of the angle between the outgoing reflected ray and the surface normal
+                        scalar cosB = dom.IRay(rayId).nearestPixelDir(reflectDir) & surfNorm;
+
+                        // Continue only if reflected ray is coming out of the surface
+                        if (cosB > 0.0)
+                        {
+                            // Initialize reflectivity for total internal reflection
+                            scalar R = 1.0;
+
+                            // Check if the the outgoing ray results from refraction
+                            if ((1 - (nRatio*nRatio)*(1 - cosB*cosB)) > 0.0)
+                            {
+                                // Calculate direction of refracted radiation
+                                vector refractIncidentDir = (reflectDir - cosB*surfNorm)*nRatio + Foam::sqrt(1 - (nRatio*nRatio)*(1 - cosB*cosB))*surfNorm;
+
+                                // Calculate cosine of angle between refracted incident ray and surface normal
+                                scalar cosA = dom.IRay(rayId).nearestPixelDir(refractIncidentDir) & surfNorm;
+
+                                // Calculate interface reflectivity
+                                scalar r1 = (nA*cosB - nB*cosA)/(nA*cosB + nB*cosA);
+                                scalar r2 = (nA*cosA - nB*cosB)/(nA*cosA + nB*cosB);
+                                R = 0.5*(r1*r1 + r2*r2);
+                            }
+
+                            // Calculate integral of direction vector wrt solid angle over pixel
+                            vector intDirOmega = dom.intDirOmega(pxRayTheta, pxRayPhi, deltaTheta/npTheta, deltaPhi/npPhi);
+
+                            // Get the ID of the ray in the direction of the outgoing reflected ray
+                            label reflectRay = dom.dirToRayId(reflectDir, iBand);
+
+                            // Accumulate the specular energy only if the outgoing ray matches this ray
+                            if (reflectRay == rayId)
+                            {
+                                specular += R*dom.IRay(iRay).I().boundaryField()[patchI][faceI]*(-intDirOmega & surfNorm);
+                            }
                         }
                     }
                 }
-            }  
-		
-            //     label  i0 = label(Foam::acos(cosA)/deltaPhi);     
-            refValue()[faceI] = diffuseFraction_*diffusive/pi/2  //*angleDist[i0] 
-                + (1.0 - diffuseFraction_)*specular/bdOmega; 
-                 
+            }
+
+            // Calculate specularly refracted energy, looping through all candidate rays
+            forAll(candidateRefractedRays, rayIdx)
+            {
+                // Calculate the ray angles
+                label iRay = candidateRefractedRays[rayIdx];
+                scalar iRayTheta = dom.IRay(iRay).theta();
+                scalar iRayPhi = dom.IRay(iRay).phi();
+
+                // Loop though all theta pixels
+                for (label i = 1; i <= npTheta; i++)
+                {
+                    // Calculate the theta angle for this pixel
+                    scalar pxRayTheta = iRayTheta - 0.5*deltaTheta + (i - 0.5)*deltaTheta/npTheta;
+
+                    // Loop through all phi pixels
+                    for (label j = 1; j <= npPhi; j++)
+                    {
+                        // Calculate the phi angle for this pixel
+                        scalar pxRayPhi = iRayPhi - 0.5*deltaPhi + (j - 0.5)*deltaPhi/npPhi;
+
+                        // Create a vector in the direction of this pixel
+                        vector pixelDir = dom.anglesToDir(pxRayTheta, pxRayPhi);
+
+                        // Get the cosine of the angle between the pixel direction and the surface normal
+                        scalar cosA = pixelDir & surfNorm;
+
+                        // Continue only if pixel ray is directed from other side of interface to this side
+                        if (cosA > 0.0)
+                        {
+                            // Check that outgoing refracted ray is within the critical angle, otherwise
+                            // no energy will be transferred across the interface
+                            if ((1 - (1 - cosA*cosA)/(nRatio*nRatio)) > 0.0)
+                            {
+                                // Calculate direction and ID of refracted ray
+                                vector refractDir = (pixelDir - cosA*surfNorm)/nRatio + Foam::sqrt(1 - (1 - cosA*cosA)/(nRatio*nRatio))*surfNorm;
+                                label refractRay = dom.dirToRayId(refractDir, iBand);
+
+                                // Accumulate the specular flux only if the outgoing ray matches this ray
+                                if (refractRay == rayId)
+                                {
+                                    // Calculate cosine of angle between refracted ray and surface normal
+                                    scalar cosB = dom.IRay(rayId).nearestPixelDir(refractDir) & surfNorm;
+
+                                    // Calculate interface reflectivity
+                                    scalar r1 = (nA*cosB - nB*cosA)/(nA*cosB + nB*cosA);
+                                    scalar r2 = (nA*cosA - nB*cosB)/(nA*cosA + nB*cosB);
+                                    scalar R = 0.5*(r1*r1 + r2*r2);
+
+                                    // Calculate integral of direction vector wrt solid angle over pixel
+                                    vector intDirOmega = dom.intDirOmega(pxRayTheta, pxRayPhi, deltaTheta/npTheta, deltaPhi/npPhi);
+
+                                    // Accumulate the specular flux
+                                    specular += NbrRaySet[iRay][faceI]*(1-R)*(intDirOmega & surfNorm);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Calculate the face value of the radiation intensity for this ray
+            refValue()[faceI] = diffuseFraction_*diffuse/pi + (1.0 - diffuseFraction_)*specular/posIntDirOmega;
             refGrad()[faceI] = 0.0;
-            valueFraction()[faceI] = 1.0;
-  
+            valueFraction()[faceI] = posIntDirOmega/magIntDirOmega;
         }
+        // Case 2: Ray is going into wall with no overhang -> Treat as zero gradient
         else
         {
-            // direction into the wall
             valueFraction()[faceI] = 0.0;
             refGrad()[faceI] = 0.0;
-            refValue()[faceI] = 0.0; //not used
+            refValue()[faceI] = 0.0;
         }
     }
-              
-   
+
     UPstream::msgType() = oldTag;
     mixedFvPatchScalarField::updateCoeffs();
-
 }
-
-
 
 
 void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::write
@@ -426,7 +533,6 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::write
     os.writeKeyword("nNbg") << nNbg_ << token::END_STATEMENT << nl;
     os.writeKeyword("nOwn") << nOwn_ << token::END_STATEMENT << nl;
     os.writeKeyword("diffuseFraction") << diffuseFraction_ << token::END_STATEMENT << nl;
-
 }
 
 

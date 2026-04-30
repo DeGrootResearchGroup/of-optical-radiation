@@ -1,13 +1,13 @@
-/* photobio model */
+# photobio model
 
 photoBioModels/photoBioModel/photoBioModel.C
 photoBioModels/photoBioModel/photoBioModelNew.C
 
-photoBioModels/photoBioDOM/photoBioDOM/photoBioDOM.C  
-photoBioModels/photoBioDOM/photoBioIntensityRay/photoBioIntensityRay.C 
+photoBioModels/photoBioDOM/photoBioDOM/photoBioDOM.C
+photoBioModels/photoBioDOM/photoBioIntensityRay/photoBioIntensityRay.C
 
-subModels/phaseFunctionModel/phaseFunctionModel/phaseFunctionModel.C 
-subModels/phaseFunctionModel/phaseFunctionModel/newPhaseFunctionModel.C 
+subModels/phaseFunctionModel/phaseFunctionModel/phaseFunctionModel.C
+subModels/phaseFunctionModel/phaseFunctionModel/newPhaseFunctionModel.C
 subModels/phaseFunctionModel/HenyeyGreensteinModel/HenyeyGreensteinModel.C
 subModels/phaseFunctionModel/schlickModel/schlickModel.C
 subModels/phaseFunctionModel/nullModel/nullModel.C
@@ -18,23 +18,11 @@ subModels/extinctionModel/noExtinction/noExtinction.C
 subModels/extinctionModel/wideBandConstantExtinction/wideBandConstantExtinction.C
 subModels/extinctionModel/wideBandVariableExtinction/wideBandVariableExtinction.C
 
-subModels/inScatterModel/inScatterModel/inScatterModel.C
-subModels/inScatterModel/inScatterModel/inScatterModelNew.C
-subModels/inScatterModel/HenyeyGreensteinModel/HenyeyGreensteinModel.C
-subModels/inScatterModel/anisotropicScattering/anisotropicScattering.C
-subModels/inScatterModel/deltaEddingtonModel/deltaEddingtonModel.C
-subModels/inScatterModel/schlickModel/schlickModel.C
-subModels/inScatterModel/userDefinedPhaseFunction/userDefinedPhaseFunction.C
-subModels/inScatterModel/userDefinedPhaseFunctionv0/userDefinedPhaseFunction.C
+# inScatterModel sub-models excluded: superseded by phaseFunctionModel, implementations broken
 
 derivedFvPatchFields/diffuseEmitter/diffuseEmitterMixedFvPatchScalarField.C
 derivedFvPatchFields/reflectiveSurface/reflectiveSurfaceMixedFvPatchScalarField.C
-derivedFvPatchFields/transExteriorSurface/transExteriorSurfaceMixedFvPatchScalarField.C
-derivedFvPatchFields/transInteriorSurface/transInteriorSurfaceCoupledFvPatchScalarField.C
 derivedFvPatchFields/multiBandTransInterior/multiBandTransInteriorCoupledFvPatchScalarField.C
-derivedFvPatchFields/solarSurface/solarSurfaceMixedFvPatchScalarField.C
-derivedFvPatchFields/surrounding/surroundingMixedFvPatchScalarField.C
-derivedFvPatchFields/wideBandSpecularRadiation/wideBandSpecularRadiationMixedFvPatchScalarField.C
 
 LIB = $(FOAM_USER_LIBBIN)/libphotoBio
 

@@ -99,7 +99,7 @@ bool Foam::photoBio::photoBioModel::read()
 {
     if (regIOobject::read())
     {
-        readEntry("photoBio", photoBio_);
+        lookup("photoBio") >> photoBio_;
         coeffs_ = subDict(type() + "Coeffs");
 
         return true;

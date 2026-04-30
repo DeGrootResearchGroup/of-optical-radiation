@@ -5,7 +5,7 @@
         IOobject
         (
             "I",
-            runTime.timeName(),
+            runTime.name(),
             mesh,
             IOobject::MUST_READ,
             IOobject::AUTO_WRITE

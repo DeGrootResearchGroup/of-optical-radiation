@@ -76,8 +76,8 @@ reflectiveSurfaceMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    diffuseFraction_(dict.get<scalar>("diffuseFraction")),
-    reflectionCoef_(dict.get<scalar>("reflectionCoef"))
+    diffuseFraction_(readScalar(dict.lookup("diffuseFraction"))),
+    reflectionCoef_(readScalar(dict.lookup("reflectionCoef")))
 {
 
 
@@ -109,18 +109,6 @@ reflectiveSurfaceMixedFvPatchScalarField
 
     
 }
-
-
-Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::
-reflectiveSurfaceMixedFvPatchScalarField
-(
-    const reflectiveSurfaceMixedFvPatchScalarField& ptf
-)
-:
-    mixedFvPatchScalarField(ptf),
-    diffuseFraction_(ptf.diffuseFraction_),
-    reflectionCoef_(ptf.reflectionCoef_)
-{}
 
 
 Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::
@@ -168,21 +156,18 @@ updateCoeffs()
             << "absorption model" << nl << exit(FatalError);
     }
     
-    label rayId = -1;
-    dom.setRayId(internalField().name(), rayId);
+    label rayId = dom.nameToRayId(internalField().name());
 
     const label patchI = patch().index();
     const  vectorField n = patch().Sf()/patch().magSf();
-    
+
     const  label iBand = dom.IRay(rayId).iBand();
-    const  label nAngle = dom.nAngle();     
-    const  label nTheta = dom.nTheta();    
-    const  label nPhi = dom.nPhi();    
+    const  label nAngle = dom.nAngle();
     const  vector& bdRayDir = dom.IRay(rayId).d();
     const  scalar bdOmega  = dom.IRay(rayId).omega();
-    
-    const scalar deltaPhi   =  pi /(2.0*nPhi);
-    const scalar deltaTheta =  pi  /nTheta;
+
+    const scalar deltaPhi = dom.deltaPhi();
+    const scalar deltaTheta = dom.deltaTheta();
     label  npPhi  = dom.nPixelPhi();
     label  npTheta = dom.nPixelTheta();
     const scalar bdRayPhi  = dom.IRay(rayId).phi();
@@ -225,8 +210,7 @@ updateCoeffs()
 				if(  cosB > 0.0 )      // direction out of the wall   
 				{ 
 				    vector reflecIncidentDir = sweepDir - 2*cosB*surfNorm;		
-					label reflecIncidentRay = -1;
-                    dom.dirToRayId(reflecIncidentDir, iBand, reflecIncidentRay);
+					label reflecIncidentRay = dom.dirToRayId(reflecIncidentDir, iBand);
                     const scalarField&  reflecFace = dom.IRay(reflecIncidentRay).I().boundaryField()[patchI];     		
        
 					diffusive = diffusive + reflecFace[faceI]*mag(surfNorm & sweepdAve) ;  
@@ -259,8 +243,7 @@ updateCoeffs()
 
 					vector reflecIncidentDir = pixelDir - 2*cosB*surfNorm;		
 					
-					label reflecIncidentRay = -1;
-                    dom.dirToRayId(reflecIncidentDir, iBand, reflecIncidentRay);
+					label reflecIncidentRay = dom.dirToRayId(reflecIncidentDir, iBand);
                     
                     const  scalarField&  reflecFace = dom.IRay(reflecIncidentRay).I().boundaryField()[patchI];                                	
 

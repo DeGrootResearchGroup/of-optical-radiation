@@ -43,10 +43,8 @@ class diffuseEmitterMixedFvPatchScalarField : public mixedFvPatchScalarField
 {
     // Private data
 
-    scalar  I0_;
-    label   nBands_;
-    DynamicList<scalar,1,0>  bandDist_;
-    DynamicList<Pair<scalar>,1,0>  bandLimits_;
+    label nBands_;
+    DynamicList<scalar,1,0>  emissivePower_;
 
 public:
 
@@ -79,21 +77,6 @@ public:
         const fvPatchFieldMapper&
     );
 
-    //- Construct as copy
-    diffuseEmitterMixedFvPatchScalarField
-    (
-        const diffuseEmitterMixedFvPatchScalarField&
-    );
-
-    //- Construct and return a clone
-    virtual tmp<fvPatchScalarField> clone() const
-    {
-        return tmp<fvPatchScalarField>
-        (
-            new diffuseEmitterMixedFvPatchScalarField(*this)
-        );
-    }
-
     //- Construct as copy setting internal field reference
     diffuseEmitterMixedFvPatchScalarField
     (
@@ -125,8 +108,8 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
+} // End namespace photoBio
 } // End namespace Foam
-}
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

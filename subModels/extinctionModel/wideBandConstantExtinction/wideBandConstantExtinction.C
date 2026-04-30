@@ -54,9 +54,9 @@ Foam::photoBio::wideBandConstantExtinction::wideBandConstantExtinction
 :
     extinctionModel(dict, mesh),
     coeffsDict_((dict.subDict(typeName + "Coeffs"))),
-    absorption_(coeffsDict_.get<bool>("absorption")),
-    scattering_(coeffsDict_.get<bool>("scattering")),
-    nBands_(coeffsDict_.get<label>("nBands")),
+    absorption_(readBool(coeffsDict_.lookup("absorption"))),
+    scattering_(readBool(coeffsDict_.lookup("scattering"))),
+    nBands_(readLabel(coeffsDict_.lookup("nBands"))),
     ABand_(nBands_),
     SBand_(nBands_)
 {
@@ -76,8 +76,8 @@ Foam::photoBio::wideBandConstantExtinction::wideBandConstantExtinction
     }
 
     // Read the coefficients
-    if (absorption_) coeffsDict_.readEntry("absorptionCoeff", ABand_);
-    if (scattering_) coeffsDict_.readEntry("scatteringCoeff", SBand_);
+    if (absorption_) coeffsDict_.lookup("absorptionCoeff") >> ABand_;
+    if (scattering_) coeffsDict_.lookup("scatteringCoeff") >> SBand_;
 
     // Set the absorption coefficient field
     forAll(ALambda_, iBand)

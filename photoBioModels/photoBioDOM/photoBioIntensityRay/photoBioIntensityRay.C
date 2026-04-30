@@ -69,40 +69,29 @@ Foam::photoBio::photoBioIntensityRay::photoBioIntensityRay
     omega_ = 2.0*sinTheta*Foam::sin(deltaTheta/2.0)*deltaPhi;
 
     d_ = vector(sinTheta*cosPhi, sinTheta*sinPhi, cosTheta);
-    dAve_ = vector
-    (
-       cosPhi
-       *Foam::sin(0.5*deltaPhi)
-       *(deltaTheta - Foam::cos(2.0*theta)
-       *Foam::sin(deltaTheta)),
-        sinPhi
-       *Foam::sin(0.5*deltaPhi)
-       *(deltaTheta - Foam::cos(2.0*theta)
-       *Foam::sin(deltaTheta)),
-        0.5*deltaPhi
-        *Foam::sin(2.0*theta)*Foam::sin(deltaTheta)
-    );
+
+    dAve_ = dom_.intDirOmega(theta_, phi_);
 
     autoPtr<volScalarField> IDefaultPtr;
 
     IOobject IHeader
     (
         intensityPrefix + "_" + name(iBand) + "_" + name(iAngle),
-        mesh_.time().timeName(),
+        mesh_.time().name(),
         mesh_,
         IOobject::MUST_READ,
         IOobject::NO_WRITE
     );
 
     // check if field exists and can be read
-    if (IHeader.typeHeaderOk<volScalarField>())
+    if (IHeader.headerOk())
     {
         I_.reset(new volScalarField(IHeader, mesh_));
     }
     else
     {
         // Demand driven load the IDefault field
-        if (!IDefaultPtr)
+        if (IDefaultPtr.empty())
         {
             IDefaultPtr.reset
             (
@@ -111,7 +100,7 @@ Foam::photoBio::photoBioIntensityRay::photoBioIntensityRay
                     IOobject
                     (
                         "I",
-                        mesh_.time().timeName(),
+                        mesh_.time().name(),
                         mesh_,
                         IOobject::MUST_READ,
                         IOobject::NO_WRITE
@@ -155,26 +144,108 @@ Foam::scalar Foam::photoBio::photoBioIntensityRay::correct()
     const volScalarField K = A + S;
 
     const volScalarField& ds = dom_.diffusionScatter();
-    const surfaceScalarField Ji = dAve_ & mesh_.Sf();
 
     fvScalarMatrix IiEq
     (
-          fvm::div(Ji, I_(), "div(Ji,Ii_h)")
+          fvm::div(Ji0_(), I_(), "div(Ji,Ii_h)")
+        + fvm::div(Ji1_(), I_(), "div(Ji,Ii_h)")
         + fvm::Sp(K*omega_, I_())
        == S*ds*omega_
     );
 
     IiEq.relax();
-    eqnResidual = solve(IiEq, mesh_.solver("Ii")).initialResidual();
+    eqnResidual = solve(IiEq, word("Ii")).initialResidual();
     maxResidual = max(eqnResidual, maxResidual);
 
     return maxResidual;
 }
 
 
+const Foam::surfaceScalarField Foam::photoBio::photoBioIntensityRay::Ji0_() const
+{
+    const label npTheta = dom_.nPixelTheta();
+    const label npPhi = dom_.nPixelPhi();
+
+    surfaceScalarField Ji0(vector(0,0,0) & mesh_.Sf());
+
+    const scalar deltaTheta = dom_.deltaTheta();
+    const scalar deltaPhi = dom_.deltaPhi();
+
+    for (label i = 0; i < npTheta; i++)
+    {
+        for (label j = 0; j < npPhi; j++)
+        {
+            scalar pixelTheta = theta_ - 0.5*deltaTheta + (i + 0.5)*deltaTheta/npTheta;
+            scalar pixelPhi = phi_ - 0.5*deltaPhi + (j + 0.5)*deltaPhi/npPhi;
+            vector intDirOmega = dom_.intDirOmega(pixelTheta, pixelPhi, deltaTheta/npTheta, deltaPhi/npPhi);
+            surfaceScalarField alpha = pos(dom_.anglesToDir(pixelTheta, pixelPhi) & mesh_.Sf());
+            Ji0 = Ji0 + alpha*(intDirOmega & mesh_.Sf());
+        }
+    }
+
+    return Ji0;
+}
+
+
+const Foam::surfaceScalarField Foam::photoBio::photoBioIntensityRay::Ji1_() const
+{
+    const label npTheta = dom_.nPixelTheta();
+    const label npPhi = dom_.nPixelPhi();
+
+    surfaceScalarField Ji1(vector(0,0,0) & mesh_.Sf());
+
+    const scalar deltaTheta = dom_.deltaTheta();
+    const scalar deltaPhi = dom_.deltaPhi();
+
+    for (label i = 0; i < npTheta; i++)
+    {
+        for (label j = 0; j < npPhi; j++)
+        {
+            scalar pixelTheta = theta_ - 0.5*deltaTheta + (i + 0.5)*deltaTheta/npTheta;
+            scalar pixelPhi = phi_ - 0.5*deltaPhi + (j + 0.5)*deltaPhi/npPhi;
+            vector intDirOmega = dom_.intDirOmega(pixelTheta, pixelPhi, deltaTheta/npTheta, deltaPhi/npPhi);
+            surfaceScalarField alpha = neg(dom_.anglesToDir(pixelTheta, pixelPhi) & mesh_.Sf());
+            Ji1 = Ji1 + alpha*(intDirOmega & mesh_.Sf());
+        }
+    }
+
+    return Ji1;
+}
+
+
 void Foam::photoBio::photoBioIntensityRay::updateBoundary()
 {
     I_->correctBoundaryConditions();
+}
+
+
+const Foam::vector Foam::photoBio::photoBioIntensityRay::nearestPixelDir
+(
+    const vector& dir
+) const
+{
+    scalar theta = dom_.dirToTheta(dir);
+    scalar phi = dom_.dirToPhi(dir);
+
+    label npTheta = dom_.nPixelTheta();
+    label npPhi = dom_.nPixelPhi();
+
+    scalar deltaTheta = dom_.deltaTheta();
+    scalar deltaPhi = dom_.deltaPhi();
+
+    scalar deltaPixelTheta = deltaTheta/npTheta;
+    scalar deltaPixelPhi = deltaPhi/npPhi;
+
+    scalar theta0 = theta_ - 0.5*deltaTheta;
+    scalar phi0 = phi_ - 0.5*deltaPhi;
+
+    label iPixelTheta = label((theta - theta0)/deltaPixelTheta);
+    label iPixelPhi = label((phi - phi0)/deltaPixelPhi);
+
+    scalar pixelTheta = theta_ - 0.5*deltaTheta + (iPixelTheta + 0.5)*deltaPixelTheta;
+    scalar pixelPhi = phi_ - 0.5*deltaPhi + (iPixelPhi + 0.5)*deltaPixelPhi;
+
+    return dom_.anglesToDir(pixelTheta, pixelPhi);
 }
 
 // ************************************************************************* //

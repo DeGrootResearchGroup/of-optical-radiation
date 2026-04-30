@@ -62,11 +62,11 @@ Foam::photoBio::anisotropicScattering::anisotropicScattering
 //    label iBand = 0;
  //   const dictionary& functionDicts = dict.subDict(typeName +"Coeffs");
     
-     coeffsDict_.readEntry("nBand", nBands_);
+     coeffsDict_.lookup("nBand") >> nBands_;
 
      phaseFuncCoef_.setSize(nBands_);
 
-     coeffsDict_.readEntry("phaseFuncCoef", phaseFuncCoef_);
+     coeffsDict_.lookup("phaseFuncCoef") >> phaseFuncCoef_;
     
     /*          
     forAllConstIter(dictionary, functionDicts, iter)

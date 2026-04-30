@@ -95,21 +95,6 @@ public:
         const fvPatchFieldMapper&
     );
 
-    //- Construct as copy
-    wideBandSpecularRadiationMixedFvPatchScalarField
-    (
-        const wideBandSpecularRadiationMixedFvPatchScalarField&
-    );
-    
-    //- Construct and return a clone
-    virtual tmp<fvPatchField<scalar> > clone() const
-        {
-            return tmp<fvPatchField<scalar> >
-                (
-                    new wideBandSpecularRadiationMixedFvPatchScalarField(*this)
-                );
-        }
-    
     //- Construct as copy setting internal field reference
     wideBandSpecularRadiationMixedFvPatchScalarField
     (

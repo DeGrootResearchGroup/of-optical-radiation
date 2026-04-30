@@ -25,22 +25,20 @@ Class
     multiBandTransInteriorCoupledFvPatchScalarField
 
 Description
-    Mixed boundary condition for temperature, to be used by the
-    conjugate heat transfer solver.
-    Both sides use a mix of zeroGradient and neighbourvalue.
+    Mixed boundary condition for radiation at a transmissive interior interface.
 
     Example usage:
         myInterfacePatchName
         {
-            type                multiBandTransInteriorCoupled;
-            neighbourFieldName  T;
-
+            type            multiBandTransInteriorCoupled;
+            diffuseFraction 0.0;
+            nBands          2;
+            nNbg            (1.5 1.5);
+            nOwn            (1.0 1.0);
+            value           $internalField;
         }
 
-    Needs to be on underlying directMapped(Wall)FvPatch.
-
-    Note: runs in parallel with arbitrary decomposition. Uses directMapped
-    functionality to calculate exchange.
+    Needs to be on underlying mappedPatch.
 
 SourceFiles
     multiBandTransInteriorCoupledFvPatchScalarField.C
@@ -48,9 +46,9 @@ SourceFiles
 \*---------------------------------------------------------------------------*/
 
 #ifndef multiBandTransInteriorCoupledFvPatchScalarField_H
-    #define multiBandTransInteriorCoupledFvPatchScalarField_H
+#define multiBandTransInteriorCoupledFvPatchScalarField_H
 
-    #include "mixedFvPatchFields.H"
+#include "mixedFvPatchFields.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -58,26 +56,19 @@ namespace Foam
 {
     namespace photoBio
     {
-        /*---------------------------------------------------------------------------*\
-            Class multiBandTransInteriorCoupledFvPatchScalarField Declaration
-            \*---------------------------------------------------------------------------*/
 
         class multiBandTransInteriorCoupledFvPatchScalarField
         :
         public mixedFvPatchScalarField
         {
+
             // Private data
 
-            //- Name of field on the neighbour region
+            scalar diffuseFraction_;
+            label nBands_;
+            DynamicList<scalar,1,0> nNbg_;
+            DynamicList<scalar,1,0> nOwn_;
 
-        
-            scalar  nNbg_;          // index of refraction 
-            scalar  nOwn_;   
-            scalar  diffuseFraction_;     
-            label   nBands_;  
-            //     List<scalar> photoBioBandDist_(IStringStream("17 (  )")());
-            DynamicList<scalar,1,0>  bandDist_;
-        
         public:
 
             //- Runtime type information
@@ -111,15 +102,6 @@ namespace Foam
                 const fvPatchFieldMapper&
             );
 
-            //- Construct and return a clone
-            virtual tmp<fvPatchScalarField> clone() const
-                {
-                    return tmp<fvPatchScalarField>
-                        (
-                            new multiBandTransInteriorCoupledFvPatchScalarField(*this)
-                        );
-                }
-
             //- Construct as copy setting internal field reference
             multiBandTransInteriorCoupledFvPatchScalarField
             (
@@ -132,20 +114,19 @@ namespace Foam
             (
                 const DimensionedField<scalar, volMesh>& iF
             ) const
-                {
-                    return tmp<fvPatchScalarField>
-                        (
-                            new multiBandTransInteriorCoupledFvPatchScalarField
-                            (
-                                *this,
-                                iF
-                            )
-                        );
-                }
+            {
+                return tmp<fvPatchScalarField>
+                (
+                    new multiBandTransInteriorCoupledFvPatchScalarField
+                    (
+                        *this,
+                        iF
+                    )
+                );
+            }
 
 
             // Member functions
-
 
             //- Update the coefficients associated with the patch field
             virtual void updateCoeffs();
@@ -154,14 +135,12 @@ namespace Foam
             virtual void write(Ostream&) const;
         };
 
-
-        // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
     } // End namespace photoBio
 
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-    #endif
+#endif
 
 // ************************************************************************* //

@@ -29,7 +29,6 @@ License
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
 #include "mappedPatchBase.H"
-#include "regionProperties.H"
 
 #include "photoBioDOM.H"
 #include "constants.H"
@@ -81,9 +80,9 @@ transInteriorSurfaceCoupledFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    nNbg_(dict.get<scalar>("nNbg")), //scalarField("n1", dict),
-    nOwn_(dict.get<scalar>("nOwn")), // scalarField("n2", dict);
-    diffuseFraction_(dict.get<scalar>("diffuseFraction"))
+    nNbg_(readScalar(dict.lookup("nNbg"))), //scalarField("n1", dict),
+    nOwn_(readScalar(dict.lookup("nOwn"))), // scalarField("n2", dict);
+    diffuseFraction_(readScalar(dict.lookup("diffuseFraction")))
 {
 
     if (!isA<mappedPatchBase>(this->patch().patch()))
@@ -160,57 +159,54 @@ void Foam::photoBio::transInteriorSurfaceCoupledFvPatchScalarField::updateCoeffs
     
     
     // Get the coupling information from the mappedPatchBase
-    const mappedPatchBase& mpp = refCast<const mappedPatchBase>(patch().patch());
-    const label samplePatchI = mpp.samplePolyPatch().index();
-    const polyMesh& nbrMesh = mpp.sampleMesh();
-    const fvPatch& nbrPatch = refCast<const fvMesh>(nbrMesh).boundary()[samplePatchI];
-    const mapDistribute& distMap = mpp.map();
+    const mappedPatchBase& mpp = mappedPatchBase::getMap(patch().patch());
+    const label nbrPatchI = mpp.nbrPolyPatch().index();
+    const fvMesh& nbrMesh = refCast<const fvMesh>(mpp.nbrMesh());
+    const fvPatch& nbrPatch = nbrMesh.boundary()[nbrPatchI];
 
 
     scalarField Ic(patchInternalField());
     scalarField& Iw = *this;
-    
+
     const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
 
     const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
-    
+
     label BDrayId = -1;
     dom.setRayId(internalField().name(), BDrayId);
 
     const label patchI = patch().index();
     vectorField n = patch().Sf()/patch().magSf();
-    
-  
-    const  label iBand = dom.IRay(BDrayId).iBand();  
-    const  label nTheta = dom.nTheta();    
-    const  label nPhi = dom.nPhi();    
+
+
+    const  label iBand = dom.IRay(BDrayId).iBand();
+    const  label nTheta = dom.nTheta();
+    const  label nPhi = dom.nPhi();
     const  vector bdRayDir = dom.IRay(BDrayId).d();
     const  scalar bdOmega  = dom.IRay(BDrayId).omega();
     const  scalar deltaPhi   =  pi /(2.0*nPhi);
     const  scalar deltaTheta =  pi  /nTheta;
 
-    const  label  nAngle  = dom.nAngle();    
+    const  label  nAngle  = dom.nAngle();
     const  scalar bdRayPhi  = dom.IRay(BDrayId).phi();
     const  scalar bdRayTheta  = dom.IRay(BDrayId).theta();
     label  npPhi  = dom.nPixelPhi();
     label  npTheta = dom.nPixelTheta();
-    	 
+
 	PtrList<scalarField> NbrRaySet(nAngle);
-	
+
 	for (label jAngle = 0; jAngle < nAngle; jAngle++)
-	{	
+	{
 
         NbrRaySet.set(jAngle, new scalarField(patch().size(),0.0));
-        
-        label rayI = jAngle + iBand*nAngle;   
+
+        label rayI = jAngle + iBand*nAngle;
 		const transInteriorSurfaceCoupledFvPatchScalarField&
         nbrField = refCast
             <const transInteriorSurfaceCoupledFvPatchScalarField>
             ( nbrPatch.lookupPatchField<volScalarField, scalar>(dom.IRay(rayI).I().name()) );
 
-		scalarField TcNbr(nbrField.patchInternalField());
-		distMap.distribute(TcNbr);
-		NbrRaySet[jAngle] = TcNbr;
+		NbrRaySet[jAngle] = mpp.fromNeighbour(nbrField.patchInternalField());
 	}
     
   

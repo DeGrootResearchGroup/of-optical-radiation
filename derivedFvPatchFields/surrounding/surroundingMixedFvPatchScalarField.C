@@ -74,7 +74,7 @@ surroundingMixedFvPatchScalarField
 )
 :
     mixedFvPatchScalarField(p, iF),
-    surroundOptical_(dict.get<scalar>("surroundOptical"))
+    surroundOptical_(readScalar(dict.lookup("surroundOptical")))
 {
 
 
@@ -103,17 +103,6 @@ surroundingMixedFvPatchScalarField
     }
     
 }
-
-
-Foam::photoBio::surroundingMixedFvPatchScalarField::
-surroundingMixedFvPatchScalarField
-(
-    const surroundingMixedFvPatchScalarField& ptf
-)
-:
-    mixedFvPatchScalarField(ptf),
-    surroundOptical_(ptf.surroundOptical_)
-{}
 
 
 Foam::photoBio::surroundingMixedFvPatchScalarField::

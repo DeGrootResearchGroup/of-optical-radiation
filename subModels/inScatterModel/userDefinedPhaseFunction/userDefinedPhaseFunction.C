@@ -62,9 +62,9 @@ Foam::photoBio::userDefinedPhaseFunction::userDefinedPhaseFunction
 {
     const dictionary& functionDicts = dict.subDict(typeName +"Coeffs");
     
-    functionDicts.readEntry("inScatter", inScatter_);
+    functionDicts.lookup("inScatter") >> inScatter_;
 
-    functionDicts.readEntry("phaseFunctionAngleNum", phaseFunctionAngleNum_);
+    functionDicts.lookup("phaseFunctionAngleNum") >> phaseFunctionAngleNum_;
     
 }
 
@@ -92,7 +92,7 @@ Foam::photoBio::userDefinedPhaseFunction::~userDefinedPhaseFunction()
      
 	if(inScatter_)
     {
-		functionDicts.readEntry("phaseFunction", phaseFunc_);
+		functionDicts.lookup("phaseFunction") >> phaseFunc_;
 	//	Info << "phaseFunc_  " << phaseFunc_ << endl;
 	}
        

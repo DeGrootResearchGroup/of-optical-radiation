@@ -89,21 +89,6 @@ public:
             const fvPatchFieldMapper&
         );
 
-        //- Construct as copy
-        surroundingMixedFvPatchScalarField
-        (
-            const surroundingMixedFvPatchScalarField&
-        );
-
-        //- Construct and return a clone
-        virtual tmp<fvPatchScalarField> clone() const
-        {
-            return tmp<fvPatchScalarField>
-            (
-                new surroundingMixedFvPatchScalarField(*this)
-            );
-        }
-
         //- Construct as copy setting internal field reference
         surroundingMixedFvPatchScalarField
         (

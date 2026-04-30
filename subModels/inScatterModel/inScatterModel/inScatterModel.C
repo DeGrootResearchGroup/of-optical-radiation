@@ -64,7 +64,7 @@ bool  Foam::photoBio::inScatterModel::inScatter() const
 return false;
 }
 
-Foam::void  Foam::photoBio::inScatterModel::update
+void  Foam::photoBio::inScatterModel::update
 (
           const  label   nPhi,
           const   label  nTheta,

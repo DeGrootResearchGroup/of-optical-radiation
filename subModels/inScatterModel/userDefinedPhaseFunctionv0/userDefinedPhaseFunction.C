@@ -61,15 +61,15 @@ Foam::photoBio::userDefinedPhaseFunction::userDefinedPhaseFunction
     label iBand = 0;
     const dictionary& functionDicts = dict.subDict(typeName +"Coeffs");
     
-    functionDicts.readEntry("inScatter", inScatter_);
-    functionDicts.readEntry("nBand", nBands_);
-    functionDicts.readEntry("phaseFunctionAngleNum", phaseFunctionAngleNum_);
+    functionDicts.lookup("inScatter") >> inScatter_;
+    functionDicts.lookup("nBand") >> nBands_;
+    functionDicts.lookup("phaseFunctionAngleNum") >> phaseFunctionAngleNum_;
     
     phaseFunc_.setSize(nBand*phaseFunctionAngleNum_);   
    
     if(inScatter_)
     {
-		functionDicts.readEntry("phaseFunction", phaseFunc_);
+		functionDicts.lookup("phaseFunction") >> phaseFunc_;
 	//	forAll(phaseFunc_,i)  phaseFunc_[i] = phaseFunc_[i]*bioDensity_;
 	}else
 	{

@@ -72,6 +72,18 @@ inline Foam::label Foam::photoBio::photoBioDOM::nPixelTheta() const
 }
 
 
+inline Foam::scalar Foam::photoBio::photoBioDOM::deltaTheta() const
+{
+    return deltaTheta_;
+}
+
+
+inline Foam::scalar Foam::photoBio::photoBioDOM::deltaPhi() const
+{
+    return deltaPhi_;
+}
+
+
 inline const Foam::volScalarField& Foam::photoBio::photoBioDOM::A(const label iLambda) const
 {
     return extinction_->A(iLambda);

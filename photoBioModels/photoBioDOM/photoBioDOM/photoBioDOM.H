@@ -156,19 +156,37 @@ public:
             //- Update G
             void updateG();
 
-            //- Set the rayId by decomposing an intensity field name
-            void setRayId
+            //- Get the ray ID by decomposing an intensity field name
+            label nameToRayId(const word& name) const;
+
+            //- Get the theta angle from a direction vector
+            scalar dirToTheta(const vector& dir) const;
+
+            //- Get the phi angle from a direction vector
+            scalar dirToPhi(const vector& dir) const;
+
+            //- Get the direction vector from angles
+            vector anglesToDir(const scalar& theta, const scalar& phi) const;
+
+            //- Get the ray ID by decomposing a direction and band id
+            label dirToRayId(const vector& dir, const label& iBand) const;
+
+            //- Calculate integral of direction vector wrt solid angle
+            //  (using specified deltaTheta and deltaPhi values)
+            vector intDirOmega
             (
-                const word& name,
-                label& rayId
+                const scalar& theta,
+                const scalar& phi,
+                const scalar& deltaTheta,
+                const scalar& deltaPhi
             ) const;
 
-            //- Set the rayId by decomposing a direction and band id
-            void dirToRayId
+            //- Calculate integral of direction vector wrt solid angle
+            //  (using default deltaTheta and deltaPhi values)
+            vector intDirOmega
             (
-                const vector& dir,
-                const  label& iBand,
-                label& rayId
+                const scalar& theta,
+                const scalar& phi
             ) const;
 
             //- Ray intensity for rayI
@@ -194,6 +212,12 @@ public:
 
             //- Number of pixels in theta
             inline label nPixelTheta() const;
+
+            //- Theta interval
+            inline scalar deltaTheta() const;
+
+            //- Phi interval
+            inline scalar deltaPhi() const;
 
             //- Absorbtion coefficient
             inline const volScalarField& A(const label iLambda) const;

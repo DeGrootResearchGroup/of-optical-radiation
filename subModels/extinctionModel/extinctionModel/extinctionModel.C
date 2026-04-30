@@ -75,7 +75,7 @@ void Foam::photoBio::extinctionModel::init(const label nBands)
               IOobject
               (
                   "ALambda_" + Foam::name(iBand) ,
-                  mesh_.time().timeName(),
+                  mesh_.time().name(),
                   mesh_,
                   IOobject::NO_READ,
                   IOobject::AUTO_WRITE
@@ -97,7 +97,7 @@ void Foam::photoBio::extinctionModel::init(const label nBands)
               IOobject
               (
                   "SLambda_" + Foam::name(iBand) ,
-                  mesh_.time().timeName(),
+                  mesh_.time().name(),
                   mesh_,
                   IOobject::NO_READ,
                   IOobject::AUTO_WRITE

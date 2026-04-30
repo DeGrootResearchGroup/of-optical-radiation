@@ -105,21 +105,6 @@ public:
             const fvPatchFieldMapper&
         );
 
-        //- Construct as copy
-        solarSurfaceMixedFvPatchScalarField
-        (
-            const solarSurfaceMixedFvPatchScalarField&
-        );
-
-        //- Construct and return a clone
-        virtual tmp<fvPatchScalarField> clone() const
-        {
-            return tmp<fvPatchScalarField>
-            (
-                new solarSurfaceMixedFvPatchScalarField(*this)
-            );
-        }
-
         //- Construct as copy setting internal field reference
         solarSurfaceMixedFvPatchScalarField
         (
