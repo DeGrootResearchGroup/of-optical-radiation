@@ -21,6 +21,7 @@ subModels/extinctionModel/wideBandVariableExtinction/wideBandVariableExtinction.
 # inScatterModel sub-models excluded: superseded by phaseFunctionModel, implementations broken
 
 derivedFvPatchFields/diffuseEmitter/diffuseEmitterMixedFvPatchScalarField.C
+derivedFvPatchFields/collimatedBeam/collimatedBeamMixedFvPatchScalarField.C
 derivedFvPatchFields/reflectiveSurface/reflectiveSurfaceMixedFvPatchScalarField.C
 derivedFvPatchFields/multiBandTransInterior/multiBandTransInteriorCoupledFvPatchScalarField.C
 
