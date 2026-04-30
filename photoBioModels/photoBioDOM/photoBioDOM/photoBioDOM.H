@@ -32,6 +32,21 @@ Description
     In 2D the direction of the rays is on X-Y plane (only nPhi is considered)
     In 3D (nPhi and nTheta are considered)
 
+    Angular convention (standard / ISO 80000-2):
+        theta is measured from the +z axis, in [0, pi]
+        phi   is measured from the +x axis (toward +y), in [0, 2*pi)
+        Direction vector:
+            s = (sin(theta)*cos(phi), sin(theta)*sin(phi), cos(theta))
+
+    Note: Murthy & Mathur (1998) measure phi from the +y axis instead,
+    giving s = (sin(theta)*sin(phi), sin(theta)*cos(phi), cos(theta)).
+    Their Eq. (14) integral formula for S_i has sin(phi) on the x-component
+    and cos(phi) on the y-component as a consequence; the equivalent here
+    in intDirOmega() has these swapped because the convention is rotated
+    90 degrees about z. The integrals and ray directions are physically
+    identical under either convention, but the iPhi index maps to a
+    different physical direction in the two conventions.
+
 SourceFiles
     photoBioDOM.C
 
