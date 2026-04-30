@@ -83,11 +83,19 @@ multiBandTransInteriorCoupledFvPatchScalarField
     diffuseFraction_(readScalar(dict.lookup("diffuseFraction"))),
     nBands_(readLabel(dict.lookup("nBands")))
 {
-    // Read the refractive indices for each band
-    nNbg_.setSize(nBands_);
+    // Read the refractive indices for each band; the stream extractor
+    // sizes the lists, so we just verify the size matches nBands_.
     dict.lookup("nNbg") >> nNbg_;
-    nOwn_.setSize(nBands_);
     dict.lookup("nOwn") >> nOwn_;
+
+    if (nNbg_.size() != nBands_ || nOwn_.size() != nBands_)
+    {
+        FatalErrorInFunction
+            << "nNbg and nOwn must each contain nBands = " << nBands_
+            << " entries; got nNbg.size() = " << nNbg_.size()
+            << ", nOwn.size() = " << nOwn_.size()
+            << exit(FatalError);
+    }
 
     // Check that the patch is of the correct type
     if (!isA<mappedPatchBase>(this->patch().patch()))
@@ -530,6 +538,7 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::write
 ) const
 {
     mixedFvPatchScalarField::write(os);
+    os.writeKeyword("nBands") << nBands_ << token::END_STATEMENT << nl;
     os.writeKeyword("nNbg") << nNbg_ << token::END_STATEMENT << nl;
     os.writeKeyword("nOwn") << nOwn_ << token::END_STATEMENT << nl;
     os.writeKeyword("diffuseFraction") << diffuseFraction_ << token::END_STATEMENT << nl;
