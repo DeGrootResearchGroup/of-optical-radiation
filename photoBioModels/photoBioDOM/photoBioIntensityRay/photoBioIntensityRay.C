@@ -95,14 +95,14 @@ Foam::photoBio::photoBioIntensityRay::photoBioIntensityRay
     );
 
     // check if field exists and can be read
-    if (IHeader.typeHeaderOk<volScalarField>(true))
+    if (IHeader.typeHeaderOk<volScalarField>())
     {
-        I_.set(new volScalarField(IHeader, mesh_));
+        I_.reset(new volScalarField(IHeader, mesh_));
     }
     else
     {
         // Demand driven load the IDefault field
-        if (!IDefaultPtr.valid())
+        if (!IDefaultPtr)
         {
             IDefaultPtr.reset
             (
@@ -121,11 +121,17 @@ Foam::photoBio::photoBioIntensityRay::photoBioIntensityRay
             );
         }
 
-        // Reset the MUST_READ flag
-        IOobject noReadHeader(IHeader);
-        noReadHeader.readOpt() = IOobject::NO_READ;
+        // Construct header with NO_READ so the field copies IDefault values
+        IOobject noReadHeader
+        (
+            IHeader.name(),
+            IHeader.instance(),
+            IHeader.db(),
+            IOobject::NO_READ,
+            IOobject::NO_WRITE
+        );
 
-        I_.set(new volScalarField(noReadHeader, IDefaultPtr()));
+        I_.reset(new volScalarField(noReadHeader, IDefaultPtr()));
     }
     rayId++;
 }
