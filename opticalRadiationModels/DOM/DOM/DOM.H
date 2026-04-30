@@ -110,7 +110,7 @@ class DOM
         //- List of phase function values (one per band)
         DynamicList<scalar, 1, 0> pf0_;
 
-        //- List of pointers to intensity rays
+        //- List of pointers to per-direction radiance rays
         PtrList<intensityRay> IRay_;
 
         //- Convergence criterion
@@ -136,7 +136,7 @@ class DOM
         //- Check that dimension of the mesh is valid for simulation
         void checkDim_();
 
-        //- Set up an intensity ray
+        //- Set up a radiance ray
         void setRay_(const label i,
                      const label iBand,
                      const label iAngle,
@@ -170,7 +170,7 @@ public:
             //- Update G
             void updateG();
 
-            //- Get the ray ID by decomposing an intensity field name
+            //- Get the ray ID by decomposing a radiance field name
             label nameToRayId(const word& name) const;
 
             //- Get the theta angle from a direction vector
@@ -203,7 +203,7 @@ public:
                 const scalar& phi
             ) const;
 
-            //- Ray intensity for rayI
+            //- Ray radiance for rayI
             inline const intensityRay& IRay(const label rayI) const;
 
             //- Number of angles in theta

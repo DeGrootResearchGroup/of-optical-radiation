@@ -23,7 +23,7 @@ solver tolerance.
 
 ## Files in `0.orig/`
 
-- `I` — radiation intensity (always required by opticalRadiationFoam).
+- `I` — radiance [W/m^2/sr] (always required by opticalRadiationFoam).
 - `X1`, `X2` — absorbing species concentrations [kg/m^3].
 - `S1`, `S2` — scattering species concentrations [kg/m^3].
 

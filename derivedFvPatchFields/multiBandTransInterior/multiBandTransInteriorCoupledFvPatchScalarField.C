@@ -265,7 +265,7 @@ void Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::updateCoeff
             }
         }
 
-        // Case 1: Ray is coming out of wall, or there is overhang -> Calculate intensity at the wall
+        // Case 1: Ray is coming out of wall, or there is overhang -> Calculate radiance at the wall
         if (cosR > 0.0 || overhang)
         {
             // Note: diffuse radiation code has not been checked at all; use at own risk!
@@ -317,7 +317,7 @@ void Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::updateCoeff
             DynamicList<label> candidateReflectedRays;
             DynamicList<label> candidateRefractedRays;
 
-            // Determine the rays contributing to outgoing intensity, looping though each theta pixel
+            // Determine the rays contributing to outgoing radiance, looping though each theta pixel
             for (label i = 1; i <= npTheta; i++)
             {
                 // Calculate the theta angle for this pixel
@@ -521,7 +521,7 @@ void Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::updateCoeff
                 }
             }
 
-            // Calculate the face value of the radiation intensity for this ray
+            // Calculate the face value of the radiance for this ray
             refValue()[faceI] = diffuseFraction_*diffuse/pi + (1.0 - diffuseFraction_)*specular/posIntDirOmega;
             refGrad()[faceI] = 0.0;
             valueFraction()[faceI] = posIntDirOmega/magIntDirOmega;

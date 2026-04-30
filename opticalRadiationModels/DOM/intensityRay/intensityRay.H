@@ -25,7 +25,7 @@ Class
     Foam::optical::intensityRay
 
 Description
-    Radiation intensity for a ray in a given direction
+    Radiance for a ray in a given direction (units W/m^2/sr).
 
 SourceFiles
     intensityRay.C
@@ -133,7 +133,7 @@ public:
 
         // Edit
 
-            //- Update opticalRadiation intensity on i direction
+            //- Update radiance on i direction
             scalar correct();
 
             //- Update boundaries
@@ -151,7 +151,7 @@ public:
 
         // Access
 
-            //- Return intensity
+            //- Return radiance
              inline const volScalarField& I() const;
 
             //- Return direction

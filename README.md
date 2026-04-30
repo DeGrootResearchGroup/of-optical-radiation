@@ -1,6 +1,6 @@
 # README #
 
-This is an implementation of the radiation library which excludes heat radiation and allows for multi band deployment of radiative rays initialised by intensity - the idea is to have the same functionality as Ansys Fluent.
+This is an implementation of the radiation library which excludes heat radiation and solves for multi-band, per-direction radiance fields - the idea is to have the same functionality as Ansys Fluent.
 
 ### How do I get set up? ###
 
