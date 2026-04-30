@@ -28,14 +28,14 @@ License
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
 
-#include "photoBioDOM.H"
+#include "DOM.H"
 #include "mathematicalConstants.H"
 
 using namespace Foam::constant::mathematical;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::
+Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
 reflectiveSurfaceMixedFvPatchScalarField
 (
     const fvPatch& p,
@@ -52,7 +52,7 @@ reflectiveSurfaceMixedFvPatchScalarField
 }
 
 
-Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::
+Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
 reflectiveSurfaceMixedFvPatchScalarField
 (
     const reflectiveSurfaceMixedFvPatchScalarField& ptf,
@@ -67,7 +67,7 @@ reflectiveSurfaceMixedFvPatchScalarField
 {}
 
 
-Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::
+Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
 reflectiveSurfaceMixedFvPatchScalarField
 (
     const fvPatch& p,
@@ -111,7 +111,7 @@ reflectiveSurfaceMixedFvPatchScalarField
 }
 
 
-Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::
+Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
 reflectiveSurfaceMixedFvPatchScalarField
 (
     const reflectiveSurfaceMixedFvPatchScalarField& ptf,
@@ -126,7 +126,7 @@ reflectiveSurfaceMixedFvPatchScalarField
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::
+void Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
 updateCoeffs()
 {
     if (this->updated())
@@ -142,15 +142,15 @@ updateCoeffs()
       
     scalarField& Iw = *this;
     
-    const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
+    const radiationModel& opticalRadiation = db().lookupObject<radiationModel>("opticalRadiationProperties");
 
-    const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
+    const DOM& dom(refCast<const DOM>(opticalRadiation));
 
     if (dom.nBand() == 0)
     {
         FatalErrorIn
         (
-            "Foam::photoBio::"
+            "Foam::optical::"
             "wideBandDiffusiveRadiationMixedFvPatchScalarField::updateCoeffs"
         )   << " a non-grey boundary condition is used with a grey "
             << "absorption model" << nl << exit(FatalError);
@@ -270,7 +270,7 @@ updateCoeffs()
 }
 
 
-void Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::write
+void Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::write
 (
     Ostream& os
 ) const
@@ -286,7 +286,7 @@ void Foam::photoBio::reflectiveSurfaceMixedFvPatchScalarField::write
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
     makePatchTypeField
     (

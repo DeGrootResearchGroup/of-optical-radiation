@@ -54,7 +54,7 @@ SourceFiles
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
 
         class multiBandTransInteriorCoupledFvPatchScalarField
@@ -135,7 +135,7 @@ namespace Foam
             virtual void write(Ostream&) const;
         };
 
-    } // End namespace photoBio
+    } // End namespace optical
 
 } // End namespace Foam
 

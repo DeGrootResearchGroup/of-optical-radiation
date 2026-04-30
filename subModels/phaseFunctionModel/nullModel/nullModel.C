@@ -25,7 +25,7 @@ License
 
 #include "nullModel.H"
 #include "addToRunTimeSelectionTable.H"
-#include "photoBioDOM.H"
+#include "DOM.H"
 
 using namespace Foam::constant::mathematical;
 
@@ -33,7 +33,7 @@ using namespace Foam::constant::mathematical;
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         defineTypeNameAndDebug(nullModel, 0);
 
@@ -49,9 +49,9 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::nullModel::nullModel
+Foam::optical::nullModel::nullModel
 (
-    const photoBioDOM& dom,
+    const DOM& dom,
     const dictionary& dict,
     const label& nDim
 )
@@ -64,7 +64,7 @@ phaseFunctionModel(dom,dict,nDim)
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::photoBio::nullModel::~nullModel()
+Foam::optical::nullModel::~nullModel()
 {}
 
 // ************************************************************************* //

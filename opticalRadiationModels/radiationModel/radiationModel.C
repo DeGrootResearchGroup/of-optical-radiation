@@ -23,7 +23,7 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "photoBioModel.H"
+#include "radiationModel.H"
 #include "extinctionModel.H"
 #include "fvm.H"
 
@@ -31,23 +31,23 @@ License
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
-        defineTypeNameAndDebug(photoBioModel, 0);
-        defineRunTimeSelectionTable(photoBioModel, dictionary);
+        defineTypeNameAndDebug(radiationModel, 0);
+        defineRunTimeSelectionTable(radiationModel, dictionary);
     }
 }
 
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::photoBioModel::photoBioModel(const volScalarField& intensity)
+Foam::optical::radiationModel::radiationModel(const volScalarField& intensity)
 :
     IOdictionary
     (
         IOobject
         (
-            "photoBioProperties",
+            "opticalRadiationProperties",
             intensity.time().constant(),
             intensity.mesh(),
             IOobject::MUST_READ,
@@ -56,13 +56,13 @@ Foam::photoBio::photoBioModel::photoBioModel(const volScalarField& intensity)
     ),
     mesh_(intensity.mesh()),
     time_(intensity.time()),
-    photoBio_(false),
+    opticalRadiation_(false),
     coeffs_(dictionary::null),
     extinction_(nullptr)
 {}
 
 
-Foam::photoBio::photoBioModel::photoBioModel
+Foam::optical::radiationModel::radiationModel
 (
     const word& type,
     const volScalarField& intensity
@@ -72,7 +72,7 @@ Foam::photoBio::photoBioModel::photoBioModel
     (
         IOobject
         (
-            "photoBioProperties",
+            "opticalRadiationProperties",
             intensity.time().constant(),
             intensity.mesh(),
             IOobject::MUST_READ,
@@ -81,7 +81,7 @@ Foam::photoBio::photoBioModel::photoBioModel
     ),
     mesh_(intensity.mesh()),
     time_(intensity.time()),
-    photoBio_(lookup("photoBio")),
+    opticalRadiation_(lookup("opticalRadiation")),
     coeffs_(subDict(type + "Coeffs")),
     extinction_(extinctionModel::New(*this, mesh_))
 {}
@@ -89,17 +89,17 @@ Foam::photoBio::photoBioModel::photoBioModel
 
 // * * * * * * * * * * * * * * * * Destructor    * * * * * * * * * * * * * * //
 
-Foam::photoBio::photoBioModel::~photoBioModel()
+Foam::optical::radiationModel::~radiationModel()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-bool Foam::photoBio::photoBioModel::read()
+bool Foam::optical::radiationModel::read()
 {
     if (regIOobject::read())
     {
-        lookup("photoBio") >> photoBio_;
+        lookup("opticalRadiation") >> opticalRadiation_;
         coeffs_ = subDict(type() + "Coeffs");
 
         return true;
@@ -111,9 +111,9 @@ bool Foam::photoBio::photoBioModel::read()
 }
 
 
-void Foam::photoBio::photoBioModel::correct()
+void Foam::optical::radiationModel::correct()
 {
-   if (!photoBio_)
+   if (!opticalRadiation_)
     {
         return;
     }

@@ -25,14 +25,14 @@ License
 
 #include "schlickModel.H"
 #include "addToRunTimeSelectionTable.H"
-#include "photoBioDOM.H"
+#include "DOM.H"
 
 using namespace Foam::constant::mathematical;
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         defineTypeNameAndDebug(schlickModel, 0);
         addToRunTimeSelectionTable
@@ -47,9 +47,9 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::schlickModel::schlickModel
+Foam::optical::schlickModel::schlickModel
 (
-    const photoBioDOM& dom,
+    const DOM& dom,
     const dictionary& dict,
     const label& nDim
 )
@@ -157,14 +157,14 @@ Foam::photoBio::schlickModel::schlickModel
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::photoBio::schlickModel::~schlickModel()
+Foam::optical::schlickModel::~schlickModel()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 
-Foam::scalar  Foam::photoBio::schlickModel::correct
+Foam::scalar  Foam::optical::schlickModel::correct
 (
     const label rayI,
     const label rayJ,
@@ -174,7 +174,7 @@ Foam::scalar  Foam::photoBio::schlickModel::correct
     return phaseFunction_[rayJ + rayI*nAngle_ +iBand*nAngle_*nAngle_];
 }
 
- Foam::scalar  Foam::photoBio::schlickModel::sl3d
+ Foam::scalar  Foam::optical::schlickModel::sl3d
 (
     const scalar cosV,
     const scalar k
@@ -184,7 +184,7 @@ Foam::scalar  Foam::photoBio::schlickModel::correct
 }
 
 
-Foam::scalar  Foam::photoBio::schlickModel::sl2d
+Foam::scalar  Foam::optical::schlickModel::sl2d
 (
     const scalar cosV,
     const scalar k

@@ -30,7 +30,7 @@ License
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         defineTypeNameAndDebug(noExtinction, 0);
         addToRunTimeSelectionTable
@@ -44,7 +44,7 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::noExtinction::noExtinction
+Foam::optical::noExtinction::noExtinction
 (
     const dictionary& dict,
     const fvMesh& mesh
@@ -56,7 +56,7 @@ Foam::photoBio::noExtinction::noExtinction
 
 // * * * * * * * * * * * * * * * * Destructor    * * * * * * * * * * * * * * //
 
-Foam::photoBio::noExtinction::~noExtinction()
+Foam::optical::noExtinction::~noExtinction()
 {}
 
 // ************************************************************************* //

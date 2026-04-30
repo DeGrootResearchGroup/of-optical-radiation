@@ -22,14 +22,14 @@ License
     along with foam-extend.  If not, see <http://www.gnu.org/licenses/>.
 
 \*---------------------------------------------------------------------------*/
-#include "photoBioModel.H"
-#include "photoBioDOM.H"
+#include "radiationModel.H"
+#include "DOM.H"
 #include "wideBandSpecularRadiationMixedFvPatchScalarField.H"
 #include "addToRunTimeSelectionTable.H"
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 // * * * * * * * * * * * * * Private Member Functions  * * * * * * * * * * * //
 void wideBandSpecularRadiationMixedFvPatchScalarField::
@@ -47,10 +47,10 @@ calcReceivedRayIDs() const
     receivedRayIDPtr_ = new labelListList(this->size());
     labelListList& receivedRayID = *receivedRayIDPtr_;
 
-    // Get access to photoBio model, and recast as photoBioDOM
-    const photoBioModel& photoBio =
-        this->db().lookupObject<photoBioModel>("photoBioProperties");
-    const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
+    // Get access to opticalRadiation model, and recast as DOM
+    const radiationModel& opticalRadiation =
+        this->db().lookupObject<radiationModel>("opticalRadiationProperties");
+    const DOM& dom(refCast<const DOM>(opticalRadiation));
 
     // Get rayId for this ray
     label rayId = -1;
@@ -292,11 +292,11 @@ void wideBandSpecularRadiationMixedFvPatchScalarField::updateCoeffs()
 
     vectorField nHat = this->patch().nf();
 
-    // Get access to photoBio model, and recast as photoBioDOM
-    const photoBioModel& photoBio =
-        this->db().lookupObject<photoBioModel>("photoBioProperties");
+    // Get access to opticalRadiation model, and recast as DOM
+    const radiationModel& opticalRadiation =
+        this->db().lookupObject<radiationModel>("opticalRadiationProperties");
 
-    const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
+    const DOM& dom(refCast<const DOM>(opticalRadiation));
 
     // Get rayId for this ray
     label rayId = -1;
@@ -378,6 +378,6 @@ makePatchTypeField
    wideBandSpecularRadiationMixedFvPatchScalarField
 );
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 // ************************************************************************* //

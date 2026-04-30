@@ -11,14 +11,14 @@ FoamFile
     format      ascii;
     class       dictionary;
     location    "constant";
-    object      photoBioProperties;
+    object      opticalRadiationProperties;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-photoBio        on;
-photoBioModel   photoBioDOM;
+opticalRadiation        on;
+radiationModel   DOM;
 
-photoBioDOMCoeffs
+DOMCoeffs
 {
     nPhi          5;
     nTheta        5;
@@ -42,10 +42,10 @@ photoBioDOMCoeffs
 // scattering species (S1, S2) at uniform concentration 0.5 with specific
 // coefficients of 0.1 m^2/kg per band. The resulting total coefficients
 // are A = 0.1 m^-1 and S = 0.1 m^-1 per band. We use those values here
-// so the tutorial runs standalone with photoBioFoam. (Variable extinction
+// so the tutorial runs standalone with opticalRadiationFoam. (Variable extinction
 // is intended for use inside a coupled solver that supplies the species
 // fields; running it standalone would require extending
-// createPhotoBioFields.H to load X1/X2/S1/S2.)
+// createOpticalRadiationFields.H to load X1/X2/S1/S2.)
 extinctionModel wideBandConstantExtinction;
 wideBandConstantExtinctionCoeffs
 {

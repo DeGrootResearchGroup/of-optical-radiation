@@ -22,7 +22,7 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::photoBio::photoBioDOM
+    Foam::optical::DOM
 
 Description
 
@@ -48,15 +48,15 @@ Description
     different physical direction in the two conventions.
 
 SourceFiles
-    photoBioDOM.C
+    DOM.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef photoBioModelphotoBioDOM_H
-#define photoBioModelphotoBioDOM_H
+#ifndef opticalRadiationModelDOM_H
+#define opticalRadiationModelDOM_H
 
-#include "photoBioModel.H"
-#include "photoBioIntensityRay.H"
+#include "radiationModel.H"
+#include "intensityRay.H"
 #include "phaseFunctionModel.H"
 
 
@@ -64,16 +64,16 @@ SourceFiles
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
 /*---------------------------------------------------------------------------*\
-                           Class photoBioDOM Declaration
+                           Class DOM Declaration
 \*---------------------------------------------------------------------------*/
 
-class photoBioDOM
+class DOM
 :
-    public photoBioModel
+    public radiationModel
 {
     // Private data
 
@@ -111,7 +111,7 @@ class photoBioDOM
         DynamicList<scalar, 1, 0> pf0_;
 
         //- List of pointers to intensity rays
-        PtrList<photoBioIntensityRay> IRay_;
+        PtrList<intensityRay> IRay_;
 
         //- Convergence criterion
         scalar convergence_;
@@ -130,8 +130,8 @@ class photoBioDOM
 
     // Private member functions
 
-        photoBioDOM(const photoBioDOM&) = delete;
-        void operator=(const photoBioDOM&) = delete;
+        DOM(const DOM&) = delete;
+        void operator=(const DOM&) = delete;
 
         //- Check that dimension of the mesh is valid for simulation
         void checkDim_();
@@ -146,25 +146,25 @@ class photoBioDOM
 public:
 
     //- Runtime type information
-    TypeName("photoBioDOM");
+    TypeName("DOM");
 
     // Constructors
 
         //- Construct from components
-        photoBioDOM(const volScalarField& intensity);
+        DOM(const volScalarField& intensity);
 
     //- Destructor
-    virtual ~photoBioDOM();
+    virtual ~DOM();
 
 
     // Member functions
 
         // Edit
 
-            //- Solve photoBio equation(s)
+            //- Solve opticalRadiation equation(s)
             void calculate();
 
-            //- Read photoBio properties dictionary
+            //- Read opticalRadiation properties dictionary
             bool read();
 
             //- Update G
@@ -204,7 +204,7 @@ public:
             ) const;
 
             //- Ray intensity for rayI
-            inline const photoBioIntensityRay& IRay(const label rayI) const;
+            inline const intensityRay& IRay(const label rayI) const;
 
             //- Number of angles in theta
             inline label nTheta() const;
@@ -252,11 +252,11 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-#include "photoBioDOMI.H"
+#include "DOMI.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

@@ -28,14 +28,14 @@ License
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
 
-#include "photoBioDOM.H"
+#include "DOM.H"
 #include "constants.H"
 
 using namespace Foam::constant::mathematical;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::solarSurfaceMixedFvPatchScalarField::
+Foam::optical::solarSurfaceMixedFvPatchScalarField::
 solarSurfaceMixedFvPatchScalarField
 (
     const fvPatch& p,
@@ -55,7 +55,7 @@ solarSurfaceMixedFvPatchScalarField
  //   visualAngle_(0.0),
     
     nBands_(1)
- //   photoBioBandDist_(null),
+ //   opticalRadiationBandDist_(null),
 
 {
     refValue() = 0.0;
@@ -64,7 +64,7 @@ solarSurfaceMixedFvPatchScalarField
 }
 
 
-Foam::photoBio::solarSurfaceMixedFvPatchScalarField::
+Foam::optical::solarSurfaceMixedFvPatchScalarField::
 solarSurfaceMixedFvPatchScalarField
 (
     const solarSurfaceMixedFvPatchScalarField& ptf,
@@ -85,11 +85,11 @@ solarSurfaceMixedFvPatchScalarField
  //   visualAngle_(ptf.visualAngle_), 
 
     nBands_(ptf.nBands_)
- //   photoBioBandDist_(ptf.photoBioBandDist_)
+ //   opticalRadiationBandDist_(ptf.opticalRadiationBandDist_)
 {}
 
 
-Foam::photoBio::solarSurfaceMixedFvPatchScalarField::
+Foam::optical::solarSurfaceMixedFvPatchScalarField::
 solarSurfaceMixedFvPatchScalarField
 (
     const fvPatch& p,
@@ -110,8 +110,8 @@ solarSurfaceMixedFvPatchScalarField
     nBands_(readLabel(dict.lookup("nBand"))) // scalarField("n2", dict);
 {
 	
-   photoBioBandDist_.setSize(nBands_);   
-   dict.lookup("photoBioBandDist") >> photoBioBandDist_;
+   opticalRadiationBandDist_.setSize(nBands_);   
+   dict.lookup("opticalRadiationBandDist") >> opticalRadiationBandDist_;
 	  
     if (dict.found("refValue"))
     {
@@ -137,7 +137,7 @@ solarSurfaceMixedFvPatchScalarField
 
 
 
-Foam::photoBio::solarSurfaceMixedFvPatchScalarField::
+Foam::optical::solarSurfaceMixedFvPatchScalarField::
 solarSurfaceMixedFvPatchScalarField
 (
     const solarSurfaceMixedFvPatchScalarField& ptf,
@@ -164,7 +164,7 @@ solarSurfaceMixedFvPatchScalarField
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::photoBio::solarSurfaceMixedFvPatchScalarField::
+void Foam::optical::solarSurfaceMixedFvPatchScalarField::
 updateCoeffs()
 {
 	if (this->updated())
@@ -178,15 +178,15 @@ updateCoeffs()
      	
     scalarField& Iw = *this;
    
-    const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
+    const radiationModel& opticalRadiation = db().lookupObject<radiationModel>("opticalRadiationProperties");
 
-    const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
+    const DOM& dom(refCast<const DOM>(opticalRadiation));
  
     if (dom.nBand() == 0)
     {
         FatalErrorIn
         (
-            "Foam::photoBio::"
+            "Foam::optical::"
             "wideBandDiffusiveRadiationMixedFvPatchScalarField::updateCoeffs"
         )   << " a non-grey boundary condition is used with a grey "
             << "absorption model" << nl << exit(FatalError);
@@ -382,7 +382,7 @@ updateCoeffs()
 		}
            
                           
-    //       refValue()[faceI] = (diffuseCoeff_*(diffusiveRefraction+ diffusiveReflection )/pi/2 + (1.0 - diffuseCoeff_)*(specularReflection + specularRefraction)/bdOmega)/bdOmega;  //careful here, first omega convert the photoBio transmision control angle, second one convert the value to angle intensity 
+    //       refValue()[faceI] = (diffuseCoeff_*(diffusiveRefraction+ diffusiveReflection )/pi/2 + (1.0 - diffuseCoeff_)*(specularReflection + specularRefraction)/bdOmega)/bdOmega;  //careful here, first omega convert the opticalRadiation transmision control angle, second one convert the value to angle intensity 
             refValue()[faceI] = (diffuseCoeff_*diffusiveRefraction/pi/2 + (1.0 - diffuseCoeff_)*specularRefraction/bdOmega)/bdOmega;     
             refGrad()[faceI] = 0.0;
             valueFraction()[faceI] = 1.0;
@@ -403,7 +403,7 @@ updateCoeffs()
     
 }
 
-void Foam::photoBio::solarSurfaceMixedFvPatchScalarField::dirToAngle
+void Foam::optical::solarSurfaceMixedFvPatchScalarField::dirToAngle
 (
     const vector& dir,
     scalar&	tPhi,
@@ -430,7 +430,7 @@ void Foam::photoBio::solarSurfaceMixedFvPatchScalarField::dirToAngle
 }
 
 
-void Foam::photoBio::solarSurfaceMixedFvPatchScalarField::write
+void Foam::optical::solarSurfaceMixedFvPatchScalarField::write
 (
     Ostream& os
 ) const
@@ -453,7 +453,7 @@ void Foam::photoBio::solarSurfaceMixedFvPatchScalarField::write
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
     makePatchTypeField
     (

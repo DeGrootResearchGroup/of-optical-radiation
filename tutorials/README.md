@@ -1,10 +1,10 @@
-# photoBio tutorials
+# opticalRadiation tutorials
 
-Each subdirectory is a self-contained `photoBioFoam` case. Build the
+Each subdirectory is a self-contained `opticalRadiationFoam` case. Build the
 library and solver first (top of the repository):
 
     wmake libso
-    cd photoBioFoam && wmake
+    cd opticalRadiationFoam && wmake
 
 Then either run all cases from this directory:
 
@@ -47,6 +47,6 @@ CI.
 ## Deferred
 
 Two multi-region cases from the legacy tutorial set (`multiRegion-test01`
-and `multiRegion-test02`) require the `multiRegionPhotoBioFoam` solver,
+and `multiRegion-test02`) require the `multiRegionOpticalRadiationFoam` solver,
 which is currently disabled in `Allwmake`. They will be ported once
 that solver is brought back online for OpenFOAM v13.

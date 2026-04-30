@@ -17,7 +17,7 @@ scattering, and variable extinction tied to species concentrations.
   per band. (The legacy `test01` used `wideBandVariableExtinction` with
   two absorbing and two scattering species; we collapse that to constant
   coefficients here so the case runs standalone — see the comment in
-  `constant/photoBioProperties`.)
+  `constant/opticalRadiationProperties`.)
 - Henyey-Greenstein phase function with asymmetry parameters
   (0.98, 0.98, 0.98, 0.99) — strongly forward-scattering.
 - 5 × 5 angular discretisation per octant (effectively 200 directions);

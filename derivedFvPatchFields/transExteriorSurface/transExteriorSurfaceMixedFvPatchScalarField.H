@@ -25,7 +25,7 @@ Class
     Foam::transExteriorSurfaceMixedFvPatchScalarField
 
 Description
-    photoBio temperature specified
+    opticalRadiation temperature specified
 
 SourceFiles
     transExteriorSurfaceMixedFvPatchScalarField.C
@@ -41,7 +41,7 @@ SourceFiles
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 /*---------------------------------------------------------------------------*\
         Class transExteriorSurfaceMixedFvPatchScalarField Declaration
@@ -53,18 +53,18 @@ class transExteriorSurfaceMixedFvPatchScalarField
 {
     // Private data
 
-        //- incident photoBio angle distribution
+        //- incident opticalRadiation angle distribution
         scalar  nNbg_ ;
         scalar  nOwn_;       
-        scalar  I0_;              // incident photoBio intensity
+        scalar  I0_;              // incident opticalRadiation intensity
         label   nBands_;
         scalar  diffuseFraction_;    
         scalar  beamWidthPhi_	;
         scalar  beamWidthTheta_	;
-        vector  beamDir_ ;         // incident photoBio direction
+        vector  beamDir_ ;         // incident opticalRadiation direction
         bool beamNormToSurf_;
 		label  initFlag_ ; 
-    	DynamicList<scalar,1,0>  photoBioBandDist_;
+    	DynamicList<scalar,1,0>  opticalRadiationBandDist_;
 		autoPtr<scalarField>   specularRefraction;
 		autoPtr<scalarField>   diffusiveRefraction;	
 		

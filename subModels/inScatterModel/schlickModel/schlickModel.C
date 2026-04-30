@@ -31,7 +31,7 @@ License
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         defineTypeNameAndDebug(schlickModel, 0);
 
@@ -47,7 +47,7 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::schlickModel::schlickModel
+Foam::optical::schlickModel::schlickModel
 (
     const dictionary& dict
   //  , const fvMesh& mesh
@@ -58,8 +58,8 @@ Foam::photoBio::schlickModel::schlickModel
 {
      coeffsDict_.lookup("subAngleNum") >> subAngleNum;
      
-     const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
-     const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
+     const radiationModel& opticalRadiation = db().lookupObject<radiationModel>("opticalRadiationProperties");
+     const DOM& dom(refCast<const DOM>(opticalRadiation));
      
      nBands_ = dom.nBands();   //    coeffsDict_.lookup("nBand") >> nBands_;
      asymmetryFactor_.setSize(nBands_);   
@@ -155,14 +155,14 @@ Foam::photoBio::schlickModel::schlickModel
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::photoBio::schlickModel::~schlickModel()
+Foam::optical::schlickModel::~schlickModel()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 
-Foam::scalar  Foam::photoBio::schlickModel::correct
+Foam::scalar  Foam::optical::schlickModel::correct
 (
           const   label rayI,
           const   label rayJ,
@@ -172,7 +172,7 @@ Foam::scalar  Foam::photoBio::schlickModel::correct
     return phaseFunction_(rayJ + rayI*nAngle +iBand*nAngle*nAngle);
 }
 
- Foam::scalar  Foam::photoBio::HenyeyGreensteinModel::hg3d
+ Foam::scalar  Foam::optical::HenyeyGreensteinModel::hg3d
 (
 	const scalar cosPsi,
 	const scalar k
@@ -184,7 +184,7 @@ Foam::scalar  Foam::photoBio::schlickModel::correct
 
 }
 
- Foam::scalar  Foam::photoBio::HenyeyGreensteinModel::hg2d
+ Foam::scalar  Foam::optical::HenyeyGreensteinModel::hg2d
 (
 	const scalar cosPsi,
 	const scalar k

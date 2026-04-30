@@ -28,7 +28,7 @@ License
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
 
-#include "photoBioDOM.H"
+#include "DOM.H"
 #include "constants.H"
 
 using namespace Foam::constant::mathematical;
@@ -36,7 +36,7 @@ using namespace Foam::constant::mathematical;
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
 
-Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::
+Foam::optical::diffuseEmitterMixedFvPatchScalarField::
 diffuseEmitterMixedFvPatchScalarField
 (
     const fvPatch& p,
@@ -48,7 +48,7 @@ diffuseEmitterMixedFvPatchScalarField
 {}
 
 
-Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::
+Foam::optical::diffuseEmitterMixedFvPatchScalarField::
 diffuseEmitterMixedFvPatchScalarField
 (
     const diffuseEmitterMixedFvPatchScalarField& ptf,
@@ -63,7 +63,7 @@ diffuseEmitterMixedFvPatchScalarField
 {}
 
 
-Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::
+Foam::optical::diffuseEmitterMixedFvPatchScalarField::
 diffuseEmitterMixedFvPatchScalarField
 (
     const fvPatch& p,
@@ -79,7 +79,7 @@ diffuseEmitterMixedFvPatchScalarField
 }
 
 
-Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::
+Foam::optical::diffuseEmitterMixedFvPatchScalarField::
 diffuseEmitterMixedFvPatchScalarField
 (
     const diffuseEmitterMixedFvPatchScalarField& ptf,
@@ -93,7 +93,7 @@ diffuseEmitterMixedFvPatchScalarField
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::
+void Foam::optical::diffuseEmitterMixedFvPatchScalarField::
 updateCoeffs()
 {
     // Skip if already updated
@@ -108,15 +108,15 @@ updateCoeffs()
 
     // Get references to the scalar field and associated models
     scalarField& Iw = *this;
-    const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
-    const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
+    const radiationModel& opticalRadiation = db().lookupObject<radiationModel>("opticalRadiationProperties");
+    const DOM& dom(refCast<const DOM>(opticalRadiation));
 
     // Ensure model is compatible with boundary condition
     if (dom.nBand() == 0)
     {
         FatalErrorIn
         (
-            "Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::updateCoeffs"
+            "Foam::optical::diffuseEmitterMixedFvPatchScalarField::updateCoeffs"
         )   << " a non-grey boundary condition is used with a grey"
             << " absorption model" << nl << exit(FatalError);
     }
@@ -157,7 +157,7 @@ updateCoeffs()
 }
 
 
-void Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::write
+void Foam::optical::diffuseEmitterMixedFvPatchScalarField::write
 (
     Ostream& os
 ) const
@@ -172,7 +172,7 @@ void Foam::photoBio::diffuseEmitterMixedFvPatchScalarField::write
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         makePatchTypeField
         (

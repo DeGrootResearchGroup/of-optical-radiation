@@ -47,7 +47,7 @@ def read_G(path: str) -> list:
 
 
 def main() -> int:
-    # Case parameters (must match constant/photoBioProperties and 0.orig/I).
+    # Case parameters (must match constant/opticalRadiationProperties and 0.orig/I).
     KAPPA = 1.0
     EMISSIVE_PER_BAND = 5.0
     N_BANDS = 2

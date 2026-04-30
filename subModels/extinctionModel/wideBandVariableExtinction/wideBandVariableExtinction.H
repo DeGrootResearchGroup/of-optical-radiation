@@ -22,7 +22,7 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::photoBio::wideBandVariableExtinction
+    Foam::optical::wideBandVariableExtinction
 
 Description
     Model for constant absorption and scattering coefficients
@@ -32,8 +32,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef photoBioWideBandExtinction_H
-#define photoBioWideBandExtinction_H
+#ifndef opticalRadiationWideBandExtinction_H
+#define opticalRadiationWideBandExtinction_H
 
 #include "extinctionModel.H"
 
@@ -41,7 +41,7 @@ SourceFiles
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
 /*---------------------------------------------------------------------------*\
@@ -123,7 +123,7 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

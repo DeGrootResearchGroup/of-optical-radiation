@@ -28,7 +28,7 @@ slab, so the case admits an exact analytical solution.
 ## Analytical solution
 
 For an infinite plane-parallel slab with a Lambertian wall on one side
-and an absorbing wall on the other, the integrated radiance (photoBio's
+and an absorbing wall on the other, the integrated radiance (opticalRadiation's
 `G`, with no `cos theta` weighting) at depth `x` is
 
     G(x) = 2 pi L_w E_2(kappa x)
@@ -75,7 +75,7 @@ discretisation (`nPhi`) to 16 reduces the peak error to about 3%.
   optical depths (≤ 2 across the slab) for clean validation.
 - This is a **diffuse** slab problem, not the collimated Beer-Lambert
   problem. Collimated incidence would give `G(x) ~ exp(-kappa x)`
-  exactly, but it requires a non-Lambertian source which photoBio
+  exactly, but it requires a non-Lambertian source which opticalRadiation
   does not currently provide as a BC.
 
 ## Running

@@ -9,6 +9,6 @@ rm -rf 0
 cp -r 0.orig 0
 
 runApplication blockMesh
-runApplication photoBioFoam
+runApplication opticalRadiationFoam
 
 # ----------------------------------------------------------------------------

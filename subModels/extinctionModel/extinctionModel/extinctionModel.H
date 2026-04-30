@@ -22,15 +22,15 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::photoBio::extinctionModel
+    Foam::optical::extinctionModel
 
 Description
     Model to supply absorption and scattering coefficients
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef photoBioExtinctionModel_H
-#define photoBioExtinctionModel_H
+#ifndef opticalRadiationExtinctionModel_H
+#define opticalRadiationExtinctionModel_H
 
 #include "IOdictionary.H"
 #include "autoPtr.H"
@@ -42,7 +42,7 @@ Description
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
 /*---------------------------------------------------------------------------*\
@@ -150,7 +150,7 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

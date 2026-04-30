@@ -25,7 +25,7 @@ Class
     Foam::solarSurfaceMixedFvPatchScalarField
 
 Description
-    photoBio temperature specified
+    opticalRadiation temperature specified
 
 SourceFiles
     solarSurfaceMixedFvPatchScalarField.C
@@ -41,7 +41,7 @@ SourceFiles
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 /*---------------------------------------------------------------------------*\
         Class solarSurfaceMixedFvPatchScalarField Declaration
@@ -53,19 +53,19 @@ class solarSurfaceMixedFvPatchScalarField
 {
     // Private data
 
-        //- incident photoBio angle distribution
+        //- incident opticalRadiation angle distribution
         scalar  nNbg_ ;
         scalar  nOwn_; 
         scalar  diffuseCoeff_;
          
-        scalar  directBeam_;              // incident photoBio intensity
+        scalar  directBeam_;              // incident opticalRadiation intensity
         scalar  skyDiffuse_;   
         scalar  groundReflected_;  
         scalar  zenithAngle_;         // start from the vertical 
         scalar  azimuthAngle_;      // start from the east
         
 		label   nBands_;  
-    	DynamicList<scalar,1,0>  photoBioBandDist_;
+    	DynamicList<scalar,1,0>  opticalRadiationBandDist_;
     	
 //		autoPtr<scalarField>   refraction;
 	//	autoPtr<scalarField>   diffusiveRefraction;		//	        DynamicList<scalar,1,0>  angleDist; 

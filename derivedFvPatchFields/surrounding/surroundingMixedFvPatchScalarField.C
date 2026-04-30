@@ -28,14 +28,14 @@ License
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
 
-#include "photoBioDOM.H"
+#include "DOM.H"
 #include "mathematicalConstants.H"
 
 using namespace Foam::constant::mathematical;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::surroundingMixedFvPatchScalarField::
+Foam::optical::surroundingMixedFvPatchScalarField::
 surroundingMixedFvPatchScalarField
 (
     const fvPatch& p,
@@ -51,7 +51,7 @@ surroundingMixedFvPatchScalarField
 }
 
 
-Foam::photoBio::surroundingMixedFvPatchScalarField::
+Foam::optical::surroundingMixedFvPatchScalarField::
 surroundingMixedFvPatchScalarField
 (
     const surroundingMixedFvPatchScalarField& ptf,
@@ -65,7 +65,7 @@ surroundingMixedFvPatchScalarField
 {}
 
 
-Foam::photoBio::surroundingMixedFvPatchScalarField::
+Foam::optical::surroundingMixedFvPatchScalarField::
 surroundingMixedFvPatchScalarField
 (
     const fvPatch& p,
@@ -105,7 +105,7 @@ surroundingMixedFvPatchScalarField
 }
 
 
-Foam::photoBio::surroundingMixedFvPatchScalarField::
+Foam::optical::surroundingMixedFvPatchScalarField::
 surroundingMixedFvPatchScalarField
 (
     const surroundingMixedFvPatchScalarField& ptf,
@@ -119,7 +119,7 @@ surroundingMixedFvPatchScalarField
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::photoBio::surroundingMixedFvPatchScalarField::
+void Foam::optical::surroundingMixedFvPatchScalarField::
 updateCoeffs()
 {
     if (this->updated())
@@ -134,9 +134,9 @@ updateCoeffs()
       
     scalarField& Iw = *this;
     
-    const photoBioModel& photoBio = db().lookupObject<photoBioModel>("photoBioProperties");
+    const radiationModel& opticalRadiation = db().lookupObject<radiationModel>("opticalRadiationProperties");
 
-    const photoBioDOM& dom(refCast<const photoBioDOM>(photoBio));
+    const DOM& dom(refCast<const DOM>(opticalRadiation));
  
     
     label rayId = -1;
@@ -172,7 +172,7 @@ updateCoeffs()
 }
 
 
-void Foam::photoBio::surroundingMixedFvPatchScalarField::write
+void Foam::optical::surroundingMixedFvPatchScalarField::write
 (
     Ostream& os
 ) const
@@ -187,7 +187,7 @@ void Foam::photoBio::surroundingMixedFvPatchScalarField::write
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
     makePatchTypeField
     (

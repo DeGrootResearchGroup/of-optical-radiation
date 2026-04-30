@@ -25,7 +25,7 @@ Class
     Foam::semiTransSurfaceMixedFvPatchScalarField
 
 Description
-    photoBio temperature specified
+    opticalRadiation temperature specified
 
 SourceFiles
     semiTransSurfaceMixedFvPatchScalarField.C
@@ -41,7 +41,7 @@ SourceFiles
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 /*---------------------------------------------------------------------------*\
         Class reflectiveSurfaceMixedFvPatchScalarField Declaration

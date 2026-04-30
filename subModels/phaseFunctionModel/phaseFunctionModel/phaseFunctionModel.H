@@ -22,10 +22,10 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::photoBio::scatterModel
+    Foam::optical::scatterModel
 
 Description
-    Base class for photoBio scattering
+    Base class for opticalRadiation scattering
 
 \*---------------------------------------------------------------------------*/
 
@@ -42,9 +42,9 @@ Description
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
-class photoBioDOM;
+class DOM;
 
 /*---------------------------------------------------------------------------*\
                            Class phaseFunctionModel Declaration
@@ -54,9 +54,9 @@ class phaseFunctionModel
 {
 protected:
     // Protected data
-    const photoBioDOM& dom_;
+    const DOM& dom_;
     
-    //- photoBio model dictionary
+    //- opticalRadiation model dictionary
     const dictionary dict_;
 
     //- number of dimensions
@@ -77,7 +77,7 @@ public:
 	phaseFunctionModel,
 	dictionary,
 	(
-	    const photoBioDOM& dom,
+	    const DOM& dom,
 	    const dictionary& dict,
 	    const label& nDim
         ),
@@ -90,7 +90,7 @@ public:
     //- Construct from components
     phaseFunctionModel
     (
-	const photoBioDOM& dom,
+	const DOM& dom,
 	const dictionary& dict,
 	const label& nDim
     );
@@ -98,7 +98,7 @@ public:
     // Selector
     static autoPtr<phaseFunctionModel> New
     (
-	const photoBioDOM& dom,
+	const DOM& dom,
 	const dictionary& dict,
 	const label& nDim
         );
@@ -131,7 +131,7 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

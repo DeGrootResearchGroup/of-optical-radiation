@@ -22,7 +22,7 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::photoBio::nullModel
+    Foam::optical::nullModel
 
 Description
     Null phase function model
@@ -41,10 +41,10 @@ SourceFiles
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
-class photoBioDOM;
+class DOM;
 /*---------------------------------------------------------------------------*\
                          Class nullModel Declaration
 \*---------------------------------------------------------------------------*/
@@ -65,7 +65,7 @@ public:
         //- Construct from components
     nullModel
     (
-        const photoBioDOM& dom,
+        const DOM& dom,
         const dictionary& dict,
         const label& nDim
     );
@@ -80,7 +80,7 @@ public:
     
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
     
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

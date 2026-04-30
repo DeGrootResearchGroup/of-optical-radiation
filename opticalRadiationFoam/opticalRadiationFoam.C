@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
-    \\  /    A nd           | Copyright (C) 2008-2010 OpenCFD Ltd.
+    \\  /    A nd           | Copyright (C) 2011 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -21,54 +21,42 @@ License
     You should have received a copy of the GNU General Public License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
+Application
+    opticalRadiationFoam
+
 \*---------------------------------------------------------------------------*/
 
+#include "argList.H"
+#include "Time.H"
+#include "fvMesh.H"
+#include "volFields.H"
+#include "radiationModel.H"
 
- inline const Foam::volScalarField& Foam::photoBio::photoBioIntensityRay::I() const
+using namespace Foam;
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+int main(int argc, char *argv[])
 {
-    return I_;
+    #include "setRootCase.H"
+    #include "createTime.H"
+    #include "createMesh.H"
+    #include "createOpticalRadiationFields.H"
+
+    while (runTime.loop())
+    {
+        Info<< "Time = " << runTime.name() << nl << endl;
+        radiationModel->correct();
+        runTime.write();
+
+        Info<< "ExecutionTime = " << runTime.elapsedCpuTime() << " s"
+            << "  ClockTime = " << runTime.elapsedClockTime() << " s"
+            << nl << endl;
+    }
+
+    Info<< "End\n" << endl;
+    return 0;
 }
 
-
-inline const Foam::vector& Foam::photoBio::photoBioIntensityRay::d() const
-{
-    return d_;
-}
-
-
-inline const Foam::vector& Foam::photoBio::photoBioIntensityRay::dAve() const
-{
-    return dAve_;
-}
-
-
-inline Foam::label Foam::photoBio::photoBioIntensityRay::iBand() const
-{
-    return iBand_;
-}
-
-
-inline Foam::label Foam::photoBio::photoBioIntensityRay::iAngle() const
-{
-    return iAngle_;
-}
-
-
-inline Foam::scalar Foam::photoBio::photoBioIntensityRay::phi() const
-{
-    return phi_;
-}
-
-
-inline Foam::scalar Foam::photoBio::photoBioIntensityRay::theta() const
-{
-    return theta_;
-}
-
-
-inline Foam::scalar Foam::photoBio::photoBioIntensityRay::omega() const
-{
-    return omega_;
-}
 
 // ************************************************************************* //

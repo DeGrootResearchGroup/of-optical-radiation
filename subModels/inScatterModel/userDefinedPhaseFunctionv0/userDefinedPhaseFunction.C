@@ -31,7 +31,7 @@ License
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         defineTypeNameAndDebug(userDefinedPhaseFunction, 0);
 
@@ -47,7 +47,7 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::userDefinedPhaseFunction::userDefinedPhaseFunction
+Foam::optical::userDefinedPhaseFunction::userDefinedPhaseFunction
 (
     const dictionary& dict
   //  , const fvMesh& mesh
@@ -81,14 +81,14 @@ Foam::photoBio::userDefinedPhaseFunction::userDefinedPhaseFunction
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::photoBio::userDefinedPhaseFunction::~userDefinedPhaseFunction()
+Foam::optical::userDefinedPhaseFunction::~userDefinedPhaseFunction()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 
- Foam::scalar  Foam::photoBio::userDefinedPhaseFunction::correct
+ Foam::scalar  Foam::optical::userDefinedPhaseFunction::correct
 (
           const  scalar  rayCos,
           const   label  iBand

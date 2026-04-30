@@ -11,7 +11,7 @@ fields:
 
 This is the form intended for use inside a coupled solver that
 transports species concentrations alongside the radiation. It also
-works standalone with `photoBioFoam`: the model auto-loads any
+works standalone with `opticalRadiationFoam`: the model auto-loads any
 species fields not already registered with the mesh.
 
 With X1 = X2 = S1 = S2 = 0.5 uniform (the values shipped here) and
@@ -23,7 +23,7 @@ solver tolerance.
 
 ## Files in `0.orig/`
 
-- `I` — radiation intensity (always required by photoBioFoam).
+- `I` — radiation intensity (always required by opticalRadiationFoam).
 - `X1`, `X2` — absorbing species concentrations [kg/m^3].
 - `S1`, `S2` — scattering species concentrations [kg/m^3].
 

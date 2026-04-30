@@ -11,14 +11,14 @@ FoamFile
     format      ascii;
     class       dictionary;
     location    "constant";
-    object      photoBioProperties;
+    object      opticalRadiationProperties;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-photoBio        on;
-photoBioModel   photoBioDOM;
+opticalRadiation        on;
+radiationModel   DOM;
 
-photoBioDOMCoeffs
+DOMCoeffs
 {
     nPhi          8;     // azimuthal divisions per pi (total 2*nPhi over [0,2pi))
     nTheta        1;     // polar divisions; must be 1 in 2-D

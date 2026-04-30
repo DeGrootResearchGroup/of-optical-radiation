@@ -22,24 +22,24 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Namespace
-    Foam::photoBio
+    Foam::optical
 
 Description
-    Namespace for photoBio modelling
+    Namespace for opticalRadiation modelling
 
 Class
-    Foam::photoBio::photoBioModel
+    Foam::optical::radiationModel
 
 Description
-    Top level model for photoBio modelling
+    Top level model for opticalRadiation modelling
 
 SourceFiles
-    photoBioModel.C
+    radiationModel.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef photoBioModel_H
-#define photoBioModel_H
+#ifndef radiationModel_H
+#define radiationModel_H
 
 #include "IOdictionary.H"
 #include "autoPtr.H"
@@ -53,7 +53,7 @@ SourceFiles
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
 // Forward declaration of classes
@@ -61,10 +61,10 @@ class extinctionModel;
 class inScatterModel;
 
 /*---------------------------------------------------------------------------*\
-                       Class photoBioModel Declaration
+                       Class radiationModel Declaration
 \*---------------------------------------------------------------------------*/
 
-class photoBioModel
+class radiationModel
 :
     public IOdictionary
 {
@@ -79,12 +79,12 @@ protected:
         const Time& time_;
 
         //- Model specific dictionary input parameters
-        Switch photoBio_;
+        Switch opticalRadiation_;
 
-        //- photoBio model dictionary
+        //- opticalRadiation model dictionary
         dictionary coeffs_;
 
-        //- References to the photoBio sub-models
+        //- References to the opticalRadiation sub-models
          autoPtr<extinctionModel> extinction_;
          autoPtr<inScatterModel> inScatter_;
 
@@ -92,20 +92,20 @@ private:
 
     // Private Member Functions
 
-        photoBioModel(const photoBioModel&) = delete;
-        void operator=(const photoBioModel&) = delete;
+        radiationModel(const radiationModel&) = delete;
+        void operator=(const radiationModel&) = delete;
 
 public:
 
     //- Runtime type information
-    TypeName("photoBioModel");
+    TypeName("radiationModel");
 
     // Declare runtime constructor selection table
 
          declareRunTimeSelectionTable
          (
              autoPtr,
-             photoBioModel,
+             radiationModel,
              dictionary,
              (
                  const volScalarField& intensity
@@ -117,20 +117,20 @@ public:
     // Constructors
 
         //- Null constructor
-        photoBioModel(const volScalarField& intensity);
+        radiationModel(const volScalarField& intensity);
 
         //- Construct from components
-        photoBioModel(const word& type, const volScalarField& intensity);
+        radiationModel(const word& type, const volScalarField& intensity);
 
 
     // Selectors
 
-         //- Return a reference to the selected photoBio model
-        static autoPtr<photoBioModel> New(const volScalarField& intensity);
+         //- Return a reference to the selected opticalRadiation model
+        static autoPtr<radiationModel> New(const volScalarField& intensity);
 
 
     //- Destructor
-    virtual ~photoBioModel();
+    virtual ~radiationModel();
 
 
     // Member Functions
@@ -140,10 +140,10 @@ public:
             //- Main update/correction routine
             virtual void correct();
 
-            //- Solve photoBio equation(s)
+            //- Solve opticalRadiation equation(s)
             virtual void calculate() = 0;
 
-            //- Read photoBioProperties dictionary
+            //- Read opticalRadiationProperties dictionary
             virtual bool read() = 0;
 
             virtual const volScalarField& G() const = 0;
@@ -153,7 +153,7 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

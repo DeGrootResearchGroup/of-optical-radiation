@@ -1,10 +1,10 @@
 # photobio model
 
-photoBioModels/photoBioModel/photoBioModel.C
-photoBioModels/photoBioModel/photoBioModelNew.C
+opticalRadiationModels/radiationModel/radiationModel.C
+opticalRadiationModels/radiationModel/radiationModelNew.C
 
-photoBioModels/photoBioDOM/photoBioDOM/photoBioDOM.C
-photoBioModels/photoBioDOM/photoBioIntensityRay/photoBioIntensityRay.C
+opticalRadiationModels/DOM/DOM/DOM.C
+opticalRadiationModels/DOM/intensityRay/intensityRay.C
 
 subModels/phaseFunctionModel/phaseFunctionModel/phaseFunctionModel.C
 subModels/phaseFunctionModel/phaseFunctionModel/newPhaseFunctionModel.C
@@ -24,6 +24,6 @@ derivedFvPatchFields/diffuseEmitter/diffuseEmitterMixedFvPatchScalarField.C
 derivedFvPatchFields/reflectiveSurface/reflectiveSurfaceMixedFvPatchScalarField.C
 derivedFvPatchFields/multiBandTransInterior/multiBandTransInteriorCoupledFvPatchScalarField.C
 
-LIB = $(FOAM_USER_LIBBIN)/libphotoBio
+LIB = $(FOAM_USER_LIBBIN)/libopticalRadiation
 
 

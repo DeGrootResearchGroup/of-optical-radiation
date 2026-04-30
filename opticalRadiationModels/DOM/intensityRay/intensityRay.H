@@ -22,18 +22,18 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::photoBio::photoBioIntensityRay
+    Foam::optical::intensityRay
 
 Description
     Radiation intensity for a ray in a given direction
 
 SourceFiles
-    photoBioIntensityRay.C
+    intensityRay.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef photoBioIntensityRay_H
-#define photoBioIntensityRay_H
+#ifndef intensityRay_H
+#define intensityRay_H
 
 #include "surfaceFields.H"
 
@@ -44,17 +44,17 @@ SourceFiles
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
 // Forward declaration of classes
-class photoBioDOM;
+class DOM;
 
 /*---------------------------------------------------------------------------*\
-                    Class photoBioIntensityRay Declaration
+                    Class intensityRay Declaration
 \*---------------------------------------------------------------------------*/
 
-class photoBioIntensityRay
+class intensityRay
 {
 public:
 
@@ -64,8 +64,8 @@ private:
 
     // Private data
 
-        //- Refence to the owner photoBioDOM object
-        const photoBioDOM& dom_;
+        //- Refence to the owner DOM object
+        const DOM& dom_;
 
         //- Reference to the mesh
         const fvMesh& mesh_;
@@ -99,8 +99,8 @@ private:
 
     // Private member functions
 
-        photoBioIntensityRay(const photoBioIntensityRay&) = delete;
-        void operator=(const photoBioIntensityRay&) = delete;
+        intensityRay(const intensityRay&) = delete;
+        void operator=(const intensityRay&) = delete;
 
         //- Return the upwind Ji field
         const surfaceScalarField Ji0_() const;
@@ -113,9 +113,9 @@ public:
     // Constructors
 
         //- Construct from components
-        photoBioIntensityRay
+        intensityRay
         (
-            const photoBioDOM& dom,
+            const DOM& dom,
             const fvMesh& mesh,
             const label  iBand,
             const label  iAngle,
@@ -127,13 +127,13 @@ public:
         );
 
     // Destructor
-    ~photoBioIntensityRay();
+    ~intensityRay();
 
     // Member functions
 
         // Edit
 
-            //- Update photoBio intensity on i direction
+            //- Update opticalRadiation intensity on i direction
             scalar correct();
 
             //- Update boundaries
@@ -179,12 +179,12 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-#include "photoBioIntensityRayI.H"
+#include "intensityRayI.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

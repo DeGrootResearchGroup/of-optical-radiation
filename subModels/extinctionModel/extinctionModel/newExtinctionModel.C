@@ -28,8 +28,8 @@ License
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::autoPtr<Foam::photoBio::extinctionModel>
-Foam::photoBio::extinctionModel::New
+Foam::autoPtr<Foam::optical::extinctionModel>
+Foam::optical::extinctionModel::New
 (
     const dictionary& dict,
     const fvMesh& mesh

@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
-    \\  /    A nd           | Copyright (C) 2011 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2008-2010 OpenCFD Ltd.
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -21,42 +21,54 @@ License
     You should have received a copy of the GNU General Public License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
-Application
-    photoBioFoam
-
 \*---------------------------------------------------------------------------*/
 
-#include "argList.H"
-#include "Time.H"
-#include "fvMesh.H"
-#include "volFields.H"
-#include "photoBioModel.H"
 
-using namespace Foam;
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
-
-int main(int argc, char *argv[])
+ inline const Foam::volScalarField& Foam::optical::intensityRay::I() const
 {
-    #include "setRootCase.H"
-    #include "createTime.H"
-    #include "createMesh.H"
-    #include "createPhotoBioFields.H"
-
-    while (runTime.loop())
-    {
-        Info<< "Time = " << runTime.name() << nl << endl;
-        photoBioModel->correct();
-        runTime.write();
-
-        Info<< "ExecutionTime = " << runTime.elapsedCpuTime() << " s"
-            << "  ClockTime = " << runTime.elapsedClockTime() << " s"
-            << nl << endl;
-    }
-
-    Info<< "End\n" << endl;
-    return 0;
+    return I_;
 }
 
+
+inline const Foam::vector& Foam::optical::intensityRay::d() const
+{
+    return d_;
+}
+
+
+inline const Foam::vector& Foam::optical::intensityRay::dAve() const
+{
+    return dAve_;
+}
+
+
+inline Foam::label Foam::optical::intensityRay::iBand() const
+{
+    return iBand_;
+}
+
+
+inline Foam::label Foam::optical::intensityRay::iAngle() const
+{
+    return iAngle_;
+}
+
+
+inline Foam::scalar Foam::optical::intensityRay::phi() const
+{
+    return phi_;
+}
+
+
+inline Foam::scalar Foam::optical::intensityRay::theta() const
+{
+    return theta_;
+}
+
+
+inline Foam::scalar Foam::optical::intensityRay::omega() const
+{
+    return omega_;
+}
 
 // ************************************************************************* //

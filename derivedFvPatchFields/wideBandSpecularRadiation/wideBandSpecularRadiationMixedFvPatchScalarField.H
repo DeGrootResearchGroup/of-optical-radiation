@@ -45,7 +45,7 @@ Author
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
 /*---------------------------------------------------------------------------*\
@@ -137,7 +137,7 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

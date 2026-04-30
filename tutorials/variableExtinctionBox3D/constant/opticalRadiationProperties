@@ -11,14 +11,14 @@ FoamFile
     format      ascii;
     class       dictionary;
     location    "constant";
-    object      photoBioProperties;
+    object      opticalRadiationProperties;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-photoBio        on;
-photoBioModel   photoBioDOM;
+opticalRadiation        on;
+radiationModel   DOM;
 
-photoBioDOMCoeffs
+DOMCoeffs
 {
     nPhi          5;
     nTheta        5;
@@ -39,7 +39,7 @@ photoBioDOMCoeffs
 
 // Variable extinction tied to species concentrations. The model loads
 // any of the named species fields that aren't already registered with
-// the mesh, so this case runs standalone with photoBioFoam (the species
+// the mesh, so this case runs standalone with opticalRadiationFoam (the species
 // fields in 0.orig/ are loaded automatically) and also in a coupled
 // solver that supplies its own species fields.
 //

@@ -22,10 +22,10 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::photoBio::scatterModel
+    Foam::optical::scatterModel
 
 Description
-    Base class for photoBio scattering
+    Base class for opticalRadiation scattering
 
 \*---------------------------------------------------------------------------*/
 
@@ -42,7 +42,7 @@ Description
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
 /*---------------------------------------------------------------------------*\
@@ -60,7 +60,7 @@ protected:
    //     const fvMesh& mesh_;
         
         
-        //- photoBio model dictionary
+        //- opticalRadiation model dictionary
         const dictionary dict_;
         
         
@@ -157,7 +157,7 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End namespace photoBio
+} // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

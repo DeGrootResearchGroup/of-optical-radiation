@@ -24,32 +24,32 @@ License
 \*---------------------------------------------------------------------------*/
 
 #include "error.H"
-#include "photoBioModel.H"
+#include "radiationModel.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
 {
-namespace photoBio
+namespace optical
 {
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-autoPtr<photoBioModel> photoBioModel::New
+autoPtr<radiationModel> radiationModel::New
 (
      const volScalarField& Enu
 )
 {
-    word photoBioModelTypeName;
+    word radiationModelTypeName;
 
-    // Note: no need to register/keep photoBioProperties since models read
+    // Note: no need to register/keep opticalRadiationProperties since models read
     // it themselves.
     {
-        IOdictionary photoBioPropertiesDict
+        IOdictionary opticalRadiationPropertiesDict
         (
             IOobject
             (
-                "photoBioProperties",
+                "opticalRadiationProperties",
                 Enu.time().constant(),
                 Enu.mesh(),
                 IOobject::MUST_READ,
@@ -58,34 +58,34 @@ autoPtr<photoBioModel> photoBioModel::New
             )
         );
 
-        photoBioPropertiesDict.lookup("photoBioModel")
-            >> photoBioModelTypeName;
+        opticalRadiationPropertiesDict.lookup("radiationModel")
+            >> radiationModelTypeName;
     }
 
-    Info<< "Selecting photoBioModel " << photoBioModelTypeName << endl;
+    Info<< "Selecting radiationModel " << radiationModelTypeName << endl;
 
     dictionaryConstructorTable::iterator cstrIter =
-        dictionaryConstructorTablePtr_->find(photoBioModelTypeName);
+        dictionaryConstructorTablePtr_->find(radiationModelTypeName);
 
     if (cstrIter == dictionaryConstructorTablePtr_->end())
     {
         FatalErrorIn
         (
-            "photoBioModel::New(const volScalarField&)"
-        )   << "Unknown photoBioModel type " << photoBioModelTypeName
+            "radiationModel::New(const volScalarField&)"
+        )   << "Unknown radiationModel type " << radiationModelTypeName
             << nl << nl
-            << "Valid photoBioModel types are:" << nl
+            << "Valid radiationModel types are:" << nl
             << dictionaryConstructorTablePtr_->sortedToc()
             << exit(FatalError);
     }
 
-    return autoPtr<photoBioModel>(cstrIter()(Enu));
+    return autoPtr<radiationModel>(cstrIter()(Enu));
 }
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-} // End photoBio
+} // End opticalRadiation
 } // End namespace Foam
 
 // ************************************************************************* //

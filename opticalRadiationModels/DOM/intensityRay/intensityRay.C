@@ -22,26 +22,26 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 \*---------------------------------------------------------------------------*/
 
-#include "photoBioIntensityRay.H"
+#include "intensityRay.H"
 #include "fvm.H"
-#include "photoBioDOM.H"
+#include "DOM.H"
 #include "mathematicalConstants.H"
 
 using namespace Foam::constant::mathematical;
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
-Foam::label Foam::photoBio::photoBioIntensityRay::rayId(0);
+Foam::label Foam::optical::intensityRay::rayId(0);
 
 const Foam::word
-Foam::photoBio::photoBioIntensityRay::intensityPrefix("I");
+Foam::optical::intensityRay::intensityPrefix("I");
 
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::photoBioIntensityRay::photoBioIntensityRay
+Foam::optical::intensityRay::intensityRay
 (
-    const photoBioDOM& dom,
+    const DOM& dom,
     const fvMesh& mesh,
     const label iBand,
     const label iAngle,
@@ -128,13 +128,13 @@ Foam::photoBio::photoBioIntensityRay::photoBioIntensityRay
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::photoBio::photoBioIntensityRay::~photoBioIntensityRay()
+Foam::optical::intensityRay::~intensityRay()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::scalar Foam::photoBio::photoBioIntensityRay::correct()
+Foam::scalar Foam::optical::intensityRay::correct()
 {
     scalar maxResidual = -GREAT;
     scalar eqnResidual;
@@ -161,7 +161,7 @@ Foam::scalar Foam::photoBio::photoBioIntensityRay::correct()
 }
 
 
-const Foam::surfaceScalarField Foam::photoBio::photoBioIntensityRay::Ji0_() const
+const Foam::surfaceScalarField Foam::optical::intensityRay::Ji0_() const
 {
     const label npTheta = dom_.nPixelTheta();
     const label npPhi = dom_.nPixelPhi();
@@ -187,7 +187,7 @@ const Foam::surfaceScalarField Foam::photoBio::photoBioIntensityRay::Ji0_() cons
 }
 
 
-const Foam::surfaceScalarField Foam::photoBio::photoBioIntensityRay::Ji1_() const
+const Foam::surfaceScalarField Foam::optical::intensityRay::Ji1_() const
 {
     const label npTheta = dom_.nPixelTheta();
     const label npPhi = dom_.nPixelPhi();
@@ -213,7 +213,7 @@ const Foam::surfaceScalarField Foam::photoBio::photoBioIntensityRay::Ji1_() cons
 }
 
 
-void Foam::photoBio::photoBioIntensityRay::updateBoundary()
+void Foam::optical::intensityRay::updateBoundary()
 {
     I_->correctBoundaryConditions();
 }

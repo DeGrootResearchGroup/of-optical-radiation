@@ -30,7 +30,7 @@ License
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         defineTypeNameAndDebug(wideBandConstantExtinction, 0);
 
@@ -46,7 +46,7 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::wideBandConstantExtinction::wideBandConstantExtinction
+Foam::optical::wideBandConstantExtinction::wideBandConstantExtinction
 (
     const dictionary& dict,
     const fvMesh& mesh
@@ -96,14 +96,14 @@ Foam::photoBio::wideBandConstantExtinction::wideBandConstantExtinction
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
 
-Foam::photoBio::wideBandConstantExtinction::~wideBandConstantExtinction()
+Foam::optical::wideBandConstantExtinction::~wideBandConstantExtinction()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 
-void Foam::photoBio::wideBandConstantExtinction::correct()
+void Foam::optical::wideBandConstantExtinction::correct()
 {
     // Nothing to be done for constant coefficients
     return;

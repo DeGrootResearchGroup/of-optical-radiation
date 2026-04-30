@@ -13,9 +13,9 @@
         mesh
     );
     
-    // Initialise the photoBio model
+    // Initialise the opticalRadiation model
     
-    autoPtr<photoBio::photoBioModel> photoBioModel
+    autoPtr<optical::radiationModel> radiationModel
     (
-        photoBio::photoBioModel::New(I_cal)
+        optical::radiationModel::New(I_cal)
     );

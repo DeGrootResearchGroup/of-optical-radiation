@@ -30,7 +30,7 @@ License
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         defineTypeNameAndDebug(wideBandVariableExtinction, 0);
 
@@ -46,7 +46,7 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::wideBandVariableExtinction::wideBandVariableExtinction
+Foam::optical::wideBandVariableExtinction::wideBandVariableExtinction
 (
     const dictionary& dict,
     const fvMesh& mesh
@@ -153,14 +153,14 @@ Foam::photoBio::wideBandVariableExtinction::wideBandVariableExtinction
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
 
-Foam::photoBio::wideBandVariableExtinction::~wideBandVariableExtinction()
+Foam::optical::wideBandVariableExtinction::~wideBandVariableExtinction()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 
-void Foam::photoBio::wideBandVariableExtinction::correct()
+void Foam::optical::wideBandVariableExtinction::correct()
 {
     
     forAll(aFields_, i)

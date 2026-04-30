@@ -23,7 +23,7 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "photoBioDOM.H"
+#include "DOM.H"
 #include "addToRunTimeSelectionTable.H"
 #include "constants.H"
 #include "phaseFunctionModel.H"
@@ -35,13 +35,13 @@ using namespace Foam::constant::mathematical;
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
-        defineTypeNameAndDebug(photoBioDOM, 0);
+        defineTypeNameAndDebug(DOM, 0);
         addToRunTimeSelectionTable
         (
-            photoBioModel,
-            photoBioDOM,
+            radiationModel,
+            DOM,
             dictionary
         );
     }
@@ -49,9 +49,9 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::photoBioDOM::photoBioDOM(const volScalarField& intensity)
+Foam::optical::DOM::DOM(const volScalarField& intensity)
 :
-    photoBioModel(typeName, intensity),
+    radiationModel(typeName, intensity),
     G_
     (
         IOobject
@@ -90,7 +90,7 @@ Foam::photoBio::photoBioDOM::photoBioDOM(const volScalarField& intensity)
     convergence_(coeffs_.lookupOrDefault<scalar>("convergence", 0.0)),
     maxIter_(coeffs_.lookupOrDefault<label>("maxIter", 50))
 {
-    Info<< "Creating photoBioDOM model with " << nBand_ << " bands" << endl;
+    Info<< "Creating DOM model with " << nBand_ << " bands" << endl;
 
     // Check that dimension of mesh is compatible with settings
     checkDim_();
@@ -144,7 +144,7 @@ Foam::photoBio::photoBioDOM::photoBioDOM(const volScalarField& intensity)
             << " The angular discretisation may be malformed." << endl;
     }
 
-    Info<< "photoBioDOM : Allocated " << IRay_.size() << " rays" << endl;
+    Info<< "DOM : Allocated " << IRay_.size() << " rays" << endl;
 
     forAll(GLambda_, iBand)
     {
@@ -186,15 +186,15 @@ Foam::photoBio::photoBioDOM::photoBioDOM(const volScalarField& intensity)
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::photoBio::photoBioDOM::~photoBioDOM()
+Foam::optical::DOM::~DOM()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-bool Foam::photoBio::photoBioDOM::read()
+bool Foam::optical::DOM::read()
 {
-    if (photoBioModel::read())
+    if (radiationModel::read())
     {
         // Only reading solution parameters - not changing ray geometry
         coeffs_.readIfPresent("convergence", convergence_);
@@ -207,7 +207,7 @@ bool Foam::photoBio::photoBioDOM::read()
     }
 }
 
-void Foam::photoBio::photoBioDOM::calculate()
+void Foam::optical::DOM::calculate()
 {
     scalar maxResidual = 0.0;
     label rayJ;
@@ -229,7 +229,7 @@ void Foam::photoBio::photoBioDOM::calculate()
             iAngle = IRay_[rayI].iAngle();
 
             Info << endl;
-            Info << "photoBio solver: " << "    iter: " << radIter
+            Info << "opticalRadiation solver: " << "    iter: " << radIter
                                         << "    iBand: "<< iBand
                                         << "    iAngle  : "<< iAngle;
             Info << endl;
@@ -262,7 +262,7 @@ void Foam::photoBio::photoBioDOM::calculate()
 }
 
 
-void Foam::photoBio::photoBioDOM::updateG()
+void Foam::optical::DOM::updateG()
 {
     G_ = dimensionedScalar("zero",dimMass/pow3(dimTime), 0.0);
     label rayI;
@@ -279,7 +279,7 @@ void Foam::photoBio::photoBioDOM::updateG()
 }
 
 
-Foam::label Foam::photoBio::photoBioDOM::nameToRayId(const word& name) const
+Foam::label Foam::optical::DOM::nameToRayId(const word& name) const
 {
     // assuming name is in the form: CHARS_iBand_iAngle
 
@@ -293,13 +293,13 @@ Foam::label Foam::photoBio::photoBioDOM::nameToRayId(const word& name) const
 }
 
 
-Foam::scalar Foam::photoBio::photoBioDOM::dirToTheta(const vector& dir) const
+Foam::scalar Foam::optical::DOM::dirToTheta(const vector& dir) const
 {
     return Foam::acos(dir.z()/mag(dir));
 }
 
 
-Foam::scalar Foam::photoBio::photoBioDOM::dirToPhi(const vector& dir) const
+Foam::scalar Foam::optical::DOM::dirToPhi(const vector& dir) const
 {
     scalar phi = 0.0;
     if (mag(dir.x()) > SMALL)
@@ -317,7 +317,7 @@ Foam::scalar Foam::photoBio::photoBioDOM::dirToPhi(const vector& dir) const
 }
 
 
-Foam::vector Foam::photoBio::photoBioDOM::anglesToDir
+Foam::vector Foam::optical::DOM::anglesToDir
 (
     const scalar& theta,
     const scalar& phi
@@ -331,7 +331,7 @@ Foam::vector Foam::photoBio::photoBioDOM::anglesToDir
 }
 
 
-Foam::label Foam::photoBio::photoBioDOM::dirToRayId
+Foam::label Foam::optical::DOM::dirToRayId
 (
     const vector& dir,
     const label& iBand
@@ -349,7 +349,7 @@ Foam::label Foam::photoBio::photoBioDOM::dirToRayId
 }
 
 
-Foam::vector Foam::photoBio::photoBioDOM::intDirOmega
+Foam::vector Foam::optical::DOM::intDirOmega
 (
     const scalar& theta,
     const scalar& phi,
@@ -368,7 +368,7 @@ Foam::vector Foam::photoBio::photoBioDOM::intDirOmega
 }
 
 
-Foam::vector Foam::photoBio::photoBioDOM::intDirOmega
+Foam::vector Foam::optical::DOM::intDirOmega
 (
     const scalar& theta,
     const scalar& phi
@@ -378,7 +378,7 @@ Foam::vector Foam::photoBio::photoBioDOM::intDirOmega
 }
 
 
-void Foam::photoBio::photoBioDOM::checkDim_()
+void Foam::optical::DOM::checkDim_()
 {
     if (mesh_.nSolutionD() == 2) // 2D (X & Y)
     {
@@ -398,13 +398,13 @@ void Foam::photoBio::photoBioDOM::checkDim_()
     if (mesh_.nSolutionD() == 1)
     {
         FatalErrorInFunction
-            << "1D simulations are not supported by photoBioDOM; use 2D or 3D"
+            << "1D simulations are not supported by DOM; use 2D or 3D"
             << exit(FatalError);
     }
 }
 
 
-void Foam::photoBio::photoBioDOM::setRay_
+void Foam::optical::DOM::setRay_
 (
     const label i,
     const label iBand,
@@ -416,7 +416,7 @@ void Foam::photoBio::photoBioDOM::setRay_
     IRay_.set
     (
         i,
-        new photoBioIntensityRay
+        new intensityRay
         (
             *this,
             mesh_,

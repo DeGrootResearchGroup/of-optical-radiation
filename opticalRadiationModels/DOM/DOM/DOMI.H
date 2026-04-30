@@ -23,92 +23,92 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-inline const Foam::photoBio::photoBioIntensityRay&
-Foam::photoBio::photoBioDOM::IRay(const label rayI) const
+inline const Foam::optical::intensityRay&
+Foam::optical::DOM::IRay(const label rayI) const
 {
     return  IRay_[rayI];
 }
 
 
-inline Foam::label Foam::photoBio::photoBioDOM::nTheta() const
+inline Foam::label Foam::optical::DOM::nTheta() const
 {
     return nTheta_;
 }
 
 
-inline Foam::label Foam::photoBio::photoBioDOM::nPhi() const
+inline Foam::label Foam::optical::DOM::nPhi() const
 {
     return nPhi_;
 }
 
 
-inline Foam::label Foam::photoBio::photoBioDOM::nAngle() const
+inline Foam::label Foam::optical::DOM::nAngle() const
 {
     return nAngle_;
 }
 
 
-inline Foam::label Foam::photoBio::photoBioDOM::nRay() const
+inline Foam::label Foam::optical::DOM::nRay() const
 {
     return nRay_;
 }
 
 
-inline Foam::label Foam::photoBio::photoBioDOM::nBand() const
+inline Foam::label Foam::optical::DOM::nBand() const
 {
     return nBand_;
 }
 
 
-inline Foam::label Foam::photoBio::photoBioDOM::nPixelPhi() const
+inline Foam::label Foam::optical::DOM::nPixelPhi() const
 {
     return nPixelPhi_;
 }
 
 
-inline Foam::label Foam::photoBio::photoBioDOM::nPixelTheta() const
+inline Foam::label Foam::optical::DOM::nPixelTheta() const
 {
     return nPixelTheta_;
 }
 
 
-inline Foam::scalar Foam::photoBio::photoBioDOM::deltaTheta() const
+inline Foam::scalar Foam::optical::DOM::deltaTheta() const
 {
     return deltaTheta_;
 }
 
 
-inline Foam::scalar Foam::photoBio::photoBioDOM::deltaPhi() const
+inline Foam::scalar Foam::optical::DOM::deltaPhi() const
 {
     return deltaPhi_;
 }
 
 
-inline const Foam::volScalarField& Foam::photoBio::photoBioDOM::A(const label iLambda) const
+inline const Foam::volScalarField& Foam::optical::DOM::A(const label iLambda) const
 {
     return extinction_->A(iLambda);
 }
 
 
-inline const Foam::volScalarField& Foam::photoBio::photoBioDOM::S(const label iLambda) const
+inline const Foam::volScalarField& Foam::optical::DOM::S(const label iLambda) const
 {
     return extinction_->S(iLambda);
 }
 
 
-inline Foam::scalar Foam::photoBio::photoBioDOM::pf0(const label iLambda) const
+inline Foam::scalar Foam::optical::DOM::pf0(const label iLambda) const
 {
     return pf0_[iLambda];
 }
 
 
-inline const Foam::volScalarField& Foam::photoBio::photoBioDOM::G() const
+inline const Foam::volScalarField& Foam::optical::DOM::G() const
 {
     return G_;
 }
 
 
-inline const Foam::volScalarField& Foam::photoBio::photoBioDOM::diffusionScatter() const
+inline const Foam::volScalarField& Foam::optical::DOM::diffusionScatter() const
 {
     return diffusionScatter_;
 }

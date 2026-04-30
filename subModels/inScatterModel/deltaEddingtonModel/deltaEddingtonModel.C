@@ -31,7 +31,7 @@ License
 
 namespace Foam
 {
-    namespace photoBio
+    namespace optical
     {
         defineTypeNameAndDebug(deltaEddingtonModel, 0);
 
@@ -47,7 +47,7 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::deltaEddingtonModel::deltaEddingtonModel
+Foam::optical::deltaEddingtonModel::deltaEddingtonModel
 (
     const dictionary& dict
   //  , const fvMesh& mesh
@@ -73,14 +73,14 @@ Foam::photoBio::deltaEddingtonModel::deltaEddingtonModel
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::photoBio::deltaEddingtonModel::~deltaEddingtonModel()
+Foam::optical::deltaEddingtonModel::~deltaEddingtonModel()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 
- Foam::scalar  Foam::photoBio::deltaEddingtonModel::correct
+ Foam::scalar  Foam::optical::deltaEddingtonModel::correct
 (
           const  scalar  rayCos,
           const   label  iBand
