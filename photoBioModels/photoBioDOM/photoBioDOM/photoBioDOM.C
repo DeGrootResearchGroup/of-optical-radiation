@@ -112,7 +112,6 @@ Foam::photoBio::photoBioDOM::photoBioDOM(const volScalarField& intensity)
     label i = 0;
     for (label iBand = 0; iBand < nBand_; iBand++)
     {
-        scalar sumOmega = 0.0;
         for (label iTheta = 0; iTheta < nTheta_; iTheta++)
         {
             for (label iPhi = 0; iPhi < nAngle_/nTheta_; iPhi++)
@@ -121,14 +120,28 @@ Foam::photoBio::photoBioDOM::photoBioDOM(const volScalarField& intensity)
                 scalar theta = (iTheta + 0.5)*deltaTheta_;
                 scalar phi = (iPhi + 0.5)*deltaPhi_;
                 setRay_(i, iBand, iAngle, phi, theta);
-                sumOmega += IRay_[i].omega();
                 i++;
             }
         }
-        if (iBand == 0)
-        {
-            Info << "Sum of solid angles: " << sumOmega << endl;
-        }
+    }
+
+    // Verify the angular discretisation covers the full sphere; sumOmega
+    // is band-independent so we only check the first band's rays.
+    scalar sumOmega = 0.0;
+    for (label rayI = 0; rayI < nAngle_; rayI++)
+    {
+        sumOmega += IRay_[rayI].omega();
+    }
+    Info << "Sum of solid angles: " << sumOmega
+        << " (expected " << 4.0*pi << ")" << endl;
+    const scalar omegaTol = 1e-6 * 4.0*pi;
+    if (mag(sumOmega - 4.0*pi) > omegaTol)
+    {
+        WarningInFunction
+            << "Sum of solid angles deviates from 4*pi by "
+            << mag(sumOmega - 4.0*pi)
+            << ", which exceeds the tolerance of " << omegaTol << "."
+            << " The angular discretisation may be malformed." << endl;
     }
 
     Info<< "photoBioDOM : Allocated " << IRay_.size() << " rays" << endl;
