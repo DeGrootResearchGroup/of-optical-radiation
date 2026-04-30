@@ -411,8 +411,13 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::updateCoef
                         // Create a vector in the direction of the reflected ray
                         vector reflectDir = pixelDir + 2.0*cosP*surfNorm;
 
-                        // Get the cosine of the angle between the outgoing reflected ray and the surface normal
-                        scalar cosB = dom.IRay(rayId).nearestPixelDir(reflectDir) & surfNorm;
+                        // Cosine of the outgoing reflected ray with the
+                        // surface normal. reflectDir is unit-length by
+                        // construction, so the dot product gives the exact
+                        // continuous cosine -- Fresnel R is a physical
+                        // relationship between continuous angles, not the
+                        // discrete pixel grid.
+                        scalar cosB = reflectDir & surfNorm;
 
                         // Continue only if reflected ray is coming out of the surface
                         if (cosB > 0.0)
@@ -426,8 +431,9 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::updateCoef
                                 // Calculate direction of refracted radiation
                                 vector refractIncidentDir = (reflectDir - cosB*surfNorm)*nRatio + Foam::sqrt(1 - (nRatio*nRatio)*(1 - cosB*cosB))*surfNorm;
 
-                                // Calculate cosine of angle between refracted incident ray and surface normal
-                                scalar cosA = dom.IRay(rayId).nearestPixelDir(refractIncidentDir) & surfNorm;
+                                // Cosine of the refracted incident ray with the
+                                // surface normal -- exact continuous value.
+                                scalar cosA = refractIncidentDir & surfNorm;
 
                                 // Calculate interface reflectivity
                                 scalar r1 = (nA*cosB - nB*cosA)/(nA*cosB + nB*cosA);
@@ -491,8 +497,10 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::updateCoef
                                 // Accumulate the specular flux only if the outgoing ray matches this ray
                                 if (refractRay == rayId)
                                 {
-                                    // Calculate cosine of angle between refracted ray and surface normal
-                                    scalar cosB = dom.IRay(rayId).nearestPixelDir(refractDir) & surfNorm;
+                                    // Cosine of the refracted outgoing ray with
+                                    // the surface normal -- exact continuous
+                                    // value.
+                                    scalar cosB = refractDir & surfNorm;
 
                                     // Calculate interface reflectivity
                                     scalar r1 = (nA*cosB - nB*cosA)/(nA*cosB + nB*cosA);

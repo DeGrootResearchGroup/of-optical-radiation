@@ -218,34 +218,4 @@ void Foam::photoBio::photoBioIntensityRay::updateBoundary()
     I_->correctBoundaryConditions();
 }
 
-
-const Foam::vector Foam::photoBio::photoBioIntensityRay::nearestPixelDir
-(
-    const vector& dir
-) const
-{
-    scalar theta = dom_.dirToTheta(dir);
-    scalar phi = dom_.dirToPhi(dir);
-
-    label npTheta = dom_.nPixelTheta();
-    label npPhi = dom_.nPixelPhi();
-
-    scalar deltaTheta = dom_.deltaTheta();
-    scalar deltaPhi = dom_.deltaPhi();
-
-    scalar deltaPixelTheta = deltaTheta/npTheta;
-    scalar deltaPixelPhi = deltaPhi/npPhi;
-
-    scalar theta0 = theta_ - 0.5*deltaTheta;
-    scalar phi0 = phi_ - 0.5*deltaPhi;
-
-    label iPixelTheta = label((theta - theta0)/deltaPixelTheta);
-    label iPixelPhi = label((phi - phi0)/deltaPixelPhi);
-
-    scalar pixelTheta = theta_ - 0.5*deltaTheta + (iPixelTheta + 0.5)*deltaPixelTheta;
-    scalar pixelPhi = phi_ - 0.5*deltaPhi + (iPixelPhi + 0.5)*deltaPixelPhi;
-
-    return dom_.anglesToDir(pixelTheta, pixelPhi);
-}
-
 // ************************************************************************* //

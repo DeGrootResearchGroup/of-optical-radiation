@@ -174,9 +174,6 @@ public:
 
             //- Return the solid angle
             inline scalar omega() const;
-
-            //- Return the nearest pixel direction
-            const vector nearestPixelDir(const vector& dir) const;
 };
 
 
