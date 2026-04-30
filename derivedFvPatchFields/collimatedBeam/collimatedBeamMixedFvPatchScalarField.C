@@ -61,7 +61,8 @@ collimatedBeamMixedFvPatchScalarField
     mixedFvPatchScalarField(ptf, p, iF, mapper),
     beamDirection_(ptf.beamDirection_),
     nBands_(ptf.nBands_),
-    beamRadiance_(ptf.beamRadiance_)
+    beamRadiance_(ptf.beamRadiance_),
+    emissivePower_(ptf.emissivePower_)
 {}
 
 
@@ -90,13 +91,40 @@ collimatedBeamMixedFvPatchScalarField
     }
     beamDirection_ /= magBeam;
 
-    dict.lookup("beamRadiance") >> beamRadiance_;
-    if (beamRadiance_.size() != nBands_)
+    // Choose input mode: exactly one of beamRadiance / emissivePower.
+    const bool hasRadiance = dict.found("beamRadiance");
+    const bool hasPower    = dict.found("emissivePower");
+
+    if (hasRadiance == hasPower)
     {
         FatalErrorInFunction
-            << "beamRadiance must contain nBands = " << nBands_
-            << " entries; got " << beamRadiance_.size()
+            << "Specify exactly one of 'beamRadiance' (W/m^2/sr per band)"
+            << " or 'emissivePower' (W/m^2 per band, beam-normal)"
+            << " on patch " << p.name() << " of field " << iF.name()
             << exit(FatalError);
+    }
+
+    if (hasRadiance)
+    {
+        dict.lookup("beamRadiance") >> beamRadiance_;
+        if (beamRadiance_.size() != nBands_)
+        {
+            FatalErrorInFunction
+                << "beamRadiance must contain nBands = " << nBands_
+                << " entries; got " << beamRadiance_.size()
+                << exit(FatalError);
+        }
+    }
+    else
+    {
+        dict.lookup("emissivePower") >> emissivePower_;
+        if (emissivePower_.size() != nBands_)
+        {
+            FatalErrorInFunction
+                << "emissivePower must contain nBands = " << nBands_
+                << " entries; got " << emissivePower_.size()
+                << exit(FatalError);
+        }
     }
 }
 
@@ -111,7 +139,8 @@ collimatedBeamMixedFvPatchScalarField
     mixedFvPatchScalarField(ptf, iF),
     beamDirection_(ptf.beamDirection_),
     nBands_(ptf.nBands_),
-    beamRadiance_(ptf.beamRadiance_)
+    beamRadiance_(ptf.beamRadiance_),
+    emissivePower_(ptf.emissivePower_)
 {}
 
 
@@ -151,6 +180,29 @@ void Foam::optical::collimatedBeamMixedFvPatchScalarField::updateCoeffs()
     const label beamRayId = dom.dirToRayId(beamDirection_, iBand);
     const bool isBeamRay = (rayId == beamRayId);
 
+    // Compute the band-specific radiance to assign to the beam ray.
+    // Mode 1 (beamRadiance) uses the user-supplied value directly.
+    // Mode 2 (emissivePower) converts a beam-normal flux to a per-ray
+    // radiance via L = emissivePower / omega_ray, where omega_ray is the
+    // chosen ray's solid angle. This is the discrete-ordinates
+    // representation of a delta beam: all flux is dumped into the
+    // single ray bin containing the beam direction. The DOM cannot
+    // resolve sub-bin angular structure, so this is the only regime
+    // currently supported.
+    scalar beamL = 0.0;
+    if (isBeamRay)
+    {
+        if (beamRadiance_.size() == nBands_)
+        {
+            beamL = beamRadiance_[iBand];
+        }
+        else
+        {
+            const scalar omegaRay = dom.IRay(beamRayId).omega();
+            beamL = emissivePower_[iBand]/omegaRay;
+        }
+    }
+
     const vectorField n = patch().Sf()/patch().magSf();
 
     forAll(Iw, iFace)
@@ -171,8 +223,7 @@ void Foam::optical::collimatedBeamMixedFvPatchScalarField::updateCoeffs()
                 // Beam only illuminates faces whose inward normal has a
                 // positive component along the beam direction.
                 const scalar cosBeam = surfNorm & beamDirection_;
-                refValue()[iFace] =
-                    (cosBeam > 0.0) ? beamRadiance_[iBand] : 0.0;
+                refValue()[iFace] = (cosBeam > 0.0) ? beamL : 0.0;
             }
             else
             {
@@ -203,8 +254,18 @@ void Foam::optical::collimatedBeamMixedFvPatchScalarField::write
     os.writeKeyword("nBands") << nBands_ << token::END_STATEMENT << nl;
     os.writeKeyword("beamDirection") << beamDirection_
         << token::END_STATEMENT << nl;
-    os.writeKeyword("beamRadiance") << beamRadiance_
-        << token::END_STATEMENT << nl;
+
+    // Write whichever of the two input forms is in use.
+    if (beamRadiance_.size() == nBands_)
+    {
+        os.writeKeyword("beamRadiance") << beamRadiance_
+            << token::END_STATEMENT << nl;
+    }
+    else
+    {
+        os.writeKeyword("emissivePower") << emissivePower_
+            << token::END_STATEMENT << nl;
+    }
 }
 
 
