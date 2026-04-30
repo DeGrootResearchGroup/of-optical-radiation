@@ -188,15 +188,10 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::updateCoef
     label npPhi = dom.nPixelPhi();
     label npTheta = dom.nPixelTheta();
 
-    // Correct the pixel discretization information if case is not 3D
+    // Correct the pixel discretization information if case is 2D
     if (internalField().mesh().nSolutionD() == 2)
     {
         npTheta = 1;
-    }
-    if (internalField().mesh().nSolutionD() == 1)
-    {
-        npTheta = 1;
-        npPhi = 1;
     }
 
     // Create a list of scalarField objects to store the other rays

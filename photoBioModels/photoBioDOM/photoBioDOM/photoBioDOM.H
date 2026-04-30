@@ -29,7 +29,6 @@ Description
     Finite Volume Discrete Ordinates Method. Solves the RTE equation for n
     directions in a participating media.
 
-    In 1D the direction of the rays is X (nPhi and nTheta are ignored)
     In 2D the direction of the rays is on X-Y plane (only nPhi is considered)
     In 3D (nPhi and nTheta are considered)
 

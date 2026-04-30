@@ -175,13 +175,9 @@ updateCoeffs()
 
    // const fvPatchScalarField&  dsFace =  dom.diffusionScatter().boundaryField()[patchI];
     
-	if (internalField().mesh().nSolutionD() == 2)    //2D (X & Y)
-	{	
-		npTheta = 1;
-    }
-    if (internalField().mesh().nSolutionD() == 1)    //2D (X & Y)
-	{	
-		npTheta = 1; npPhi =1;
+    if (internalField().mesh().nSolutionD() == 2)    //2D (X & Y)
+    {
+        npTheta = 1;
     }
     
   	scalar specular = 0.0;

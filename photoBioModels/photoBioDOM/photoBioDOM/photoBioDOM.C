@@ -95,18 +95,18 @@ Foam::photoBio::photoBioDOM::photoBioDOM(const volScalarField& intensity)
     // Check that dimension of mesh is compatible with settings
     checkDim_();
 
-    // Set the number of angles (=2*nPhi*nTheta for 2D/3D, =2 for 1D)
-    nAngle_ = mesh_.nSolutionD() > 1 ? 2*nPhi_*nTheta_ : 2;
+    // Set the number of angles (=2*nPhi*nTheta)
+    nAngle_ = 2*nPhi_*nTheta_;
 
     // Set the number of rays, and allocate pointer list
     nRay_ = nAngle_*nBand_;
     IRay_.setSize(nRay_);
 
-    // Set deltaTheta (=pi/nTheta for 3D; =pi for 1D/2D)
+    // Set deltaTheta (=pi/nTheta for 3D; =pi for 2D)
     deltaTheta_ = mesh_.nSolutionD() == 3 ? pi/nTheta_ : pi;
 
-    // Set deltaPhi (=pi/nPhi for 2D/3D, =pi for 1D)
-    deltaPhi_ = mesh_.nSolutionD() > 1 ? pi/nPhi_ : pi;
+    // Set deltaPhi
+    deltaPhi_ = pi/nPhi_;
 
     // Set up all of the rays
     label i = 0;
@@ -382,26 +382,11 @@ void Foam::photoBio::photoBioDOM::checkDim_()
                 << exit(FatalError);
         }
     }
-    if (mesh_.nSolutionD() == 1) // 1D (X)
+    if (mesh_.nSolutionD() == 1)
     {
-        if (mesh_.solutionD()[vector::X] != 1)
-        {
-            FatalErrorInFunction
-                << "Currently 1D solution is limited to the x-direction"
-                << exit(FatalError);
-        }
-        if (nTheta_ != 1)
-        {
-            FatalErrorInFunction
-                << "There must be one theta angle for 1D simulations"
-                << exit(FatalError);
-        }
-        if (nPhi_ != 2)
-        {
-            FatalErrorInFunction
-                << "There must be two phi angles for 1D simulations"
-                << exit(FatalError);
-        }
+        FatalErrorInFunction
+            << "1D simulations are not supported by photoBioDOM; use 2D or 3D"
+            << exit(FatalError);
     }
 }
 
