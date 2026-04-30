@@ -288,7 +288,7 @@ Foam::scalar Foam::photoBio::photoBioDOM::dirToTheta(const vector& dir) const
 
 Foam::scalar Foam::photoBio::photoBioDOM::dirToPhi(const vector& dir) const
 {
-    scalar phi;
+    scalar phi = 0.0;
     if (mag(dir.x()) > SMALL)
     {
         phi = Foam::atan(dir.y()/dir.x());
