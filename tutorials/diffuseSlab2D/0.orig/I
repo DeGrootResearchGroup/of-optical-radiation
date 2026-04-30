@@ -44,9 +44,13 @@ boundaryField
     }
     sides
     {
+        // Specular mirrors (R = 1, diffuseFraction = 0). With perfect
+        // mirrors at y = 0 and y = 0.1, the finite y-extent becomes
+        // equivalent to an infinite tiled slab, so G(x) matches the
+        // 1-D plane-parallel analytical 2*pi*L_w*E_2(kappa*x).
         type            reflectiveSurface;
         diffuseFraction 0;
-        reflectionCoef  0;
+        reflectionCoef  1;
         refValue        uniform 0;
         refGradient     uniform 0;
         valueFraction   uniform 1;

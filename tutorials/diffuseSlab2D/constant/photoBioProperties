@@ -20,10 +20,10 @@ photoBioModel   photoBioDOM;
 
 photoBioDOMCoeffs
 {
-    nPhi          4;     // azimuthal divisions per pi (total = 2*nPhi over [0,2pi))
-    nTheta        1;     // polar divisions over [0,pi]; must be 1 in 2-D
-    convergence   1e-5;
-    maxIter       100;
+    nPhi          8;     // azimuthal divisions per pi (total 2*nPhi over [0,2pi))
+    nTheta        1;     // polar divisions; must be 1 in 2-D
+    convergence   1e-6;
+    maxIter       200;
     nBand         2;
     nPixelPhi     1;
     nPixelTheta   1;
@@ -35,7 +35,7 @@ wideBandConstantExtinctionCoeffs
 {
     nBands           2;
     absorption       true;
-    absorptionCoeff  (5 5);
+    absorptionCoeff  (1 1);
     scattering       false;
     scatteringCoeff  (0 0);
 }
