@@ -97,27 +97,54 @@ Foam::photoBio::wideBandVariableExtinction::wideBandVariableExtinction
     if (absorption_) coeffsDict_.lookup("absorbingVars") >> aSpecies_;
     if (scattering_) coeffsDict_.lookup("scatteringVars") >> sSpecies_;
 
-    // Read the absorbing species fields'
-    /*
-    forAll(aFields_, i)
+    // Load any species fields that aren't already registered with the
+    // mesh (e.g. when running standalone without a coupled species
+    // solver). Fields constructed here auto-register with the mesh
+    // registry, so correct()'s lookupObject calls find them. We hold
+    // ownership in ownedSpeciesFields_ so they live as long as we do.
+    DynamicList<word> speciesToLoad;
+    if (absorption_)
     {
-        aFields_.set
+        forAll(aSpecies_, i)
+        {
+            if (!mesh.foundObject<volScalarField>(aSpecies_[i]))
+            {
+                speciesToLoad.append(aSpecies_[i]);
+            }
+        }
+    }
+    if (scattering_)
+    {
+        forAll(sSpecies_, i)
+        {
+            if (!mesh.foundObject<volScalarField>(sSpecies_[i]))
+            {
+                speciesToLoad.append(sSpecies_[i]);
+            }
+        }
+    }
+
+    ownedSpeciesFields_.setSize(speciesToLoad.size());
+    forAll(speciesToLoad, i)
+    {
+        ownedSpeciesFields_.set
         (
-           i,
-           mesh.lookupObject<volScalarField>(aSpecies_[i])
+            i,
+            new volScalarField
+            (
+                IOobject
+                (
+                    speciesToLoad[i],
+                    mesh.time().name(),
+                    mesh,
+                    IOobject::MUST_READ,
+                    IOobject::NO_WRITE
+                ),
+                mesh
+            )
         );
     }
 
-    // Read the scattering species fields
-    forAll(sFields_, i)
-    {
-        sFields_.set
-        (
-            i,
-            mesh.lookupObject<volScalarField>(sSpecies_[i])
-        );
-    }
-    */
     // Correct the extinction coefficient fields
     correct();
 }

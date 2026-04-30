@@ -1,0 +1,62 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      photoBioProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+photoBio        on;
+photoBioModel   photoBioDOM;
+
+photoBioDOMCoeffs
+{
+    nPhi          5;
+    nTheta        5;
+    convergence   1e-5;
+    maxIter       100;
+    nBand         4;
+    nPixelPhi     3;
+    nPixelTheta   3;
+
+    phaseFunctionModel HenyeyGreensteinModel;
+    HenyeyGreensteinModelCoeffs
+    {
+        subAngleNum     4;
+        asymmetryFactor (0.98 0.98 0.98 0.99);
+        inScatter       true;
+    }
+}
+
+// Variable extinction tied to species concentrations. The model loads
+// any of the named species fields that aren't already registered with
+// the mesh, so this case runs standalone with photoBioFoam (the species
+// fields in 0.orig/ are loaded automatically) and also in a coupled
+// solver that supplies its own species fields.
+//
+// Per-species, per-band specific coefficient (m^2/kg). Net absorption
+// or scattering coefficient at each cell is sum_i a_i,band * X_i.
+extinctionModel wideBandVariableExtinction;
+wideBandVariableExtinctionCoeffs
+{
+    nBands           4;
+    absorption       true;
+    nAbsorbing       2;
+    absorbingVars    (X1 X2);
+    absorptionCoeff  ((0.1 0.1 0.1 0.1) (0.1 0.1 0.1 0.1));
+    scattering       true;
+    nScattering      2;
+    scatteringVars   (S1 S2);
+    scatteringCoeff  ((0.1 0.1 0.1 0.1) (0.1 0.1 0.1 0.1));
+}
+
+// ************************************************************************* //

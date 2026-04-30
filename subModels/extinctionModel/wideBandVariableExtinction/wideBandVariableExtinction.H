@@ -73,6 +73,11 @@ class wideBandVariableExtinction
         //- List of pointers to absorbing species fields
         PtrList<volScalarField> aFields_;
 
+        //- Species fields the model loaded from disk (those not already
+        //  registered with the mesh by an external solver). Held here for
+        //  lifetime; access is via the mesh registry in correct().
+        PtrList<volScalarField> ownedSpeciesFields_;
+
         //- Absorption coefficients (one per species per band)
         DynamicList<DynamicList<scalar, 1, 0> > aCoeffs_;
 

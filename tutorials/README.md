@@ -25,6 +25,7 @@ notes on legacy syntax that was rewritten for the current code.
 |---|---|
 | `diffuseSlab2D` | 2-D plane-parallel slab, diffuse-emitter on one side, absorbing walls. Two-band absorption. Smallest case; useful sanity check. |
 | `absorbingScatteringBox3D` | 3-D box with diffuse-emitter on one face, absorbing walls elsewhere. Four bands, constant absorption + scattering, Henyey-Greenstein phase function. |
+| `variableExtinctionBox3D` | Same geometry/BCs as `absorbingScatteringBox3D` but with `wideBandVariableExtinction` driven by species concentration fields (X1, X2, S1, S2). With uniform 0.5 concentrations and the chosen specific coefficients, this case is equivalent to `absorbingScatteringBox3D` and is a good standalone test of the variable-extinction model. |
 
 ## Deferred
 
