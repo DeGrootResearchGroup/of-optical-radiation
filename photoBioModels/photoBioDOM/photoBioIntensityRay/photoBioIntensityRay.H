@@ -70,7 +70,7 @@ private:
         //- Reference to the mesh
         const fvMesh& mesh_;
 
-        //- Ray intensity [W/m^2]
+        //- Ray radiance [W/m^2/sr]
         autoPtr<volScalarField>  I_;
 
         //- Direction

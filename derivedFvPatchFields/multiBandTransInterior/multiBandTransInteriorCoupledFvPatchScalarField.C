@@ -296,7 +296,10 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::updateCoef
 
                             label refracIncidentRay = dom.dirToRayId(refracIncidentDir, iBand);
 
-                            diffuse += (NbrRaySet[refracIncidentRay][faceI]*(1-R) + reflecFace[faceI]*R) *mag(surfNorm & sweepdAve);
+                            // Transmitted radiance picks up an (nB/nA)^2 factor
+                            // from solid-angle compression across the interface
+                            // (radiance invariant is I/n^2, not I).
+                            diffuse += (NbrRaySet[refracIncidentRay][faceI]*nRatio*nRatio*(1-R) + reflecFace[faceI]*R) *mag(surfNorm & sweepdAve);
 
                         }
                         else
@@ -496,8 +499,10 @@ void Foam::photoBio::multiBandTransInteriorCoupledFvPatchScalarField::updateCoef
                                     // Calculate integral of direction vector wrt solid angle over pixel
                                     vector intDirOmega = dom.intDirOmega(pxRayTheta, pxRayPhi, deltaTheta/npTheta, deltaPhi/npPhi);
 
-                                    // Accumulate the specular flux
-                                    specular += NbrRaySet[iRay][faceI]*(1-R)*(intDirOmega & surfNorm);
+                                    // Accumulate the specular flux. Transmitted
+                                    // radiance picks up an (nB/nA)^2 factor from
+                                    // solid-angle compression across the interface.
+                                    specular += NbrRaySet[iRay][faceI]*nRatio*nRatio*(1-R)*(intDirOmega & surfNorm);
                                 }
                             }
                         }
