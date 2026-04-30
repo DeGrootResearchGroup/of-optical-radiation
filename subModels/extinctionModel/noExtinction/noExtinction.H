@@ -69,7 +69,7 @@ class noExtinction
         );
 
     // Destructor
-    virtual ~wideBandVariableExtinction();
+    virtual ~noExtinction();
 
 };
 

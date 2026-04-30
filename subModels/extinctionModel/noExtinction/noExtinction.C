@@ -24,6 +24,7 @@ License
 \*---------------------------------------------------------------------------*/
 
 #include "extinctionModel.H"
+#include "addToRunTimeSelectionTable.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
@@ -43,7 +44,7 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::photoBio::extinctionModel::noExtinction
+Foam::photoBio::noExtinction::noExtinction
 (
     const dictionary& dict,
     const fvMesh& mesh
@@ -55,7 +56,7 @@ Foam::photoBio::extinctionModel::noExtinction
 
 // * * * * * * * * * * * * * * * * Destructor    * * * * * * * * * * * * * * //
 
-Foam::photoBio::extinctionModel::~noExtinction()
+Foam::photoBio::noExtinction::~noExtinction()
 {}
 
 // ************************************************************************* //
