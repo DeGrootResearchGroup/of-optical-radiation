@@ -156,7 +156,54 @@ the API port:
 - `refractiveCoupled::write()` emits `nBands`; `nNbg`/`nOwn`
   are size-checked against `nBands` on read.
 
-See `potential_bugs.md` (local working file) for the full review list.
+### Methodology notes — settled design decisions
+
+A few aspects of the discrete-ordinates implementation look surprising
+on first read but are intentional. Recorded here so future-you doesn't
+re-litigate them.
+
+- **Pixel-area sign classification by central direction (not integral).**
+  Murthy & Mathur (1998), Eqs. (21)–(22) explicitly define Approach B
+  as central-direction classification of the whole-pixel vector
+  integral `S_pi`. The residual O(pixel) misclassification of pixels
+  that straddle a face is the inherent discretisation error of the
+  method, controlled by `nPixelTheta` / `nPixelPhi`.
+
+- **Tangent pixels (`d_pi · Sf == 0`) dropped by both `pos` and `neg`.**
+  When the central direction is exactly tangent to a face, the integral
+  `intDirOmega · Sf` is also ≈ 0 (leading term `d_pi · Sf · ω_pixel`,
+  with only an O(pixel²) deviation). Dropping the contribution incurs
+  O(pixel²) error — smaller than the method's inherent O(pixel) error.
+  Murthy's spec assigns tangent pixels to `α_in` (the `≤ 0` branch);
+  practical impact of either choice is negligible.
+
+- **No special handling for non-invertibility of the pixel→ray map at
+  reflective/refractive interior faces.** Reflection
+  `r(d) = d − 2(d·n)n` is its own inverse, and Snell refraction is
+  reversible, so the Phase 1 candidate-finding and Phase 2
+  contribution-accepting in `intensityRay` are bookkeeping-symmetric
+  in the continuous limit. With finite pixelation, sub-pixel-sized
+  overlaps are missed *symmetrically* by both phases — no
+  double-counting. The miss is the inherent
+  O(1/(npTheta · npPhi)) discretisation error, controlled by refining
+  pixel counts.
+
+- **Pixelation applied at every interior face, not just boundaries.**
+  Murthy noted empirically that interior pixelation didn't matter on
+  his test cases. Fluent's DO theory guide (§5.3.6.3) is more general:
+  pixelation applies to "each overhanging control angle", which on
+  unstructured polyhedral meshes occurs at most interior faces (the
+  global angular grid is fixed in xyz but face normals point in
+  arbitrary directions). The current implementation matches Fluent's
+  design — set `nPixelTheta = nPixelPhi = 1` (default) for cheap
+  Approach-A behaviour, raise to 3×3 or higher when specular /
+  semi-transparent BCs or anisotropic angular distributions are
+  present.
+
+- **2-D meshes restricted to the x-y plane.** Documented limitation,
+  not a bug. Generalising would require axis-aware ray placement (or
+  an internal mesh rotation); the workaround (re-orient the mesh) is
+  trivial. `checkDim_` rejects 2-D meshes in x-z or y-z.
 
 ### fvModel Wrapper (`src/opticalRadiationModels/fvModels/opticalRadiation/`)
 
