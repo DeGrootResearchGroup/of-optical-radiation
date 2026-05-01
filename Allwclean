@@ -1,0 +1,11 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+# Library
+( cd src/opticalRadiationModels              && wclean libso )
+
+# Standalone solver
+( cd applications/solvers/opticalRadiationFoam && wclean )
+
+# Solver module
+( cd applications/modules/opticalRadiation    && wclean libso )
