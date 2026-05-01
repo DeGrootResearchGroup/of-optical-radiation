@@ -35,7 +35,7 @@ boundaryField
     "(maxX|minY|maxY|minZ|maxZ)"
     {
         // Black absorbing walls (R = 0).
-        type            reflectiveSurface;
+        type            reflective;
         diffuseFraction 0;
         reflectionCoef  0;
         refValue        uniform 0;

@@ -27,7 +27,7 @@ scattering, and variable extinction tied to species concentrations.
 
 - `minX`: `diffuseEmitter` with per-band emissive power
   (10, 7.5, 5, 2.5) W/m^2. The wall radiance is `L_w = E / pi` per band.
-- All other walls: `reflectiveSurface` with `reflectionCoef = 0`
+- All other walls: `reflective` with `reflectionCoef = 0`
   (perfect absorbers / sinks).
 
 ## Note on legacy syntax

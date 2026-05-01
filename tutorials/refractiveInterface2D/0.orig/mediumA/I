@@ -39,7 +39,7 @@ boundaryField
     {
         // Black absorbing y-walls (R = 0). Limits the test to the
         // characteristic-traceable region but keeps the analysis clean.
-        type            reflectiveSurface;
+        type            reflective;
         diffuseFraction 0;
         reflectionCoef  0;
         refValue        uniform 0;
@@ -52,7 +52,7 @@ boundaryField
     {
         // Refractive interface: this side ("own") is n_A = 1.0;
         // neighbour ("nbg") is n_B = 1.5.
-        type            multiBandTransInteriorCoupled;
+        type            refractiveCoupled;
         nBands          1;
         nNbg            (1.5);
         nOwn            (1.0);

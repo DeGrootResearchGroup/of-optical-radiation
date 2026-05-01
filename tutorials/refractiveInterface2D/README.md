@@ -1,6 +1,6 @@
 # refractiveInterface2D
 
-A 2-D two-region case verifying the `multiBandTransInteriorCoupled`
+A 2-D two-region case verifying the `refractiveCoupled`
 boundary condition at a refractive interface, using the OF v13
 multi-region pattern (`foamMultiRun` + the `opticalRadiation` solver
 module in each region).

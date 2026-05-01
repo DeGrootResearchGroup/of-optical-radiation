@@ -3,6 +3,5 @@
 *~
 
 # Build files
-Make/linux*/
-*/Make/linux*/
-lnInclude
+**/Make/linux*/
+**/lnInclude

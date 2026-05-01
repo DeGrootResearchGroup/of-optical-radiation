@@ -23,7 +23,7 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "multiBandTransInteriorCoupledFvPatchScalarField.H"
+#include "refractiveCoupledMixedFvPatchScalarField.H"
 #include "addToRunTimeSelectionTable.H"
 
 #include "fvPatchFieldMapper.H"
@@ -37,8 +37,8 @@ using namespace Foam::constant::mathematical;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::
-multiBandTransInteriorCoupledFvPatchScalarField
+Foam::optical::refractiveCoupledMixedFvPatchScalarField::
+refractiveCoupledMixedFvPatchScalarField
 (
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF
@@ -54,10 +54,10 @@ multiBandTransInteriorCoupledFvPatchScalarField
 }
 
 
-Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::
-multiBandTransInteriorCoupledFvPatchScalarField
+Foam::optical::refractiveCoupledMixedFvPatchScalarField::
+refractiveCoupledMixedFvPatchScalarField
 (
-    const multiBandTransInteriorCoupledFvPatchScalarField& ptf,
+    const refractiveCoupledMixedFvPatchScalarField& ptf,
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF,
     const fvPatchFieldMapper& mapper
@@ -71,8 +71,8 @@ multiBandTransInteriorCoupledFvPatchScalarField
 {}
 
 
-Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::
-multiBandTransInteriorCoupledFvPatchScalarField
+Foam::optical::refractiveCoupledMixedFvPatchScalarField::
+refractiveCoupledMixedFvPatchScalarField
 (
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF,
@@ -102,8 +102,8 @@ multiBandTransInteriorCoupledFvPatchScalarField
     {
         FatalErrorIn
             (
-                "multiBandTransInteriorCoupledFvPatchScalarField::"
-                "multiBandTransInteriorCoupledFvPatchScalarField\n"
+                "refractiveCoupledMixedFvPatchScalarField::"
+                "refractiveCoupledMixedFvPatchScalarField\n"
                 "(\n"
                 "    const fvPatch& p,\n"
                 "    const DimensionedField<scalar, volMesh>& iF,\n"
@@ -138,10 +138,10 @@ multiBandTransInteriorCoupledFvPatchScalarField
 }
 
 
-Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::
-multiBandTransInteriorCoupledFvPatchScalarField
+Foam::optical::refractiveCoupledMixedFvPatchScalarField::
+refractiveCoupledMixedFvPatchScalarField
 (
-    const multiBandTransInteriorCoupledFvPatchScalarField& wtcsf,
+    const refractiveCoupledMixedFvPatchScalarField& wtcsf,
     const DimensionedField<scalar, volMesh>& iF
 )
     :
@@ -155,7 +155,7 @@ multiBandTransInteriorCoupledFvPatchScalarField
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::updateCoeffs()
+void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
 {
 
     if (updated())
@@ -218,9 +218,9 @@ void Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::updateCoeff
         {
             label rayI = jAngle + jBand*nAngle;
 
-            const multiBandTransInteriorCoupledFvPatchScalarField&
+            const refractiveCoupledMixedFvPatchScalarField&
                 nbrField = refCast
-                <const multiBandTransInteriorCoupledFvPatchScalarField>
+                <const refractiveCoupledMixedFvPatchScalarField>
                 (nbrPatch.lookupPatchField<volScalarField, scalar>(dom.IRay(rayI).I().name()));
 
             NbrRaySet.set(rayI, mpp.fromNeighbour(nbrField.patchInternalField()));
@@ -540,7 +540,7 @@ void Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::updateCoeff
 }
 
 
-void Foam::optical::multiBandTransInteriorCoupledFvPatchScalarField::write
+void Foam::optical::refractiveCoupledMixedFvPatchScalarField::write
 (
     Ostream& os
 ) const
@@ -562,7 +562,7 @@ namespace Foam
         makePatchTypeField
         (
             fvPatchScalarField,
-            multiBandTransInteriorCoupledFvPatchScalarField
+            refractiveCoupledMixedFvPatchScalarField
         );
     }
 } // End namespace Foam

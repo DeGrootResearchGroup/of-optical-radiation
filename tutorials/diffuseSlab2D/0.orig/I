@@ -34,7 +34,7 @@ boundaryField
     {
         // Black absorber: R = 0, so refValue stays at 0 and outgoing
         // radiance from this wall is forced to zero (perfect sink).
-        type            reflectiveSurface;
+        type            reflective;
         diffuseFraction 0;
         reflectionCoef  0;
         refValue        uniform 0;
@@ -48,7 +48,7 @@ boundaryField
         // mirrors at y = 0 and y = 0.1, the finite y-extent becomes
         // equivalent to an infinite tiled slab, so G(x) matches the
         // 1-D plane-parallel analytical 2*pi*L_w*E_2(kappa*x).
-        type            reflectiveSurface;
+        type            reflective;
         diffuseFraction 0;
         reflectionCoef  1;
         refValue        uniform 0;

@@ -22,15 +22,18 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    multiBandTransInteriorCoupledFvPatchScalarField
+    Foam::optical::refractiveCoupledMixedFvPatchScalarField
 
 Description
-    Mixed boundary condition for radiation at a transmissive interior interface.
+    Mixed boundary condition for radiation at a refractive interior
+    interface (mapped patch). Splits arriving radiance into Fresnel
+    transmission to the neighbour region and reflection back into the
+    own region, including the étendue n² factor.
 
     Example usage:
         myInterfacePatchName
         {
-            type            multiBandTransInteriorCoupled;
+            type            refractiveCoupled;
             diffuseFraction 0.0;
             nBands          2;
             nNbg            (1.5 1.5);
@@ -41,12 +44,12 @@ Description
     Needs to be on underlying mappedPatch.
 
 SourceFiles
-    multiBandTransInteriorCoupledFvPatchScalarField.C
+    refractiveCoupledMixedFvPatchScalarField.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef multiBandTransInteriorCoupledFvPatchScalarField_H
-#define multiBandTransInteriorCoupledFvPatchScalarField_H
+#ifndef refractiveCoupledMixedFvPatchScalarField_H
+#define refractiveCoupledMixedFvPatchScalarField_H
 
 #include "mixedFvPatchFields.H"
 
@@ -57,7 +60,7 @@ namespace Foam
     namespace optical
     {
 
-        class multiBandTransInteriorCoupledFvPatchScalarField
+        class refractiveCoupledMixedFvPatchScalarField
         :
         public mixedFvPatchScalarField
         {
@@ -72,20 +75,20 @@ namespace Foam
         public:
 
             //- Runtime type information
-            TypeName("multiBandTransInteriorCoupled");
+            TypeName("refractiveCoupled");
 
 
             // Constructors
 
             //- Construct from patch and internal field
-            multiBandTransInteriorCoupledFvPatchScalarField
+            refractiveCoupledMixedFvPatchScalarField
             (
                 const fvPatch&,
                 const DimensionedField<scalar, volMesh>&
             );
 
             //- Construct from patch, internal field and dictionary
-            multiBandTransInteriorCoupledFvPatchScalarField
+            refractiveCoupledMixedFvPatchScalarField
             (
                 const fvPatch&,
                 const DimensionedField<scalar, volMesh>&,
@@ -93,19 +96,19 @@ namespace Foam
             );
 
             //- Construct by mapping given
-            //  multiBandTransInteriorCoupledFvPatchScalarField onto a new patch
-            multiBandTransInteriorCoupledFvPatchScalarField
+            //  refractiveCoupledMixedFvPatchScalarField onto a new patch
+            refractiveCoupledMixedFvPatchScalarField
             (
-                const multiBandTransInteriorCoupledFvPatchScalarField&,
+                const refractiveCoupledMixedFvPatchScalarField&,
                 const fvPatch&,
                 const DimensionedField<scalar, volMesh>&,
                 const fvPatchFieldMapper&
             );
 
             //- Construct as copy setting internal field reference
-            multiBandTransInteriorCoupledFvPatchScalarField
+            refractiveCoupledMixedFvPatchScalarField
             (
-                const multiBandTransInteriorCoupledFvPatchScalarField&,
+                const refractiveCoupledMixedFvPatchScalarField&,
                 const DimensionedField<scalar, volMesh>&
             );
 
@@ -117,7 +120,7 @@ namespace Foam
             {
                 return tmp<fvPatchScalarField>
                 (
-                    new multiBandTransInteriorCoupledFvPatchScalarField
+                    new refractiveCoupledMixedFvPatchScalarField
                     (
                         *this,
                         iF

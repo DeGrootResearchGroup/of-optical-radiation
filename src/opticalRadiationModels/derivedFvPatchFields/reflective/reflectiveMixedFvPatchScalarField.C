@@ -23,7 +23,7 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "reflectiveSurfaceMixedFvPatchScalarField.H"
+#include "reflectiveMixedFvPatchScalarField.H"
 #include "addToRunTimeSelectionTable.H"
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
@@ -35,8 +35,8 @@ using namespace Foam::constant::mathematical;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
-reflectiveSurfaceMixedFvPatchScalarField
+Foam::optical::reflectiveMixedFvPatchScalarField::
+reflectiveMixedFvPatchScalarField
 (
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF
@@ -52,10 +52,10 @@ reflectiveSurfaceMixedFvPatchScalarField
 }
 
 
-Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
-reflectiveSurfaceMixedFvPatchScalarField
+Foam::optical::reflectiveMixedFvPatchScalarField::
+reflectiveMixedFvPatchScalarField
 (
-    const reflectiveSurfaceMixedFvPatchScalarField& ptf,
+    const reflectiveMixedFvPatchScalarField& ptf,
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF,
     const fvPatchFieldMapper& mapper
@@ -67,8 +67,8 @@ reflectiveSurfaceMixedFvPatchScalarField
 {}
 
 
-Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
-reflectiveSurfaceMixedFvPatchScalarField
+Foam::optical::reflectiveMixedFvPatchScalarField::
+reflectiveMixedFvPatchScalarField
 (
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF,
@@ -111,10 +111,10 @@ reflectiveSurfaceMixedFvPatchScalarField
 }
 
 
-Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
-reflectiveSurfaceMixedFvPatchScalarField
+Foam::optical::reflectiveMixedFvPatchScalarField::
+reflectiveMixedFvPatchScalarField
 (
-    const reflectiveSurfaceMixedFvPatchScalarField& ptf,
+    const reflectiveMixedFvPatchScalarField& ptf,
     const DimensionedField<scalar, volMesh>& iF
 )
 :
@@ -126,7 +126,7 @@ reflectiveSurfaceMixedFvPatchScalarField
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::
+void Foam::optical::reflectiveMixedFvPatchScalarField::
 updateCoeffs()
 {
     if (this->updated())
@@ -270,7 +270,7 @@ updateCoeffs()
 }
 
 
-void Foam::optical::reflectiveSurfaceMixedFvPatchScalarField::write
+void Foam::optical::reflectiveMixedFvPatchScalarField::write
 (
     Ostream& os
 ) const
@@ -291,7 +291,7 @@ namespace optical
     makePatchTypeField
     (
         fvPatchScalarField,
-        reflectiveSurfaceMixedFvPatchScalarField
+        reflectiveMixedFvPatchScalarField
     );
 }
 }
