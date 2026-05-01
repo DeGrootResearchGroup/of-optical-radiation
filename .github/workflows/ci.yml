@@ -16,14 +16,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify OpenFOAM install
+        shell: bash
+        run: |
+          ls -la /opt/openfoam13/etc/bashrc
+          dpkg -l openfoam13 || true
+
       - name: Build library, solver, and module
         shell: bash
         run: |
+          set +eu
           source /opt/openfoam13/etc/bashrc
+          set -eu
+          echo "WM_PROJECT_DIR=${WM_PROJECT_DIR:-NOT SET}"
           ./Allwmake
 
       - name: Run tutorial validation suite
         shell: bash
         run: |
+          set +eu
           source /opt/openfoam13/etc/bashrc
+          set -eu
           cd tutorials && ./Alltest
