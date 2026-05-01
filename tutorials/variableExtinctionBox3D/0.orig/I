@@ -23,9 +23,6 @@ boundaryField
 {
     minX
     {
-        // Equivalent of the legacy syntax `irradiation 50; bandDist (0.4 0.3 0.2 0.1)`.
-        // The legacy formula was L_w = I0 * b_i / (2 pi); the new formula is
-        // L_w = E_i / pi (correct Lambertian), so E_i = I0 * b_i / 2.
         type            diffuseEmitter;
         nBands          4;
         emissivePower   (10 7.5 5 2.5);
