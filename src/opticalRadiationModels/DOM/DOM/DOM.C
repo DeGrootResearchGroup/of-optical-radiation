@@ -49,9 +49,9 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::DOM::DOM(const volScalarField& intensity)
+Foam::optical::DOM::DOM(const volScalarField& I)
 :
-    radiationModel(typeName, intensity),
+    radiationModel(typeName, I),
     G_
     (
         IOobject
@@ -416,7 +416,7 @@ void Foam::optical::DOM::setRay_
     IRay_.set
     (
         i,
-        new intensityRay
+        new ray
         (
             *this,
             mesh_,

@@ -75,7 +75,7 @@ class opticalRadiation
 {
     // Region-local owned data
 
-        //- Radiation intensity field "I" (read from this region's 0/I).
+        //- Radiance field "I" (read from this region's 0/I).
         autoPtr<volScalarField> I_;
 
         //- The optical radiation model for this region.

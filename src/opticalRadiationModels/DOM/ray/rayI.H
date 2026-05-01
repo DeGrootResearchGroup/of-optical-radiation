@@ -24,49 +24,49 @@ License
 \*---------------------------------------------------------------------------*/
 
 
- inline const Foam::volScalarField& Foam::optical::intensityRay::I() const
+ inline const Foam::volScalarField& Foam::optical::ray::I() const
 {
     return I_;
 }
 
 
-inline const Foam::vector& Foam::optical::intensityRay::d() const
+inline const Foam::vector& Foam::optical::ray::d() const
 {
     return d_;
 }
 
 
-inline const Foam::vector& Foam::optical::intensityRay::dAve() const
+inline const Foam::vector& Foam::optical::ray::dAve() const
 {
     return dAve_;
 }
 
 
-inline Foam::label Foam::optical::intensityRay::iBand() const
+inline Foam::label Foam::optical::ray::iBand() const
 {
     return iBand_;
 }
 
 
-inline Foam::label Foam::optical::intensityRay::iAngle() const
+inline Foam::label Foam::optical::ray::iAngle() const
 {
     return iAngle_;
 }
 
 
-inline Foam::scalar Foam::optical::intensityRay::phi() const
+inline Foam::scalar Foam::optical::ray::phi() const
 {
     return phi_;
 }
 
 
-inline Foam::scalar Foam::optical::intensityRay::theta() const
+inline Foam::scalar Foam::optical::ray::theta() const
 {
     return theta_;
 }
 
 
-inline Foam::scalar Foam::optical::intensityRay::omega() const
+inline Foam::scalar Foam::optical::ray::omega() const
 {
     return omega_;
 }

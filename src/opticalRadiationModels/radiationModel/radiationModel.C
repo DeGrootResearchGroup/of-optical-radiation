@@ -41,21 +41,21 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::radiationModel::radiationModel(const volScalarField& intensity)
+Foam::optical::radiationModel::radiationModel(const volScalarField& I)
 :
     IOdictionary
     (
         IOobject
         (
             "opticalRadiationProperties",
-            intensity.time().constant(),
-            intensity.mesh(),
+            I.time().constant(),
+            I.mesh(),
             IOobject::MUST_READ,
             IOobject::NO_WRITE
         )
     ),
-    mesh_(intensity.mesh()),
-    time_(intensity.time()),
+    mesh_(I.mesh()),
+    time_(I.time()),
     opticalRadiation_(false),
     coeffs_(dictionary::null),
     extinction_(nullptr)
@@ -65,7 +65,7 @@ Foam::optical::radiationModel::radiationModel(const volScalarField& intensity)
 Foam::optical::radiationModel::radiationModel
 (
     const word& type,
-    const volScalarField& intensity
+    const volScalarField& I
 )
 :
     IOdictionary
@@ -73,14 +73,14 @@ Foam::optical::radiationModel::radiationModel
         IOobject
         (
             "opticalRadiationProperties",
-            intensity.time().constant(),
-            intensity.mesh(),
+            I.time().constant(),
+            I.mesh(),
             IOobject::MUST_READ,
             IOobject::NO_WRITE
         )
     ),
-    mesh_(intensity.mesh()),
-    time_(intensity.time()),
+    mesh_(I.mesh()),
+    time_(I.time()),
     opticalRadiation_(lookup("opticalRadiation")),
     coeffs_(subDict(type + "Coeffs")),
     extinction_(extinctionModel::New(*this, mesh_))

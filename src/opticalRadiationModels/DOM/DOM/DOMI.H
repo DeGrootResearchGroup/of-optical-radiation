@@ -23,7 +23,7 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-inline const Foam::optical::intensityRay&
+inline const Foam::optical::ray&
 Foam::optical::DOM::IRay(const label rayI) const
 {
     return  IRay_[rayI];
