@@ -184,11 +184,9 @@ Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (lib + solver + module)
 ```
 
-Several legacy boundary conditions (`transInteriorSurface`,
-`transExteriorSurface`, `surrounding`, `wideBandSpecularRadiation`)
-and the `inScatterModels/` tree remain on disk but are **not** in the
-active build — superseded or not yet ported. See the developer guide
-for details.
+The `inScatterModels/` tree remains on disk but is **not** in the
+active build — superseded by `phaseFunctionModels/`. See the developer
+guide for details.
 
 ---
 
