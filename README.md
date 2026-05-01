@@ -204,10 +204,9 @@ The implementation follows:
 ## Status
 
 Active. The library and solver are working and validated; tutorials
-run on every PR via GitHub Actions. A few deferred items
+run on every PR via GitHub Actions. A couple of deferred items
 (end-to-end fvModel runtime test in a real multi-region host case,
-exterior-refraction BC, intensity → radiance identifier rename) are
-documented in the developer guide.
+exterior-refraction BC) are documented in the developer guide.
 
 ---
 
