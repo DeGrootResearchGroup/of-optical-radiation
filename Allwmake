@@ -2,7 +2,7 @@
 cd "${0%/*}" || exit 1
 
 # Library
-wmake libso
+( cd src/opticalRadiationModels && wmake libso )
 
 # Standalone solver
 ( cd applications/solvers/opticalRadiationFoam && wmake )
