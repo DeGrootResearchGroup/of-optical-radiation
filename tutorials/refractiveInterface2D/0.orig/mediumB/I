@@ -1,0 +1,65 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0/mediumB";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radOut
+    {
+        // Black absorber at the far end.
+        type            reflectiveSurface;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    sides
+    {
+        type            reflectiveSurface;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    mediumB_to_mediumA
+    {
+        // Refractive interface: this side ("own") is n_B = 1.5;
+        // neighbour ("nbg") is n_A = 1.0.
+        type            multiBandTransInteriorCoupled;
+        nBands          1;
+        nNbg            (1.0);
+        nOwn            (1.5);
+        diffuseFraction 0;
+        value           uniform 0;
+    }
+
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //
