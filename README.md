@@ -165,18 +165,19 @@ runtime registration are confirmed for both.
 ## Repository layout
 
 ```
-opticalRadiationModels/
-    radiationModel/      base class (IOdictionary reader)
+src/opticalRadiationModels/
+    radiationModel/          base class (IOdictionary reader)
     DOM/
-        DOM/             discrete-ordinates solver
-        intensityRay/    per-direction radiance ray
-subModels/
-    extinctionModel/     absorption + scattering coefficient models
-    phaseFunctionModel/  Henyey-Greenstein, Schlick, null
-derivedFvPatchFields/    boundary conditions
-fvModels/opticalRadiation/   fvModel wrapper (radiation as side-physics in host)
+        DOM/                 discrete-ordinates solver
+        intensityRay/        per-direction radiance ray
+    extinctionModels/        absorption + scattering coefficient models
+    phaseFunctionModels/     Henyey-Greenstein, Schlick, null
+    inScatterModels/         legacy scatter tree (excluded from build)
+    derivedFvPatchFields/    boundary conditions
+    fvModels/opticalRadiation/   fvModel wrapper (radiation as side-physics in host)
 applications/
     solvers/opticalRadiationFoam/    single-region standalone solver
+    solvers/multiRegionOpticalRadiationFoam/  legacy multi-region (excluded from build)
     modules/opticalRadiation/        solver module for foamMultiRun
 tutorials/               runnable cases + Alltest validation harness
 Dockerfile               OpenFOAM 13 build environment
@@ -184,10 +185,10 @@ Allwmake                 build everything (lib + solver + module)
 ```
 
 Several legacy boundary conditions (`transInteriorSurface`,
-`transExteriorSurface`, `solarSurface`, `surrounding`,
-`wideBandSpecularRadiation`) and the `subModels/inScatterModel` tree
-remain on disk but are **not** in the active build — superseded or
-not yet ported. See the developer guide for details.
+`transExteriorSurface`, `surrounding`, `wideBandSpecularRadiation`)
+and the `inScatterModels/` tree remain on disk but are **not** in the
+active build — superseded or not yet ported. See the developer guide
+for details.
 
 ---
 

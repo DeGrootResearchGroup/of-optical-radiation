@@ -1,0 +1,30 @@
+# opticalRadiation library
+
+radiationModel/radiationModel.C
+radiationModel/radiationModelNew.C
+
+DOM/DOM/DOM.C
+DOM/intensityRay/intensityRay.C
+
+phaseFunctionModels/phaseFunctionModel/phaseFunctionModel.C
+phaseFunctionModels/phaseFunctionModel/newPhaseFunctionModel.C
+phaseFunctionModels/HenyeyGreensteinModel/HenyeyGreensteinModel.C
+phaseFunctionModels/schlickModel/schlickModel.C
+phaseFunctionModels/nullModel/nullModel.C
+
+extinctionModels/extinctionModel/extinctionModel.C
+extinctionModels/extinctionModel/newExtinctionModel.C
+extinctionModels/noExtinction/noExtinction.C
+extinctionModels/wideBandConstantExtinction/wideBandConstantExtinction.C
+extinctionModels/wideBandVariableExtinction/wideBandVariableExtinction.C
+
+# inScatterModels sub-models excluded: superseded by phaseFunctionModels, implementations broken
+
+derivedFvPatchFields/diffuseEmitter/diffuseEmitterMixedFvPatchScalarField.C
+derivedFvPatchFields/collimatedBeam/collimatedBeamMixedFvPatchScalarField.C
+derivedFvPatchFields/reflectiveSurface/reflectiveSurfaceMixedFvPatchScalarField.C
+derivedFvPatchFields/multiBandTransInterior/multiBandTransInteriorCoupledFvPatchScalarField.C
+
+fvModels/opticalRadiation/opticalRadiation.C
+
+LIB = $(FOAM_USER_LIBBIN)/libopticalRadiation
