@@ -64,19 +64,24 @@ With OpenFOAM 13 sourced (`source /opt/openfoam13/etc/bashrc` or your
 local install):
 
 ```sh
-# Library
-wmake libso
-
-# Standalone solver
-cd opticalRadiationFoam
-wmake
+./Allwmake               # builds library, standalone solver, and module
 ```
 
-The library installs to `$FOAM_USER_LIBBIN/libopticalRadiation.so`; the
-solver to `$FOAM_USER_APPBIN/opticalRadiationFoam`.
+Or build pieces manually:
 
-The top-level `Allwmake` calls `wmake libso` only; build the solver
-manually as shown.
+```sh
+wmake libso                                                  # library
+( cd applications/solvers/opticalRadiationFoam && wmake )    # standalone solver
+( cd applications/modules/opticalRadiation    && wmake libso )  # solver module
+```
+
+Build products:
+
+| Path | Product |
+|------|---------|
+| `$FOAM_USER_LIBBIN/libopticalRadiation.so`        | core library (model + BCs + fvModel) |
+| `$FOAM_USER_APPBIN/opticalRadiationFoam`          | single-region standalone solver |
+| `$FOAM_USER_LIBBIN/libopticalRadiationModule.so`  | solver module for `foamMultiRun` (multi-region cases) |
 
 ---
 
@@ -103,13 +108,42 @@ expected behaviour.
 
 ---
 
-## Embedding in another solver
+## Multi-region cases
 
-The `fv::opticalRadiation` wrapper lets the radiation solve run as an
-fvModel inside any host solver (e.g. a flow solver). Add to your case's
-`constant/fvModels`:
+There are two paths to running a multi-region case (e.g. radiation
+across an interface with a refractive-index step) depending on whether
+each region is doing other physics besides radiation.
+
+### Pure-radiation regions: `opticalRadiation` solver module
+
+Use OpenFOAM's `foamMultiRun` driver and tell it to load the
+`opticalRadiation` solver module per region:
 
 ```c++
+// system/controlDict
+regionSolvers
+{
+    mediumA   opticalRadiation;
+    mediumB   opticalRadiation;
+}
+
+// foamMultiRun needs to know where the module library lives
+libs ("libopticalRadiationModule.so");
+```
+
+Each region has its own `constant/<region>/opticalRadiationProperties`
+and its own per-region mesh (standard OF v13 multi-region layout).
+Cross-region coupling is via mapped patches and the
+`multiBandTransInteriorCoupled` BC.
+
+### Mixed-physics regions: `opticalRadiation` fvModel
+
+When a region has another primary physics (flow, solid heat conduction,
+etc.) and you want radiation alongside it, embed the fvModel wrapper
+inside that region's host solver via `fvModels`:
+
+```c++
+// constant/<region>/fvModels
 opticalRadiation
 {
     type    opticalRadiation;
@@ -117,15 +151,14 @@ opticalRadiation
 }
 ```
 
-Configure the model itself in `constant/opticalRadiationProperties`,
-exactly as for the standalone solver. The wrapper does not push source
-terms into host equations directly; the irradiance field `G` is exposed
-via the mesh registry and downstream couplings (e.g. `G` driving a
-species growth term) belong in the host's own fvModels.
+The wrapper does not push source terms into host equations directly;
+the irradiance field `G` is exposed via the mesh registry and downstream
+couplings (e.g. `G` driving a species growth term) belong in the host's
+own fvModels.
 
-End-to-end runtime testing of the wrapper inside a host solver is
-deferred until a concrete coupled use case lands; build and registration
-are confirmed.
+End-to-end runtime testing of either path inside a real multi-region
+host solver is deferred until a concrete use case lands; build and
+runtime registration are confirmed for both.
 
 ---
 
@@ -141,10 +174,13 @@ subModels/
     extinctionModel/     absorption + scattering coefficient models
     phaseFunctionModel/  Henyey-Greenstein, Schlick, null
 derivedFvPatchFields/    boundary conditions
-fvModels/opticalRadiation/   fvModel wrapper for host-solver embedding
-opticalRadiationFoam/    standalone solver
+fvModels/opticalRadiation/   fvModel wrapper (radiation as side-physics in host)
+applications/
+    solvers/opticalRadiationFoam/    single-region standalone solver
+    modules/opticalRadiation/        solver module for foamMultiRun
 tutorials/               runnable cases + Alltest validation harness
 Dockerfile               OpenFOAM 13 build environment
+Allwmake                 build everything (lib + solver + module)
 ```
 
 Several legacy boundary conditions (`transInteriorSurface`,

@@ -1,10 +1,11 @@
-wmake libso
-#cd multiRegionPhotoBioFoam
-#wclean
-#wmake
-#cd ..
-#cd photoBioFoam
-#wclean
-#wmake
-#cd ..
+#!/bin/sh
+cd "${0%/*}" || exit 1
 
+# Library
+wmake libso
+
+# Standalone solver
+( cd applications/solvers/opticalRadiationFoam && wmake )
+
+# Solver module (loaded by foamMultiRun for multi-region cases)
+( cd applications/modules/opticalRadiation && wmake libso )
