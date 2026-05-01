@@ -22,18 +22,19 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::semiTransSurfaceMixedFvPatchScalarField
+    Foam::optical::reflectiveMixedFvPatchScalarField
 
 Description
-    opticalRadiation temperature specified
+    Partially reflecting wall: absorbs a fraction of arriving radiance and
+    re-emits the remainder split between specular and diffuse components.
 
 SourceFiles
-    semiTransSurfaceMixedFvPatchScalarField.C
+    reflectiveMixedFvPatchScalarField.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef reflectiveSurfaceMixedFvPatchScalarField_H
-#define reflectiveSurfaceMixedFvPatchScalarField_H
+#ifndef reflectiveMixedFvPatchScalarField_H
+#define reflectiveMixedFvPatchScalarField_H
 
 #include "mixedFvPatchFields.H"
 
@@ -44,10 +45,10 @@ namespace Foam
 namespace optical
 {
 /*---------------------------------------------------------------------------*\
-        Class reflectiveSurfaceMixedFvPatchScalarField Declaration
+        Class reflectiveMixedFvPatchScalarField Declaration
 \*---------------------------------------------------------------------------*/
 
-class reflectiveSurfaceMixedFvPatchScalarField
+class reflectiveMixedFvPatchScalarField
 :
     public mixedFvPatchScalarField
 {
@@ -61,20 +62,20 @@ class reflectiveSurfaceMixedFvPatchScalarField
 public:
 
     //- Runtime type information
-    TypeName("reflectiveSurface");
+    TypeName("reflective");
 
 
     // Constructors
 
         //- Construct from patch and internal field
-        reflectiveSurfaceMixedFvPatchScalarField
+        reflectiveMixedFvPatchScalarField
         (
             const fvPatch&,
             const DimensionedField<scalar, volMesh>&
         );
 
         //- Construct from patch, internal field and dictionary
-        reflectiveSurfaceMixedFvPatchScalarField
+        reflectiveMixedFvPatchScalarField
         (
             const fvPatch&,
             const DimensionedField<scalar, volMesh>&,
@@ -82,19 +83,19 @@ public:
         );
 
         //- Construct by mapping given a
-        //  reflectiveSurfaceMixedFvPatchScalarField onto a new patch
-        reflectiveSurfaceMixedFvPatchScalarField
+        //  reflectiveMixedFvPatchScalarField onto a new patch
+        reflectiveMixedFvPatchScalarField
         (
-            const reflectiveSurfaceMixedFvPatchScalarField&,
+            const reflectiveMixedFvPatchScalarField&,
             const fvPatch&,
             const DimensionedField<scalar, volMesh>&,
             const fvPatchFieldMapper&
         );
 
         //- Construct as copy setting internal field reference
-        reflectiveSurfaceMixedFvPatchScalarField
+        reflectiveMixedFvPatchScalarField
         (
-            const reflectiveSurfaceMixedFvPatchScalarField&,
+            const reflectiveMixedFvPatchScalarField&,
             const DimensionedField<scalar, volMesh>&
         );
 
@@ -106,7 +107,7 @@ public:
         {
             return tmp<fvPatchScalarField>
             (
-                new reflectiveSurfaceMixedFvPatchScalarField(*this, iF)
+                new reflectiveMixedFvPatchScalarField(*this, iF)
             );
         }
 

@@ -27,7 +27,7 @@ Class
 Description
     Solver module for the optical-radiation library. Designed to be loaded
     per region by `foamMultiRun` so that a multi-region case can solve
-    radiation in each region while a `multiBandTransInteriorCoupled`
+    radiation in each region while a `refractiveCoupled`
     boundary condition handles the cross-region coupling at refractive
     interfaces.
 

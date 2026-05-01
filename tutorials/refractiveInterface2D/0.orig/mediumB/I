@@ -24,7 +24,7 @@ boundaryField
     radOut
     {
         // Black absorber at the far end.
-        type            reflectiveSurface;
+        type            reflective;
         diffuseFraction 0;
         reflectionCoef  0;
         refValue        uniform 0;
@@ -35,7 +35,7 @@ boundaryField
 
     sides
     {
-        type            reflectiveSurface;
+        type            reflective;
         diffuseFraction 0;
         reflectionCoef  0;
         refValue        uniform 0;
@@ -48,7 +48,7 @@ boundaryField
     {
         // Refractive interface: this side ("own") is n_B = 1.5;
         // neighbour ("nbg") is n_A = 1.0.
-        type            multiBandTransInteriorCoupled;
+        type            refractiveCoupled;
         nBands          1;
         nNbg            (1.0);
         nOwn            (1.5);

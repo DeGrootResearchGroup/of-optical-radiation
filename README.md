@@ -134,7 +134,7 @@ libs ("libopticalRadiationModule.so");
 Each region has its own `constant/<region>/opticalRadiationProperties`
 and its own per-region mesh (standard OF v13 multi-region layout).
 Cross-region coupling is via mapped patches and the
-`multiBandTransInteriorCoupled` BC.
+`refractiveCoupled` BC.
 
 ### Mixed-physics regions: `opticalRadiation` fvModel
 

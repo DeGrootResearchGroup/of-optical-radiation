@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Verification of multiBandTransInteriorCoupled at a refractive interface.
+Verification of refractiveCoupled at a refractive interface.
 
 Geometry: 2-D, two-region (mediumA n=1.0, mediumB n=1.5).
 Source: collimated beam at theta_A = 11.25 deg from +x (centre of
