@@ -1,5 +1,7 @@
 # radiationDose library
 
+track/track.C
+
 radiationDose/radiationDose.C
 
 LIB = $(FOAM_USER_LIBBIN)/libradiationDose
