@@ -87,7 +87,7 @@ Build products:
 
 ## Running a tutorial
 
-Four tutorial cases ship under `tutorials/`. The simplest is a 2-D
+Five tutorial cases ship under `tutorials/`. The simplest is a 2-D
 plane-parallel slab with an analytical reference:
 
 ```sh
@@ -156,9 +156,11 @@ the irradiance field `G` is exposed via the mesh registry and downstream
 couplings (e.g. `G` driving a species growth term) belong in the host's
 own fvModels.
 
-End-to-end runtime testing of either path inside a real multi-region
-host solver is deferred until a concrete use case lands; build and
-runtime registration are confirmed for both.
+The fvModel path is exercised end-to-end by `tutorials/fvModelChannel2D`
+(radiation library wired into `incompressibleFluid` driven by
+`foamRun`); the solver-module path is exercised by
+`tutorials/refractiveInterface2D` (both regions running the
+`opticalRadiation` solver module under `foamMultiRun`).
 
 ---
 
@@ -204,9 +206,8 @@ The implementation follows:
 ## Status
 
 Active. The library and solver are working and validated; tutorials
-run on every PR via GitHub Actions. A few deferred items
-(end-to-end fvModel runtime test in a real multi-region host case,
-exterior-refraction BC, intensity → radiance identifier rename) are
+run on every PR via GitHub Actions. A couple of deferred items
+(exterior-refraction BC, intensity → radiance identifier rename) are
 documented in the developer guide.
 
 ---

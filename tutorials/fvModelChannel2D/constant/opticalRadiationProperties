@@ -1,0 +1,43 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation        on;
+radiationModel   DOM;
+
+DOMCoeffs
+{
+    nPhi          8;     // azimuthal divisions per pi (total 2*nPhi over [0,2pi))
+    nTheta        1;     // polar divisions; must be 1 in 2-D
+    convergence   1e-6;
+    maxIter       200;
+    nBand         2;
+    nPixelPhi     1;
+    nPixelTheta   1;
+    phaseFunctionModel nullModel;
+}
+
+extinctionModel wideBandConstantExtinction;
+wideBandConstantExtinctionCoeffs
+{
+    nBands           2;
+    absorption       true;
+    absorptionCoeff  (1 1);
+    scattering       false;
+    scatteringCoeff  (0 0);
+}
+
+// ************************************************************************* //

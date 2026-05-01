@@ -1,0 +1,48 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volVectorField;
+    object      U;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 1 -1 0 0 0 0];
+
+internalField   uniform (0 0 0);
+
+boundaryField
+{
+    radSource
+    {
+        // Wall (light source patch is also impermeable to flow).
+        type            noSlip;
+    }
+    radOut
+    {
+        // Wall (radiation absorber patch is also impermeable to flow).
+        type            noSlip;
+    }
+    sides
+    {
+        // Lid-driven: top and bottom y-walls slide in +x. Drives a
+        // recirculating flow in the cavity. The flow is irrelevant to
+        // the radiation answer; this is purely to exercise a real host
+        // solver on the fvModel.
+        type            fixedValue;
+        value           uniform (0.01 0 0);
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

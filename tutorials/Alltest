@@ -49,12 +49,20 @@ for case_dir in */ ; do
     fi
 done
 
-# 3) Cross-case match: variableExtinctionBox3D should equal
-#    absorbingScatteringBox3D (same physics, different model path).
-if [ -f absorbingScatteringBox3D/1/G ] && [ -f variableExtinctionBox3D/1/G ]; then
-    echo "==> cross-case match: absorbingScatteringBox3D vs variableExtinctionBox3D"
-    if python3 - <<'PY'
-import re, sys
+# 3) Cross-case matches.
+#    Each pair below should produce bit-for-bit identical G (different
+#    code paths solving the same radiation problem).
+cross_case_check() {
+    label="$1"
+    a="$2"
+    b="$3"
+    if [ ! -f "$a" ] || [ ! -f "$b" ]; then
+        echo "==> cross-case match: $label: skipping (one or both runs missing)"
+        return 0
+    fi
+    echo "==> cross-case match: $label"
+    if A="$a" B="$b" python3 - <<'PY'
+import os, re, sys
 
 def read_G(path):
     with open(path) as f:
@@ -67,13 +75,11 @@ def read_G(path):
         sys.exit(f"could not parse {path}")
     return list(map(float, m.group(2).split()))
 
-a = read_G("absorbingScatteringBox3D/1/G")
-b = read_G("variableExtinctionBox3D/1/G")
+a = read_G(os.environ["A"])
+b = read_G(os.environ["B"])
 if len(a) != len(b):
     sys.exit(f"size mismatch: {len(a)} vs {len(b)}")
 
-# Strict tolerance: same equations and iterations, results should be
-# identical to within iterative-solver round-off.
 TOL = 1e-9
 max_abs = max(abs(av - bv) for av, bv in zip(a, b))
 scale = max(max(abs(av) for av in a), 1e-12)
@@ -87,9 +93,24 @@ PY
         echo "    FAIL"
         overall=1
     fi
-else
-    echo "==> cross-case match: skipping (one or both runs missing)"
-fi
+}
+
+# absorbingScatteringBox3D vs variableExtinctionBox3D: same physics
+# (constant kappa/sigma_s) routed through two different extinction-model
+# paths.
+cross_case_check \
+    "absorbingScatteringBox3D vs variableExtinctionBox3D" \
+    "absorbingScatteringBox3D/1/G" \
+    "variableExtinctionBox3D/1/G"
+
+# fvModelChannel2D vs diffuseSlab2D: same radiation problem solved
+# either by opticalRadiationFoam directly (slab) or by foamRun
+# invoking the radiation through the opticalRadiation fvModel
+# (channel). Proves end-to-end fvModel integration.
+cross_case_check \
+    "fvModelChannel2D vs diffuseSlab2D" \
+    "fvModelChannel2D/0.5/G" \
+    "diffuseSlab2D/1/G"
 
 if [ "$overall" -eq 0 ]; then
     echo

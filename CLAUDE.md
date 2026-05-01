@@ -111,7 +111,7 @@ and étendue-n² methodology fixes.
 | `src/opticalRadiationModels/fvModels/opticalRadiation/opticalRadiation.{H,C}` | fvModel wrapper for embedding in host solvers |
 | `applications/solvers/opticalRadiationFoam/opticalRadiationFoam.C` | Standalone solver entry point |
 | `applications/modules/opticalRadiation/opticalRadiation.{H,C}` | Solver-module form for `foamMultiRun` |
-| `tutorials/` | Four runnable cases plus `Alltest` validation harness |
+| `tutorials/` | Five runnable cases plus `Alltest` validation harness |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | Library build configuration |
 | `Allwmake` | Builds library + standalone solver + module in one shot |
 
@@ -231,10 +231,13 @@ Implementation choices:
   the solve should move to `prePredictor()` (post-motion, inside the
   PIMPLE loop).
 
-End-to-end runtime test of either the fvModel or the solver-module
-form inside a real multi-region host run is **deferred** until a
-concrete use case lands. Build, linking, `TypeName`, and RTS-table
-registration are confirmed for both.
+End-to-end runtime tests of both forms ship as tutorials:
+- `tutorials/fvModelChannel2D` exercises the fvModel inside
+  `incompressibleFluid` (driven by `foamRun`) and confirms G is
+  bit-for-bit identical to `tutorials/diffuseSlab2D`'s standalone-solver
+  answer.
+- `tutorials/refractiveInterface2D` exercises the solver-module form
+  via `foamMultiRun` with two regions both running `opticalRadiation`.
 
 ### Multi-region cases — no dedicated binary
 
@@ -293,7 +296,7 @@ For piecewise builds:
 
 ## Tutorials & validation
 
-`tutorials/` ships four cases:
+`tutorials/` ships five cases:
 
 - **`diffuseSlab2D`** — 2-D plane-parallel slab, mirror sides, validated
   against `2π·L_w·E_2(κx)`.
@@ -307,12 +310,19 @@ For piecewise builds:
   with a collimated beam source, validated against the
   Fresnel-transmission analytical with the étendue n² factor. Runs via
   `foamMultiRun` and exercises the solver-module form.
+- **`fvModelChannel2D`** — same radiation problem as `diffuseSlab2D`,
+  but the radiation library is wired into `incompressibleFluid`
+  (driven by `foamRun`) via the `opticalRadiation` fvModel. Exercises
+  the fvModel embedding path end-to-end; `Alltest` requires
+  bit-for-bit `G` agreement with `diffuseSlab2D`.
 
 `tutorials/Alltest` is the orchestrator: builds (cheap if up-to-date),
 runs every case's `Allrun`, runs each case's `validate` script if
-present, and performs a cross-case diff between
-`absorbingScatteringBox3D` and `variableExtinctionBox3D`. Exits 0 only
-if every check passes.
+present, and performs cross-case bit-for-bit diffs:
+`absorbingScatteringBox3D` vs `variableExtinctionBox3D` (constant vs.
+species-driven extinction, same physics) and `fvModelChannel2D` vs
+`diffuseSlab2D` (fvModel vs. standalone solver, same radiation
+problem). Exits 0 only if every check passes.
 
 ---
 
