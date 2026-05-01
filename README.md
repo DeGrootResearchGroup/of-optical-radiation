@@ -227,6 +227,15 @@ an issue first so we can agree on scope.
 
 ---
 
+## Acknowledgments
+
+This project began as a collaboration between Ed Barry and Chris
+DeGroot during Ed's PhD work on photobioreactor modelling. The current
+opticalRadiation library is the descendant of that early code, ported
+to OpenFOAM 13 and reworked for general optical-radiation use.
+
+---
+
 ## License
 
 This project is released under the **GNU General Public License v3.0**
