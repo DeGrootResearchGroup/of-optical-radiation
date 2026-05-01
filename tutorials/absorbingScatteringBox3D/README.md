@@ -14,10 +14,9 @@ scattering, and variable extinction tied to species concentrations.
 
 - 4 wavelength bands.
 - Constant extinction with `kappa = 0.1 m^-1` and `sigma_s = 0.1 m^-1`
-  per band. (The legacy `test01` used `wideBandVariableExtinction` with
-  two absorbing and two scattering species; we collapse that to constant
-  coefficients here so the case runs standalone — see the comment in
-  `constant/opticalRadiationProperties`.)
+  per band. The companion `variableExtinctionBox3D` tutorial drives the
+  same net coefficients from species fields via
+  `wideBandVariableExtinction`.
 - Henyey-Greenstein phase function with asymmetry parameters
   (0.98, 0.98, 0.98, 0.99) — strongly forward-scattering.
 - 5 × 5 angular discretisation per octant (effectively 200 directions);
@@ -29,15 +28,6 @@ scattering, and variable extinction tied to species concentrations.
   (10, 7.5, 5, 2.5) W/m^2. The wall radiance is `L_w = E / pi` per band.
 - All other walls: `reflective` with `reflectionCoef = 0`
   (perfect absorbers / sinks).
-
-## Note on legacy syntax
-
-The original `test01` case used `diffuseEmitter` with
-`irradiation 50; bandDist (0.4 0.3 0.2 0.1);`, where the BC computed
-`L = I0 * b / (2 pi)`. The current implementation uses the correct
-Lambertian relation `L = E / pi` and reads per-band `emissivePower`
-directly. The values in this case were chosen to reproduce the same
-wall radiance as the legacy run: `E_i = I0 * b_i / 2`.
 
 ## Running
 
