@@ -25,6 +25,50 @@ Description
       inside the integration kernel.
     - Inactivation rate kInact is in cm^2/mJ.
 
+Usage
+    \verbatim
+    radiationDose
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+
+        U               U;
+        fluenceRate     G;
+        seed            42;
+
+        seeding
+        {
+            type        patchInjection;
+            patches     (inlet);
+            nParticles  10000;
+        }
+
+        dispersion
+        {
+            type        none;          // or discreteRandomWalk
+        }
+
+        termination
+        {
+            escapePatches   (outlet);
+            maxTime         300;        // s; 0 disables
+            maxDose         0;          // mJ/cm^2; 0 disables
+        }
+
+        integration
+        {
+            dtMax           0.01;       // s
+            cflMax          0.5;
+            maxStepsPerTrack 100000;
+        }
+
+        output
+        {
+            kInact          (0.1);      // cm^2/mJ for log-reduction reporting
+        }
+    }
+    \endverbatim
+
 SourceFiles
     radiationDose.C
 
@@ -33,7 +77,16 @@ SourceFiles
 #ifndef functionObjects_radiationDose_H
 #define functionObjects_radiationDose_H
 
+#include "PtrList.H"
+#include "autoPtr.H"
+#include "dispersionModel.H"
 #include "fvMeshFunctionObject.H"
+#include "interpolation.H"
+#include "HashSet.H"
+#include "meshSearch.H"
+#include "randomGenerator.H"
+#include "seedingModel.H"
+#include "track.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -50,13 +103,80 @@ class radiationDose
 :
     public fvMeshFunctionObject
 {
-    // Private Data
+    // Private Data — configuration
 
         //- Name of the velocity field [m/s]
         word UName_;
 
         //- Name of the fluence-rate field [W/m^2]
         word GName_;
+
+        //- RNG seed for reproducible runs
+        label randomSeed_;
+
+        //- Seeding model (RTS-selected)
+        autoPtr<dose::seedingModel> seeding_;
+
+        //- Dispersion model (RTS-selected)
+        autoPtr<dose::dispersionModel> dispersion_;
+
+        //- Patches whose first hit terminates a track as "escaped"
+        labelHashSet escapePatchIDs_;
+
+        //- Soft termination: maximum integration time [s]; 0 disables
+        scalar maxTime_;
+
+        //- Soft termination: maximum accumulated dose [mJ/cm^2]; 0 disables
+        scalar maxDose_;
+
+        //- Maximum integration step [s]
+        scalar dtMax_;
+
+        //- CFL bound on per-step displacement
+        scalar cflMax_;
+
+        //- Hard cap on substeps per track (safety net)
+        label maxStepsPerTrack_;
+
+        //- Inactivation rate constants [cm^2/mJ] for log-reduction reporting
+        scalarList kInact_;
+
+
+    // Private Data — result of execute()
+
+        //- Trajectories (one per seeded particle)
+        PtrList<dose::track> tracks_;
+
+
+    // Private Member Functions
+
+        //- Integrate a single track to termination
+        void integrateTrack
+        (
+            dose::track& tr,
+            const interpolation<vector>& Uint,
+            const interpolation<scalar>& Gint,
+            const meshSearch& search,
+            randomGenerator& rng
+        ) const;
+
+        //- Handle a step that crossed the domain boundary: locate the hit
+        //  face, snap the track to it, classify endReason
+        void handleBoundaryHit
+        (
+            dose::track& tr,
+            const point& x_prev,
+            label celli_prev,
+            const vector& V,
+            scalar dt,
+            const interpolation<scalar>& Gint
+        ) const;
+
+        //- Write the per-track dose CSV
+        void writeDoseCsv() const;
+
+        //- Write the summary statistics file
+        void writeSummary() const;
 
 
 public:
@@ -99,7 +219,7 @@ public:
         //- Execute (integrate trajectories and accumulate dose)
         virtual bool execute();
 
-        //- Write outputs (VTK tracks, dose CSV, summary)
+        //- Write outputs (dose CSV, summary)
         virtual bool write();
 
 
