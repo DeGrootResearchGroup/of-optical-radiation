@@ -4,7 +4,7 @@ radiationModel/radiationModel.C
 radiationModel/radiationModelNew.C
 
 DOM/DOM/DOM.C
-DOM/intensityRay/intensityRay.C
+DOM/ray/ray.C
 
 phaseFunctionModels/phaseFunctionModel/phaseFunctionModel.C
 phaseFunctionModels/phaseFunctionModel/newPhaseFunctionModel.C

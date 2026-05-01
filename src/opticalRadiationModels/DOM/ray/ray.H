@@ -22,18 +22,18 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::optical::intensityRay
+    Foam::optical::ray
 
 Description
     Radiance for a ray in a given direction (units W/m^2/sr).
 
 SourceFiles
-    intensityRay.C
+    ray.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef intensityRay_H
-#define intensityRay_H
+#ifndef ray_H
+#define ray_H
 
 #include "surfaceFields.H"
 
@@ -51,14 +51,14 @@ namespace optical
 class DOM;
 
 /*---------------------------------------------------------------------------*\
-                    Class intensityRay Declaration
+                    Class ray Declaration
 \*---------------------------------------------------------------------------*/
 
-class intensityRay
+class ray
 {
 public:
 
-    static const word intensityPrefix;
+    static const word namePrefix;
 
 private:
 
@@ -99,8 +99,8 @@ private:
 
     // Private member functions
 
-        intensityRay(const intensityRay&) = delete;
-        void operator=(const intensityRay&) = delete;
+        ray(const ray&) = delete;
+        void operator=(const ray&) = delete;
 
         //- Return the upwind Ji field
         const surfaceScalarField Ji0_() const;
@@ -113,7 +113,7 @@ public:
     // Constructors
 
         //- Construct from components
-        intensityRay
+        ray
         (
             const DOM& dom,
             const fvMesh& mesh,
@@ -127,7 +127,7 @@ public:
         );
 
     // Destructor
-    ~intensityRay();
+    ~ray();
 
     // Member functions
 
@@ -184,7 +184,7 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-#include "intensityRayI.H"
+#include "rayI.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

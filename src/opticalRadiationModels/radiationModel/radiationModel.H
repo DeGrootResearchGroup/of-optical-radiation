@@ -108,25 +108,25 @@ public:
              radiationModel,
              dictionary,
              (
-                 const volScalarField& intensity
+                 const volScalarField& I
              ),
-             (intensity)
+             (I)
          );
 
 
     // Constructors
 
         //- Null constructor
-        radiationModel(const volScalarField& intensity);
+        radiationModel(const volScalarField& I);
 
         //- Construct from components
-        radiationModel(const word& type, const volScalarField& intensity);
+        radiationModel(const word& type, const volScalarField& I);
 
 
     // Selectors
 
          //- Return a reference to the selected opticalRadiation model
-        static autoPtr<radiationModel> New(const volScalarField& intensity);
+        static autoPtr<radiationModel> New(const volScalarField& I);
 
 
     //- Destructor

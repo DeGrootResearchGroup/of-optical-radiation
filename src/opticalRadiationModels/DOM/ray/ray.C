@@ -22,7 +22,7 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 \*---------------------------------------------------------------------------*/
 
-#include "intensityRay.H"
+#include "ray.H"
 #include "fvm.H"
 #include "DOM.H"
 #include "mathematicalConstants.H"
@@ -31,15 +31,15 @@ using namespace Foam::constant::mathematical;
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
-Foam::label Foam::optical::intensityRay::rayId(0);
+Foam::label Foam::optical::ray::rayId(0);
 
 const Foam::word
-Foam::optical::intensityRay::intensityPrefix("I");
+Foam::optical::ray::namePrefix("I");
 
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::intensityRay::intensityRay
+Foam::optical::ray::ray
 (
     const DOM& dom,
     const fvMesh& mesh,
@@ -76,7 +76,7 @@ Foam::optical::intensityRay::intensityRay
 
     IOobject IHeader
     (
-        intensityPrefix + "_" + name(iBand) + "_" + name(iAngle),
+        namePrefix + "_" + name(iBand) + "_" + name(iAngle),
         mesh_.time().name(),
         mesh_,
         IOobject::MUST_READ,
@@ -128,13 +128,13 @@ Foam::optical::intensityRay::intensityRay
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::optical::intensityRay::~intensityRay()
+Foam::optical::ray::~ray()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::scalar Foam::optical::intensityRay::correct()
+Foam::scalar Foam::optical::ray::correct()
 {
     scalar maxResidual = -GREAT;
     scalar eqnResidual;
@@ -161,7 +161,7 @@ Foam::scalar Foam::optical::intensityRay::correct()
 }
 
 
-const Foam::surfaceScalarField Foam::optical::intensityRay::Ji0_() const
+const Foam::surfaceScalarField Foam::optical::ray::Ji0_() const
 {
     const label npTheta = dom_.nPixelTheta();
     const label npPhi = dom_.nPixelPhi();
@@ -187,7 +187,7 @@ const Foam::surfaceScalarField Foam::optical::intensityRay::Ji0_() const
 }
 
 
-const Foam::surfaceScalarField Foam::optical::intensityRay::Ji1_() const
+const Foam::surfaceScalarField Foam::optical::ray::Ji1_() const
 {
     const label npTheta = dom_.nPixelTheta();
     const label npPhi = dom_.nPixelPhi();
@@ -213,7 +213,7 @@ const Foam::surfaceScalarField Foam::optical::intensityRay::Ji1_() const
 }
 
 
-void Foam::optical::intensityRay::updateBoundary()
+void Foam::optical::ray::updateBoundary()
 {
     I_->correctBoundaryConditions();
 }

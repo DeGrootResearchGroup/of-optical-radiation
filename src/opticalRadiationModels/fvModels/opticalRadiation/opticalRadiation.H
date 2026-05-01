@@ -30,7 +30,7 @@ Description
     solved each correction step alongside the host solver's other
     equations.
 
-    The wrapper owns the radiation intensity field "I" (read from the
+    The wrapper owns the radiance field "I" (read from the
     case time directory) and the radiationModel instance. It does NOT
     add a source term to any host equation -- the radiation field G is
     a side computation that the host can consume via the mesh registry.
@@ -78,7 +78,7 @@ class opticalRadiation
 {
     // Private data
 
-        //- Radiation intensity placeholder field. The per-ray intensity
+        //- Radiance placeholder field. The per-ray radiance
         //  fields are owned by the radiation model itself; this is the
         //  field used to construct the model and to satisfy the
         //  "I" entry expected at construction time.
