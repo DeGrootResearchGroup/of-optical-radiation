@@ -9,6 +9,7 @@ seedingModels/patchInjection/patchInjection.C
 dispersionModels/dispersionModel/dispersionModel.C
 dispersionModels/dispersionModel/newDispersionModel.C
 dispersionModels/noDispersion/noDispersion.C
+dispersionModels/discreteRandomWalk/discreteRandomWalk.C
 
 radiationDose/radiationDose.C
 

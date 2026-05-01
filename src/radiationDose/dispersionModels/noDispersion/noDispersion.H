@@ -54,6 +54,7 @@ public:
 
         virtual vector fluctuation
         (
+            label trackId,
             const vector& x,
             label celli,
             scalar dt,

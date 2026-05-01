@@ -38,6 +38,7 @@ Foam::functionObjects::radiationDose::radiationDose
     randomSeed_(0),
     maxTime_(0),
     maxDose_(0),
+    wallReflection_(true),
     dtMax_(0.01),
     cflMax_(0.5),
     maxStepsPerTrack_(100000)
@@ -83,6 +84,8 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
     }
     maxTime_ = termDict.lookupOrDefault<scalar>("maxTime", 0);
     maxDose_ = termDict.lookupOrDefault<scalar>("maxDose", 0);
+    wallReflection_ =
+        termDict.lookupOrDefault<Switch>("wallReflection", true);
 
     const dictionary& intDict = dict.subDict("integration");
     dtMax_ = readScalar(intDict.lookup("dtMax"));
@@ -99,7 +102,15 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
 
 Foam::wordList Foam::functionObjects::radiationDose::fields() const
 {
-    return wordList({UName_, GName_});
+    DynamicList<word> f;
+    f.append(UName_);
+    f.append(GName_);
+    if (dispersion_.valid())
+    {
+        const wordList extra = dispersion_->requiredFields();
+        forAll(extra, i) { f.append(extra[i]); }
+    }
+    return wordList(f);
 }
 
 
@@ -118,6 +129,8 @@ bool Foam::functionObjects::radiationDose::execute()
         interpolation<scalar>::New("cellPoint", G);
 
     const meshSearch& search = meshSearch::New(mesh_);
+
+    dispersion_->reset();
 
     Info<< type() << ": seeding particles..." << endl;
     List<dose::trackPoint> seeds = seeding_->seed(rng);
@@ -185,7 +198,7 @@ void Foam::functionObjects::radiationDose::integrateTrack
 
         const vector Umean = Uint.interpolate(p.x, p.celli);
         const vector Ufluc =
-            dispersion_->fluctuation(p.x, p.celli, dtMax_, rng);
+            dispersion_->fluctuation(tr.id(), p.x, p.celli, dtMax_, rng);
         const vector V = Umean + Ufluc;
 
         const scalar Vmag = mag(V);
@@ -214,7 +227,7 @@ void Foam::functionObjects::radiationDose::integrateTrack
         {
             const vector Umean_mid = Uint.interpolate(x_mid, celli_mid);
             const vector Ufluc_mid =
-                dispersion_->fluctuation(x_mid, celli_mid, 0.5*dt, rng);
+                dispersion_->fluctuation(tr.id(), x_mid, celli_mid, 0.5*dt, rng);
             V_mid = Umean_mid + Ufluc_mid;
         }
         else
@@ -228,8 +241,12 @@ void Foam::functionObjects::radiationDose::integrateTrack
 
         if (celli_new < 0)
         {
-            handleBoundaryHit(tr, p.x, p.celli, V_mid, dt, Gint);
-            break;
+            if (!handleBoundaryHit(tr, p.x, p.celli, V_mid, dt, Gint))
+            {
+                break;
+            }
+            ++step;
+            continue;
         }
 
         // Accumulate dose using trapezoidal rule on G
@@ -263,7 +280,7 @@ void Foam::functionObjects::radiationDose::integrateTrack
 }
 
 
-void Foam::functionObjects::radiationDose::handleBoundaryHit
+bool Foam::functionObjects::radiationDose::handleBoundaryHit
 (
     dose::track& tr,
     const point& x_prev,
@@ -288,7 +305,7 @@ void Foam::functionObjects::radiationDose::handleBoundaryHit
         if (fi < nInternal) continue;
 
         const scalar denom = Sf[fi] & V;
-        if (denom <= 0) continue;  // not exiting through this face
+        if (denom <= 0) continue;
 
         const scalar tCross = ((Cf[fi] - x_prev) & Sf[fi]) / (denom*dt);
         if (tCross < 0 || tCross > 1.0 + small) continue;
@@ -300,32 +317,78 @@ void Foam::functionObjects::radiationDose::handleBoundaryHit
         }
     }
 
-    dose::track::endReason reason = dose::track::endReason::leftDomain;
-    point xHit = x_prev + dt*V;     // fallback if no face found
-    scalar dtPartial = dt;
-
-    if (hitFacei >= 0)
+    if (hitFacei < 0)
     {
-        dtPartial = max(small, tHit*dt);
-        xHit = x_prev + dtPartial*V;
-        const label hitPatchi =
-            mesh_.boundaryMesh().whichPatch(hitFacei);
-        reason = escapePatchIDs_.found(hitPatchi)
-            ? dose::track::endReason::escaped
-            : dose::track::endReason::stuck;
+        // Couldn't locate the exit face; fall back to leftDomain
+        const point xEnd = x_prev + dt*V;
+        const scalar G_n = Gint.interpolate(x_prev, celli_prev);
+        const scalar G_avg = 0.5*(G_n + G_n);
+        const scalar D_new =
+            tr.back().D + G_avg*dt*Wm2_s_to_mJcm2;
+        tr.append(dose::trackPoint(xEnd, tr.back().t + dt, D_new, -1));
+        tr.setEnd(dose::track::endReason::leftDomain);
+        return false;
     }
 
-    // Trapezoidal dose contribution over the partial step (G evaluated in
-    // the previous cell at both endpoints, since the hit point lies on
-    // celli_prev's boundary)
+    const scalar dtHit = max(small, tHit*dt);
+    const point xHit = x_prev + dtHit*V;
+
+    // Dose accumulated up to the wall hit
     const scalar G_n = Gint.interpolate(x_prev, celli_prev);
     const scalar G_hit = Gint.interpolate(xHit, celli_prev);
-    const scalar G_avg = 0.5*(G_n + G_hit);
-    const scalar D_new = tr.back().D + G_avg*dtPartial*Wm2_s_to_mJcm2;
-    const scalar t_new = tr.back().t + dtPartial;
+    const scalar G_avgPre = 0.5*(G_n + G_hit);
+    const scalar D_atHit = tr.back().D + G_avgPre*dtHit*Wm2_s_to_mJcm2;
+    const scalar t_atHit = tr.back().t + dtHit;
 
-    tr.append(dose::trackPoint(xHit, t_new, D_new, celli_prev));
-    tr.setEnd(reason);
+    const label hitPatchi = mesh_.boundaryMesh().whichPatch(hitFacei);
+
+    if (escapePatchIDs_.found(hitPatchi))
+    {
+        tr.append(dose::trackPoint(xHit, t_atHit, D_atHit, celli_prev));
+        tr.setEnd(dose::track::endReason::escaped);
+        return false;
+    }
+
+    if (!wallReflection_)
+    {
+        tr.append(dose::trackPoint(xHit, t_atHit, D_atHit, celli_prev));
+        tr.setEnd(dose::track::endReason::stuck);
+        return false;
+    }
+
+    // Specularly reflect the residual displacement about the face normal,
+    // accumulating the rest of the step's dose along the reflected segment.
+    const vector n = Sf[hitFacei]/mag(Sf[hitFacei]);
+    const scalar dtPost = max(small, dt - dtHit);
+    const vector residual = (1.0 - tHit)*dt*V;
+    const vector reflected = residual - 2.0*(residual & n)*n;
+    const point xReflected = xHit + reflected;
+
+    // Reflected position is almost always still in celli_prev (small
+    // displacement mirrored across a face of that cell). If a subsequent
+    // step finds otherwise, findCell at the start of the next iteration
+    // resolves it.
+    const label celli_after = celli_prev;
+    const scalar G_after = Gint.interpolate(xReflected, celli_after);
+    const scalar G_avgPost = 0.5*(G_hit + G_after);
+    const scalar D_after = D_atHit + G_avgPost*dtPost*Wm2_s_to_mJcm2;
+    const scalar t_after = t_atHit + dtPost;
+
+    tr.append(dose::trackPoint(xHit, t_atHit, D_atHit, celli_prev));
+    tr.append(dose::trackPoint(xReflected, t_after, D_after, celli_after));
+
+    if (maxTime_ > 0 && t_after >= maxTime_)
+    {
+        tr.setEnd(dose::track::endReason::timedOut);
+        return false;
+    }
+    if (maxDose_ > 0 && D_after >= maxDose_)
+    {
+        tr.setEnd(dose::track::endReason::terminated);
+        return false;
+    }
+
+    return true;
 }
 
 

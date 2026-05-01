@@ -90,11 +90,26 @@ public:
 
     // Member Functions
 
+        //- Names of fields the model needs loaded into the registry
+        //  (e.g. k, epsilon for DRW). Default: none.
+        virtual wordList requiredFields() const
+        {
+            return wordList();
+        }
+
+        //- Reset any per-track internal state (e.g. eddy memory).
+        //  Called by the function object at the start of every execute().
+        virtual void reset()
+        {}
+
         //- Velocity fluctuation u' [m/s] at position x in cell celli over a
-        //  step of size dt [s]. Concrete models look up their own turbulence
-        //  fields (k, epsilon, ...) from the registry as needed.
+        //  step of size dt [s]. trackId disambiguates per-particle state for
+        //  models that maintain memory across substeps (e.g. DRW eddies).
+        //  Concrete models look up their own turbulence fields (k, epsilon,
+        //  ...) from the registry as needed.
         virtual vector fluctuation
         (
+            label trackId,
             const vector& x,
             label celli,
             scalar dt,

@@ -78,6 +78,7 @@ SourceFiles
 #define functionObjects_radiationDose_H
 
 #include "PtrList.H"
+#include "Switch.H"
 #include "autoPtr.H"
 #include "dispersionModel.H"
 #include "fvMeshFunctionObject.H"
@@ -129,6 +130,10 @@ class radiationDose
         //- Soft termination: maximum accumulated dose [mJ/cm^2]; 0 disables
         scalar maxDose_;
 
+        //- Specularly reflect off non-escape patches (default true).
+        //  When false, a non-escape patch hit terminates the track as stuck.
+        Switch wallReflection_;
+
         //- Maximum integration step [s]
         scalar dtMax_;
 
@@ -161,8 +166,11 @@ class radiationDose
         ) const;
 
         //- Handle a step that crossed the domain boundary: locate the hit
-        //  face, snap the track to it, classify endReason
-        void handleBoundaryHit
+        //  face, snap to it, classify endReason. When wallReflection_ is on
+        //  and the hit patch is not in escapePatches, mirror the residual
+        //  displacement about the face normal and return true so the outer
+        //  loop continues. Returns false when the track has been terminated.
+        bool handleBoundaryHit
         (
             dose::track& tr,
             const point& x_prev,
