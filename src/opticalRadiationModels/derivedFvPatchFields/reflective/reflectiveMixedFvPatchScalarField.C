@@ -151,7 +151,7 @@ updateCoeffs()
         FatalErrorIn
         (
             "Foam::optical::"
-            "wideBandDiffusiveRadiationMixedFvPatchScalarField::updateCoeffs"
+            "reflectiveMixedFvPatchScalarField::updateCoeffs"
         )   << " a non-grey boundary condition is used with a grey "
             << "absorption model" << nl << exit(FatalError);
     }

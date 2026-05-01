@@ -52,8 +52,8 @@ docker build -t openfoam13 .
 You can then build and run inside the container:
 
 ```sh
-docker run --rm -v $(pwd):/code -w /code openfoam13 \
-    /bin/bash -c "wmake libso && cd opticalRadiationFoam && wmake"
+docker run --rm -e USER=root -v $(pwd):/code -w /code openfoam13 \
+    "./Allwmake && (cd tutorials && ./Alltest)"
 ```
 
 ---
@@ -87,7 +87,7 @@ Build products:
 
 ## Running a tutorial
 
-Three tutorial cases ship under `tutorials/`. The simplest is a 2-D
+Four tutorial cases ship under `tutorials/`. The simplest is a 2-D
 plane-parallel slab with an analytical reference:
 
 ```sh
@@ -177,11 +177,11 @@ src/opticalRadiationModels/
     fvModels/opticalRadiation/   fvModel wrapper (radiation as side-physics in host)
 applications/
     solvers/opticalRadiationFoam/    single-region standalone solver
-    solvers/multiRegionOpticalRadiationFoam/  legacy multi-region (excluded from build)
     modules/opticalRadiation/        solver module for foamMultiRun
 tutorials/               runnable cases + Alltest validation harness
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (lib + solver + module)
+Allwclean                clean all build outputs
 ```
 
 The `inScatterModels/` tree remains on disk but is **not** in the
@@ -203,9 +203,10 @@ The implementation follows:
 
 ## Status
 
-Active. The library and solver are working and validated. There are a
-few deferred items (CI workflow, end-to-end fvModel runtime test,
-multi-region solver rewrite, intensity → radiance identifier rename)
+Active. The library and solver are working and validated; tutorials
+run on every PR via GitHub Actions. A few deferred items
+(end-to-end fvModel runtime test in a real multi-region host case,
+exterior-refraction BC, intensity → radiance identifier rename) are
 documented in the developer guide.
 
 ---
@@ -223,6 +224,15 @@ Contributions are welcome via pull request. Please:
 
 For larger changes (new models, solvers, or BCs) it's worth opening
 an issue first so we can agree on scope.
+
+---
+
+## Acknowledgments
+
+This project began as a collaboration between Ed Barry and Chris
+DeGroot during Ed's PhD work on photobioreactor modelling. The current
+opticalRadiation library is the descendant of that early code, ported
+to OpenFOAM 13 and reworked for general optical-radiation use.
 
 ---
 
