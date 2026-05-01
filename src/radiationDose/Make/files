@@ -2,6 +2,10 @@
 
 track/track.C
 
+seedingModels/seedingModel/seedingModel.C
+seedingModels/seedingModel/newSeedingModel.C
+seedingModels/patchInjection/patchInjection.C
+
 radiationDose/radiationDose.C
 
 LIB = $(FOAM_USER_LIBBIN)/libradiationDose
