@@ -6,6 +6,10 @@ seedingModels/seedingModel/seedingModel.C
 seedingModels/seedingModel/newSeedingModel.C
 seedingModels/patchInjection/patchInjection.C
 
+dispersionModels/dispersionModel/dispersionModel.C
+dispersionModels/dispersionModel/newDispersionModel.C
+dispersionModels/noDispersion/noDispersion.C
+
 radiationDose/radiationDose.C
 
 LIB = $(FOAM_USER_LIBBIN)/libradiationDose
