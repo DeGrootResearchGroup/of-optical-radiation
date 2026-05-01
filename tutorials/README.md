@@ -36,6 +36,11 @@ notes on legacy syntax that was rewritten for the current code.
   the simulated `G` either side of the refractive interface against
   the Fresnel-transmission analytical, including the étendue n²
   factor and same-medium reflection. Tolerance 5%; observed ~0.5%.
+- **`scatteringSlab2D`** has a `validate` script that solves the
+  Schwarzschild-Milne integral equation for a 1-D plane-parallel
+  slab with combined absorption and isotropic scattering, and
+  compares the simulated `G(x)` profile to that reference.
+  Tolerance 10%; observed ~9.7% peak error.
 - **`absorbingScatteringBox3D` vs `variableExtinctionBox3D`**: the
   two cases are mathematically equivalent (constant extinction with
   the same net `kappa`/`sigma_s` as the species-driven version with
@@ -60,3 +65,4 @@ CI.
 | `variableExtinctionBox3D` | Same geometry/BCs as `absorbingScatteringBox3D` but with `wideBandVariableExtinction` driven by species concentration fields (X1, X2, S1, S2). With uniform 0.5 concentrations and the chosen specific coefficients, this case is equivalent to `absorbingScatteringBox3D` and is a good standalone test of the variable-extinction model. |
 | `refractiveInterface2D` | 2-D two-region case verifying `refractiveCoupled` at a refractive interface (n_A = 1.0, n_B = 1.5) using `foamMultiRun` + the `opticalRadiation` solver module. Collimated beam source, transparent media, validated against the Fresnel-transmission analytical with the étendue n² factor. |
 | `fvModelChannel2D` | Same radiation setup as `diffuseSlab2D`, but the radiation library is wired into a fluid host (`incompressibleFluid` driven by `foamRun`) via the `opticalRadiation` fvModel. End-to-end test that the fvModel embedding path produces the same `G` as the standalone solver. |
+| `scatteringSlab2D` | 2-D plane-parallel slab with combined absorption and isotropic scattering (κ=σ_s=0.5, ω=0.5), validated against a Schwarzschild-Milne integral-equation reference solved inline in the validate script. The scattering analogue of `diffuseSlab2D`. |

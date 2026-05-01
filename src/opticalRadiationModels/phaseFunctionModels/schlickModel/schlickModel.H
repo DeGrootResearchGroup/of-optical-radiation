@@ -84,13 +84,18 @@ public:
 
 
     // Member Operators
+    virtual bool inScatter() const
+    {
+        return inScatter_;
+    }
+
     Foam::scalar correct
     (
         const label rayI,
         const label rayJ,
         const label iBand
     ) const;
-        
+
     Foam::scalar sl3d
     (
         const scalar cosV,

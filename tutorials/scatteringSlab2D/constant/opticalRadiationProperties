@@ -16,41 +16,42 @@ FoamFile
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 opticalRadiation        on;
-radiationModel   DOM;
+radiationModel          DOM;
 
 DOMCoeffs
 {
-    nPhi          5;
-    nTheta        5;
+    nPhi          8;
+    nTheta        1;
     convergence   1e-5;
     maxIter       100;
-    nBand         4;
-    nPixelPhi     3;
-    nPixelTheta   3;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
 
+    // Isotropic phase function (Henyey-Greenstein with g=0 collapses
+    // to P_ij = 1, matching the analytical reference solver in
+    // ./validate which uses the Schwarzschild-Milne integral
+    // equation with the isotropic kernel E_1(|tau-tau'|)).
     phaseFunctionModel HenyeyGreensteinModel;
     HenyeyGreensteinModelCoeffs
     {
         subAngleNum     4;
-        asymmetryFactor (0.98 0.98 0.98 0.99);
+        asymmetryFactor (0.0);
         inScatter       true;
     }
 }
 
-// Constant-coefficient extinction. The legacy test01 case used
-// wideBandVariableExtinction with two absorbing species (X1, X2) and two
-// scattering species (S1, S2) at uniform concentration 0.5 with specific
-// coefficients of 0.1 m^2/kg per band. The resulting total coefficients
-// are A = 0.1 m^-1 and S = 0.1 m^-1 per band. We use those values here
-// so the tutorial runs standalone with opticalRadiationFoam.
+// Mixed absorption + scattering with single-scatter albedo omega = 0.5.
+// kappa = sigma_s = 0.5, total extinction beta = 1, slab length 1 m
+// gives optical thickness tau_L = 1.
 extinctionModel wideBandConstantExtinction;
 wideBandConstantExtinctionCoeffs
 {
-    nBands           4;
+    nBands           1;
     absorption       true;
-    absorptionCoeff  (0.1 0.1 0.1 0.1);
+    absorptionCoeff  (0.5);
     scattering       true;
-    scatteringCoeff  (0.1 0.1 0.1 0.1);
+    scatteringCoeff  (0.5);
 }
 
 // ************************************************************************* //

@@ -113,6 +113,16 @@ class DOM
         //- List of pointers to per-direction radiance rays
         PtrList<ray> IRay_;
 
+        //- Per-ray radiance snapshot taken at the start of each outer
+        //  iteration. The in-scatter source for ray i uses the snapshot
+        //  values of all I_j (Jacobi update) rather than the
+        //  partially-updated current I_j (Gauss-Seidel). The Jacobi
+        //  form removes the order-dependent staleness in the scatter
+        //  coupling that otherwise can drive an oscillation in the
+        //  outer iteration on strongly-coupled cases (multi-band 3-D
+        //  with anisotropic phase function).
+        PtrList<volScalarField> ISnapshot_;
+
         //- Convergence criterion
         scalar convergence_;
 

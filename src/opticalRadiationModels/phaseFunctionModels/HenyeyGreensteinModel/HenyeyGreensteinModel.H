@@ -86,6 +86,11 @@ public:
 
 
     // Member Operators
+    virtual bool inScatter() const
+    {
+        return inScatter_;
+    }
+
     Foam::scalar correct
     (
         const label rayI,
