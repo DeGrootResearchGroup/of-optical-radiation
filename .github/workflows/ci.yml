@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/degrootresearchgroup/of-optical-radiation-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build library, solver, and module
+        shell: bash
+        run: |
+          source /opt/openfoam13/etc/bashrc
+          ./Allwmake
+
+      - name: Run tutorial validation suite
+        shell: bash
+        run: |
+          source /opt/openfoam13/etc/bashrc
+          cd tutorials && ./Alltest
