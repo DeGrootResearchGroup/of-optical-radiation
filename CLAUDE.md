@@ -326,34 +326,6 @@ problem). Exits 0 only if every check passes.
 
 ---
 
-## Planned: rename intensity → radiance identifiers
-
-Code comments and prose now use "radiance" (W/m²/sr) consistently;
-remaining occurrences of "intensity" are code-level identifiers that
-were left in place to minimise churn:
-
-- Class `Foam::optical::intensityRay` (and its directory / file names
-  `src/opticalRadiationModels/DOM/intensityRay/intensityRay.{H,C,I.H}`).
-- Static member `intensityRay::intensityPrefix` ("I", used to build
-  the per-ray field name `I_<band>_<angle>`).
-- Constructor parameter name `const volScalarField& intensity` in
-  `radiationModel`/`DOM` constructors.
-
-When this is picked up:
-
-- Rename the class to `radianceRay` (or just `ray`); rename the
-  directory and files in step.
-- Rename `intensityPrefix` → `radiancePrefix`. The on-disk field
-  name `I` is conventional in radiation literature and should stay,
-  so the prefix's *value* remains `"I"` even though its identifier
-  changes.
-- Rename the constructor parameter to `radiance`.
-
-Mostly mechanical; affects ~50 lines plus a directory rename. Best
-done as its own commit so the diff stays reviewable.
-
----
-
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request. It pulls the

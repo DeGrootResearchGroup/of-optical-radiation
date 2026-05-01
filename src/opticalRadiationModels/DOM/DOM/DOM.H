@@ -56,7 +56,7 @@ SourceFiles
 #define opticalRadiationModelDOM_H
 
 #include "radiationModel.H"
-#include "intensityRay.H"
+#include "ray.H"
 #include "phaseFunctionModel.H"
 
 
@@ -111,7 +111,7 @@ class DOM
         DynamicList<scalar, 1, 0> pf0_;
 
         //- List of pointers to per-direction radiance rays
-        PtrList<intensityRay> IRay_;
+        PtrList<ray> IRay_;
 
         //- Convergence criterion
         scalar convergence_;
@@ -151,7 +151,7 @@ public:
     // Constructors
 
         //- Construct from components
-        DOM(const volScalarField& intensity);
+        DOM(const volScalarField& I);
 
     //- Destructor
     virtual ~DOM();
@@ -204,7 +204,7 @@ public:
             ) const;
 
             //- Ray radiance for rayI
-            inline const intensityRay& IRay(const label rayI) const;
+            inline const ray& IRay(const label rayI) const;
 
             //- Number of angles in theta
             inline label nTheta() const;
