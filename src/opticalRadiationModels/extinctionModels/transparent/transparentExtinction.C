@@ -21,69 +21,42 @@ License
     You should have received a copy of the GNU General Public License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
-Class
-    Foam::optical::noExtinction
-
-Description
-    Dummy extinction model for 'none'
-
-SourceFiles
-    noExtinction.C
-
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationWideBandExtinction_H
-#define opticalRadiationWideBandExtinction_H
+#include "transparentExtinction.H"
+#include "addToRunTimeSelectionTable.H"
 
-#include "extinctionModel.H"
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
 namespace Foam
 {
-namespace optical
-{
-
-/*---------------------------------------------------------------------------*\
-                  Class wideBandVariableExtinction Declaration
-\*---------------------------------------------------------------------------*/
-
-class noExtinction
-:
-    public extinctionModel
-{
-
-    public:
-
-        //- Runtime type information
-        TypeName("none");
-
-
-    // Constructors
-
-        //- Construct from components
-        noExtinction
+    namespace optical
+    {
+        defineTypeNameAndDebug(transparentExtinction, 0);
+        addToRunTimeSelectionTable
         (
-            const dictionary& dict,
-            const fvMesh& mesh
+            extinctionModel,
+            transparentExtinction,
+            dictionary
         );
+    }
+}
 
-    // Destructor
-    virtual ~noExtinction();
+// * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-    // Member functions
-    virtual void correct() {}
+Foam::optical::transparentExtinction::transparentExtinction
+(
+    const dictionary& dict,
+    const fvMesh& mesh
+)
+:
+    extinctionModel(dict, mesh)
+{}
 
-};
 
+// * * * * * * * * * * * * * * * * Destructor    * * * * * * * * * * * * * * //
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
-
-} // End namespace optical
-} // End namespace Foam
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
-
-#endif
+Foam::optical::transparentExtinction::~transparentExtinction()
+{}
 
 // ************************************************************************* //

@@ -14,9 +14,9 @@ phaseFunctionModels/nullModel/nullModel.C
 
 extinctionModels/extinctionModel/extinctionModel.C
 extinctionModels/extinctionModel/newExtinctionModel.C
-extinctionModels/noExtinction/noExtinction.C
-extinctionModels/wideBandConstantExtinction/wideBandConstantExtinction.C
-extinctionModels/wideBandVariableExtinction/wideBandVariableExtinction.C
+extinctionModels/transparent/transparentExtinction.C
+extinctionModels/constant/constantExtinction.C
+extinctionModels/linearSpecies/linearSpeciesExtinction.C
 
 # inScatterModels sub-models excluded: superseded by phaseFunctionModels, implementations broken
 

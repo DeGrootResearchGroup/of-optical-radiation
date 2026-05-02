@@ -23,7 +23,7 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "wideBandVariableExtinction.H"
+#include "linearSpeciesExtinction.H"
 #include "addToRunTimeSelectionTable.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
@@ -32,12 +32,12 @@ namespace Foam
 {
     namespace optical
     {
-        defineTypeNameAndDebug(wideBandVariableExtinction, 0);
+        defineTypeNameAndDebug(linearSpeciesExtinction, 0);
 
         addToRunTimeSelectionTable
         (
             extinctionModel,
-            wideBandVariableExtinction,
+            linearSpeciesExtinction,
             dictionary
         );
     }
@@ -46,7 +46,7 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::wideBandVariableExtinction::wideBandVariableExtinction
+Foam::optical::linearSpeciesExtinction::linearSpeciesExtinction
 (
     const dictionary& dict,
     const fvMesh& mesh
@@ -153,14 +153,14 @@ Foam::optical::wideBandVariableExtinction::wideBandVariableExtinction
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
 
-Foam::optical::wideBandVariableExtinction::~wideBandVariableExtinction()
+Foam::optical::linearSpeciesExtinction::~linearSpeciesExtinction()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
 
-void Foam::optical::wideBandVariableExtinction::correct()
+void Foam::optical::linearSpeciesExtinction::correct()
 {
     
     forAll(aFields_, i)
