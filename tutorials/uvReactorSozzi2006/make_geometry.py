@@ -45,8 +45,13 @@ L_ARC = 0.80          # lamp arc length
 L_INLET = 0.85        # inlet pipe length (paper's L1/D1 = 45)
 L_OUTLET = 0.85       # outlet pipe length
 
-LAMP_X_MIN = (L_BODY - L_ARC) / 2.0   # 0.0445
-LAMP_X_MAX = LAMP_X_MIN + L_ARC       # 0.8445
+LAMP_ARC_X_MIN = (L_BODY - L_ARC) / 2.0   # 0.0445; start of illuminated arc
+LAMP_ARC_X_MAX = LAMP_ARC_X_MIN + L_ARC   # 0.8445; end of illuminated arc
+
+# Physical lamp+sleeve assembly: free (rounded) tip at LAMP_ARC_X_MIN,
+# extends through the body all the way to the back wall on the holder side.
+LAMP_X_MIN = LAMP_ARC_X_MIN
+LAMP_X_MAX = L_BODY
 
 OUTLET_X = L_BODY - 0.0381            # 3.81 cm from back end
 
@@ -172,6 +177,53 @@ def disc_x(x, r, cy=0.0, cz=0.0, n=N_THETA, normal_pos=True):
     return tris
 
 
+def hemisphere_minus_x(cx, r, n_theta=N_THETA, n_phi=24):
+    """Hemisphere bulging in the -x direction, centred at (cx, 0, 0), radius r.
+
+    Apex at (cx - r, 0, 0), rim circle at x = cx (matches a cylinder cap).
+    Vertex order is chosen so the right-hand-rule normal points TOWARD the
+    sphere centre (out-of-fluid, into the lamp), matching the convention of
+    the flat lamp end caps elsewhere in this module.
+
+    The strip closest to the apex is replaced with a triangle fan to avoid
+    degenerate quads.
+    """
+    tris = []
+
+    def pt(alpha, theta):
+        return (
+            cx - r*math.sin(alpha),
+            r*math.cos(alpha)*math.cos(theta),
+            r*math.cos(alpha)*math.sin(theta),
+        )
+
+    # Quad strips from the rim (alpha=0) up to near the apex
+    for j in range(n_phi - 1):
+        a0 = (math.pi/2.0)*j/n_phi
+        a1 = (math.pi/2.0)*(j + 1)/n_phi
+        for i in range(n_theta):
+            t1 = 2.0*math.pi*i/n_theta
+            t2 = 2.0*math.pi*(i + 1)/n_theta
+            p00 = pt(a0, t1)
+            p01 = pt(a0, t2)
+            p10 = pt(a1, t1)
+            p11 = pt(a1, t2)
+            tris.append((p00, p01, p11))
+            tris.append((p00, p11, p10))
+
+    # Apex fan
+    apex = (cx - r, 0.0, 0.0)
+    a_last = (math.pi/2.0)*(n_phi - 1)/n_phi
+    for i in range(n_theta):
+        t1 = 2.0*math.pi*i/n_theta
+        t2 = 2.0*math.pi*(i + 1)/n_theta
+        p1 = pt(a_last, t1)
+        p2 = pt(a_last, t2)
+        tris.append((apex, p1, p2))
+
+    return tris
+
+
 def disc_z(z, r, cx, cy, n=N_THETA, normal_pos=True):
     """Solid disc at z = const, perpendicular to z, normal +/- z."""
     tris = []
@@ -242,8 +294,9 @@ def build_bodyWall():
     # normal -x (out of fluid which is at x>0)
     tris += annulus_x(0.0, R_PIPE, R_BODY, normal_pos=False)
 
-    # Body back face: full disc at x=L_BODY, normal +x
-    tris += disc_x(L_BODY, R_BODY, normal_pos=True)
+    # Body back face: ANNULAR disc at x=L_BODY (lamp+sleeve seals the centre).
+    # Normal +x (out of fluid which is at x<L_BODY).
+    tris += annulus_x(L_BODY, R_LAMP, R_BODY, normal_pos=True)
 
     # Inlet pipe wall: axis along x at (0,0), x in [-L_INLET, 0], radius R_PIPE.
     # Fluid is INSIDE the pipe, so out-of-fluid normal is +r.
@@ -258,20 +311,23 @@ def build_bodyWall():
 
 
 def build_lampWall():
-    """Lamp+sleeve outer surface: side cylinder + two end caps. Fluid is
-    OUTSIDE the lamp; out-of-fluid normal points TOWARD the lamp axis on
-    the side wall, and INTO the lamp interior on the end caps."""
+    """Lamp+sleeve outer surface: side cylinder + hemispherical free tip.
+
+    The lamp extends from a rounded free end at x=LAMP_X_MIN (apex at
+    x=LAMP_X_MIN-R_LAMP) all the way to the back end-cap of the body at
+    x=L_BODY, where it seals against the (annular) back wall on the
+    holder side. No flat end-cap on the holder side.
+
+    Out-of-fluid normals point TOWARD the lamp axis on the side wall and
+    INTO the lamp interior on the rounded tip.
+    """
     tris = []
 
     # Lamp side wall, normal -r (out of fluid which is at r>R_LAMP)
     tris += cyl_side_x(LAMP_X_MIN, LAMP_X_MAX, R_LAMP, normal_outward_radial=False)
 
-    # Lamp end cap at x=LAMP_X_MIN: fluid is at x<LAMP_X_MIN AND r>R_LAMP.
-    # Out-of-fluid normal at this end cap points +x (into the lamp interior).
-    tris += disc_x(LAMP_X_MIN, R_LAMP, normal_pos=True)
-
-    # Lamp end cap at x=LAMP_X_MAX: out-of-fluid normal points -x.
-    tris += disc_x(LAMP_X_MAX, R_LAMP, normal_pos=False)
+    # Rounded free tip at x=LAMP_X_MIN (hemisphere bulging in -x)
+    tris += hemisphere_minus_x(LAMP_X_MIN, R_LAMP)
 
     return tris
 
@@ -315,9 +371,12 @@ def main():
     # Quick consistency report
     print()
     print("Geometry summary:")
-    print(f"  Body:   x in [0, {L_BODY:.4f}] m, OD = {2*R_BODY*100:.1f} cm")
-    print(f"  Lamp:   x in [{LAMP_X_MIN:.4f}, {LAMP_X_MAX:.4f}] m, "
+    print(f"  Body:    x in [0, {L_BODY:.4f}] m, OD = {2*R_BODY*100:.1f} cm")
+    print(f"  Lamp:    x in [{LAMP_X_MIN:.4f}, {LAMP_X_MAX:.4f}] m physical "
+          f"(rounded free tip at apex x={LAMP_X_MIN - R_LAMP:.4f}); "
           f"OD = {2*R_LAMP*100:.1f} cm")
+    print(f"  Arc:     x in [{LAMP_ARC_X_MIN:.4f}, {LAMP_ARC_X_MAX:.4f}] m "
+          f"({L_ARC*100:.0f} cm illuminated)")
     print(f"  Inlet:  axial pipe, x in [{-L_INLET:.4f}, 0], dia = {2*R_PIPE*100:.2f} cm")
     print(f"  Outlet: perpendicular pipe at x = {OUTLET_X:.4f}, "
           f"z in [{R_BODY:.4f}, {R_BODY + L_OUTLET:.4f}], dia = {2*R_PIPE*100:.2f} cm")
