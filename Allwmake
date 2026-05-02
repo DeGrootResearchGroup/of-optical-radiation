@@ -1,8 +1,9 @@
 #!/bin/sh
 cd "${0%/*}" || exit 1
 
-# Library
+# Libraries
 ( cd src/opticalRadiationModels && wmake libso )
+( cd src/radiationDose          && wmake libso )
 
 # Standalone solver
 ( cd applications/solvers/opticalRadiationFoam && wmake )
