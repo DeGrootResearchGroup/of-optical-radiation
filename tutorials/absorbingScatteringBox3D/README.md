@@ -27,15 +27,6 @@ scattering, and the in-scatter source.
 - All other walls: `reflective` with `reflectionCoef = 0`
   (perfect absorbers / sinks).
 
-## Note on legacy syntax
-
-The original `test01` case used `diffuseEmitter` with
-`irradiation 50; bandDist (0.4 0.3 0.2 0.1);`, where the BC computed
-`L = I0 * b / (2 pi)`. The current implementation uses the correct
-Lambertian relation `L = E / pi` and reads per-band `emissivePower`
-directly. The values in this case were chosen to reproduce the same
-wall radiance as the legacy run: `E_i = I0 * b_i / 2`.
-
 ## Running
 
     ./Allrun        # mesh + solve

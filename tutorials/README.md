@@ -21,8 +21,7 @@ or run a single case:
     ./Allrun
 
 Each case has its own `README.md` with a description of the geometry,
-boundary conditions, expected behaviour, and (where applicable)
-notes on legacy syntax that was rewritten for the current code.
+boundary conditions, and expected behaviour.
 
 ## Automated checks
 

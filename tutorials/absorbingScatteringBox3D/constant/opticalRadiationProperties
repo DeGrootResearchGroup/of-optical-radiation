@@ -37,12 +37,10 @@ DOMCoeffs
     }
 }
 
-// Constant-coefficient extinction. The legacy test01 case used
-// wideBandVariableExtinction with two absorbing species (X1, X2) and two
-// scattering species (S1, S2) at uniform concentration 0.5 with specific
-// coefficients of 0.1 m^2/kg per band. The resulting total coefficients
-// are A = 0.1 m^-1 and S = 0.1 m^-1 per band. We use those values here
-// so the tutorial runs standalone with opticalRadiationFoam.
+// Constant-coefficient extinction with kappa = 0.1 m^-1 and
+// sigma_s = 0.1 m^-1 per band. The companion variableExtinctionBox3D
+// tutorial drives the same net coefficients from species fields via
+// wideBandVariableExtinction.
 extinctionModel wideBandConstantExtinction;
 wideBandConstantExtinctionCoeffs
 {
