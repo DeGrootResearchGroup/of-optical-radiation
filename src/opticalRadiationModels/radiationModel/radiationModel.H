@@ -47,7 +47,6 @@ SourceFiles
 #include "volFields.H"
 #include "fvMatrices.H"
 #include "extinctionModel.H"
-#include "inScatterModel.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -58,7 +57,6 @@ namespace optical
 
 // Forward declaration of classes
 class extinctionModel;
-class inScatterModel;
 
 /*---------------------------------------------------------------------------*\
                        Class radiationModel Declaration
@@ -86,7 +84,6 @@ protected:
 
         //- References to the opticalRadiation sub-models
          autoPtr<extinctionModel> extinction_;
-         autoPtr<inScatterModel> inScatter_;
 
 private:
 

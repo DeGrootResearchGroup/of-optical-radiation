@@ -75,24 +75,24 @@ Foam::optical::HenyeyGreensteinModel::HenyeyGreensteinModel
         phaseFunction_.setSize(nAngle_*nAngle_*nBand_);    
         for(label i =0; i< nAngle_*nAngle_*nBand_;i++)     phaseFunction_[i] = 0.0;
         
-        if (nDim == 3)    //3D 
-        {     
+        if (nDim == 3)    //3D
+        {
             scalar dp = deltaPhi/subAngleNum_;
             scalar dt = deltaTheta/subAngleNum_;
-	
+
             for(label iband = 0; iband < nBand_ ; iband++)
             {
-		for(scalar i = 0; i<nAngle_ ; i++)
+		for(label i = 0; i<nAngle_ ; i++)
 		{
-                    label rayI = i + iband*nAngle_;  
+                    label rayI = i + iband*nAngle_;
                     scalar pfSum = 0;
-                    for(scalar j = 0; j<nAngle_ ; j++)
+                    for(label j = 0; j<nAngle_ ; j++)
                     {
-                        label rayJ = j + iband*nAngle_;  
+                        label rayJ = j + iband*nAngle_;
                         label idx = j + i*nAngle_ +iband*nAngle_*nAngle_ ;
-                        for(scalar m = 0; m < subAngleNum_ ; m++)
+                        for(label m = 0; m < subAngleNum_ ; m++)
                         {
-                            for(scalar n = 0; n < subAngleNum_ ; n++)
+                            for(label n = 0; n < subAngleNum_ ; n++)
                             {
                                 scalar nP = (2.0*m-subAngleNum_+1.0)*dp/2.0+dom.IRay(rayJ).phi();
                                 scalar nT = (2.0*n-subAngleNum_+1.0)*dt/2.0+dom.IRay(rayJ).theta();
@@ -103,11 +103,11 @@ Foam::optical::HenyeyGreensteinModel::HenyeyGreensteinModel
                                 phaseFunction_[idx]=phaseFunction_[idx]+hg3d(cosV,g_[iband])*nOmega;
                             }
                         }
-                        pfSum = pfSum + phaseFunction_(idx);
+                        pfSum = pfSum + phaseFunction_[idx];
                         phaseFunction_[idx] = phaseFunction_[idx]/dom.IRay(rayI).omega() ;
                     }
-			
-                    for(scalar j = 0; j<nAngle_ ; j++)
+
+                    for(label j = 0; j<nAngle_ ; j++)
                     {
 			label  idx = j + i*nAngle_ +iband*nAngle_*nAngle_ ;
 			phaseFunction_[idx] = phaseFunction_[idx]/pfSum;
@@ -171,7 +171,15 @@ Foam::scalar  Foam::optical::HenyeyGreensteinModel::correct
     const label iBand
 ) const
 {
-    return phaseFunction_[rayJ + rayI*nAngle_ +iBand*nAngle_*nAngle_];
+    // rayI / rayJ are flat ray indices that already include the band
+    // offset (rayI = iAngleI + iBand*nAngle_); the precomputed phase
+    // function table is indexed by per-band angle indices, so subtract
+    // the band offset before forming the index. (Without this, only
+    // band 0 indexed correctly and bands >=1 read out-of-bounds garbage,
+    // producing NaN scatter sources.)
+    const label i = rayI - iBand*nAngle_;
+    const label j = rayJ - iBand*nAngle_;
+    return phaseFunction_[j + i*nAngle_ + iBand*nAngle_*nAngle_];
 }
 
  Foam::scalar  Foam::optical::HenyeyGreensteinModel::hg3d

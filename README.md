@@ -87,7 +87,7 @@ Build products:
 
 ## Running a tutorial
 
-Five tutorial cases ship under `tutorials/`. The simplest is a 2-D
+Six tutorial cases ship under `tutorials/`. The simplest is a 2-D
 plane-parallel slab with an analytical reference:
 
 ```sh

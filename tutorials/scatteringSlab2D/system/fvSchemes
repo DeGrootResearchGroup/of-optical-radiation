@@ -11,27 +11,44 @@ FoamFile
     format      ascii;
     class       dictionary;
     location    "system";
-    object      fvSolution;
+    object      fvSchemes;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-solvers
+ddtSchemes
 {
-    "(G|Ii)"
-    {
-        solver          smoothSolver;
-        smoother        symGaussSeidel;
-        tolerance       1e-06;
-        relTol          0;
-    }
+    default         steadyState;
 }
 
-relaxationFactors
+gradSchemes
 {
-    equations
-    {
-        "Ii.*"  0.5;
-    }
+    default         Gauss linear;
+}
+
+divSchemes
+{
+    default         none;
+    div(Ji,Ii_h)    bounded Gauss linearUpwind grad(Ii_h);
+}
+
+laplacianSchemes
+{
+    default         Gauss linear corrected;
+}
+
+interpolationSchemes
+{
+    default         linear;
+}
+
+snGradSchemes
+{
+    default         corrected;
+}
+
+fluxRequired
+{
+    default         yes;
 }
 
 // ************************************************************************* //
