@@ -30,8 +30,8 @@ DOMCoeffs
     phaseFunctionModel nullModel;
 }
 
-extinctionModel wideBandConstantExtinction;
-wideBandConstantExtinctionCoeffs
+extinctionModel constant;
+constantCoeffs
 {
     nBands           2;
     absorption       true;

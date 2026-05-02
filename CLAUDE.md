@@ -67,9 +67,11 @@ Foam::optical::
               └── PtrList<intensityRay>   (one per direction × band)
 
   extinctionModel                 (absorption & scattering coefficients)
-    ├── noExtinction
-    ├── wideBandConstantExtinction
-    └── wideBandVariableExtinction   (auto-loads species fields if not registered)
+    ├── transparentExtinction       (kappa = sigma_s = 0)
+    ├── constantExtinction           (per-band uniform coefficients)
+    └── linearSpeciesExtinction      (per-band, linear in named species
+                                      concentration fields; auto-loads
+                                      species fields if not registered)
 
   phaseFunctionModel              (phase function P(θ) between ray pairs)
     ├── HenyeyGreensteinModel

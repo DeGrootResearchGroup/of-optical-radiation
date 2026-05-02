@@ -45,8 +45,8 @@ DOMCoeffs
 //
 // Per-species, per-band specific coefficient (m^2/kg). Net absorption
 // or scattering coefficient at each cell is sum_i a_i,band * X_i.
-extinctionModel wideBandVariableExtinction;
-wideBandVariableExtinctionCoeffs
+extinctionModel linearSpecies;
+linearSpeciesCoeffs
 {
     nBands           4;
     absorption       true;

@@ -44,8 +44,8 @@ DOMCoeffs
 // Mixed absorption + scattering with single-scatter albedo omega = 0.5.
 // kappa = sigma_s = 0.5, total extinction beta = 1, slab length 1 m
 // gives optical thickness tau_L = 1.
-extinctionModel wideBandConstantExtinction;
-wideBandConstantExtinctionCoeffs
+extinctionModel constant;
+constantCoeffs
 {
     nBands           1;
     absorption       true;

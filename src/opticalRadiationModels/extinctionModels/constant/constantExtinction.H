@@ -22,13 +22,13 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::optical::wideBandConstantExtinction
+    Foam::optical::constantExtinction
 
 Description
     Model for constant absorption and scattering coefficients
 
 SourceFiles
-    wideBandConstantExtinction.C
+    constantExtinction.C
 
 \*---------------------------------------------------------------------------*/
 
@@ -45,10 +45,10 @@ namespace optical
 {
 
 /*---------------------------------------------------------------------------*\
-                  Class wideBandConstantExtinction Declaration
+                  Class constantExtinction Declaration
 \*---------------------------------------------------------------------------*/
 
-class wideBandConstantExtinction
+class constantExtinction
 :
     public extinctionModel
 {
@@ -76,20 +76,20 @@ class wideBandConstantExtinction
 public:
 
     //- Runtime type information
-    TypeName("wideBandConstantExtinction");
+    TypeName("constant");
 
 
     // Constructors
 
         //- Construct from components
-        wideBandConstantExtinction
+        constantExtinction
         (
             const dictionary& dict,
             const fvMesh& mesh
         );
 
     // Destructor
-    virtual ~wideBandConstantExtinction();
+    virtual ~constantExtinction();
 
     // Member Operators
 

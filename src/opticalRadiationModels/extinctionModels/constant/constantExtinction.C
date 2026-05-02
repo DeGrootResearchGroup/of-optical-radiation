@@ -23,7 +23,7 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "noExtinction.H"
+#include "constantExtinction.H"
 #include "addToRunTimeSelectionTable.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
@@ -32,31 +32,84 @@ namespace Foam
 {
     namespace optical
     {
-        defineTypeNameAndDebug(noExtinction, 0);
+        defineTypeNameAndDebug(constantExtinction, 0);
+
         addToRunTimeSelectionTable
         (
             extinctionModel,
-            noExtinction,
+            constantExtinction,
             dictionary
         );
     }
 }
 
+
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::noExtinction::noExtinction
+Foam::optical::constantExtinction::constantExtinction
 (
     const dictionary& dict,
     const fvMesh& mesh
 )
 :
-    extinctionModel(dict, mesh)
+    extinctionModel(dict, mesh),
+    coeffsDict_((dict.subDict(typeName + "Coeffs"))),
+    absorption_(readBool(coeffsDict_.lookup("absorption"))),
+    scattering_(readBool(coeffsDict_.lookup("scattering"))),
+    nBands_(readLabel(coeffsDict_.lookup("nBands"))),
+    ABand_(nBands_),
+    SBand_(nBands_)
+{
+    // Initialize the extinction model
+    init(nBands_);
+
+    // Initialize absorption coefficients
+    forAll(ABand_, i)
+    {
+        ABand_[i] = 0.0;
+    }
+    
+    // Initialize scattering coefficients
+    forAll(SBand_, i)
+    {
+        SBand_[i] = 0.0;
+    }
+
+    // Read the coefficients
+    if (absorption_) coeffsDict_.lookup("absorptionCoeff") >> ABand_;
+    if (scattering_) coeffsDict_.lookup("scatteringCoeff") >> SBand_;
+
+    // Set the absorption coefficient field
+    forAll(ALambda_, iBand)
+    {
+        ALambda_[iBand] = dimensionedScalar("A", dimless/dimLength, ABand_(iBand));
+    }
+
+    // Set the scattering coefficient field
+    forAll(SLambda_, iBand)
+    {
+        SLambda_[iBand] = dimensionedScalar("S", dimless/dimLength, SBand_(iBand));
+    }
+}
+
+
+// * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
+
+
+Foam::optical::constantExtinction::~constantExtinction()
 {}
 
 
-// * * * * * * * * * * * * * * * * Destructor    * * * * * * * * * * * * * * //
+// * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::optical::noExtinction::~noExtinction()
-{}
+
+void Foam::optical::constantExtinction::correct()
+{
+    // Nothing to be done for constant coefficients
+    return;
+}
+
 
 // ************************************************************************* //
+
+

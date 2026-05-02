@@ -1,8 +1,8 @@
 # variableExtinctionBox3D
 
 Same geometry, BCs, and angular discretisation as
-`absorbingScatteringBox3D`, but with `wideBandVariableExtinction`
-instead of constant extinction. The total absorption and scattering
+`absorbingScatteringBox3D`, but with the `linearSpecies` extinction
+model instead of constant. The total absorption and scattering
 coefficients are computed at each cell from species concentration
 fields:
 
