@@ -1,5 +1,9 @@
 #!/bin/sh
 cd "${0%/*}" || exit 1
 
+# Restore stock initial fields
+rm -rf 0
+cp -r 0.orig 0
+
 blockMesh > log.blockMesh 2>&1
 foamPostProcess > log.radiationDose 2>&1
