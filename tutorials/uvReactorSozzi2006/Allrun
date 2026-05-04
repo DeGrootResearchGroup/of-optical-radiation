@@ -1,0 +1,10 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+# Build mesh if not already present
+if [ ! -d constant/polyMesh ]; then
+    ./Allmesh
+fi
+
+# Run the steady RANS flow solve
+foamRun > log.foamRun 2>&1

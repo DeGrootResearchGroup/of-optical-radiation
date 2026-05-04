@@ -1,0 +1,69 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | uvReactorSozzi2006: post-process function objects
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      postProcess;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+//
+// Run with:
+//   setFluenceRate -latestTime              (writes G to latest time dir)
+//   foamPostProcess -dict system/postProcess.dict -latestTime
+//
+
+radiationDose
+{
+    type            radiationDose;
+    libs            ("libradiationDose.so");
+
+    U               U;
+    fluenceRate     G;
+    seed            42;
+
+    seeding
+    {
+        type        patchInjection;
+        patches     (inlet);
+        // Sozzi used 10000; we use 1000 for v0.1 to get a first-pass
+        // result in ~3-5 min on the 365k-cell mesh. Bump to 10000 once
+        // the pipeline validates.
+        nParticles  1000;
+    }
+
+    dispersion
+    {
+        type        discreteRandomWalk;
+        k           k;
+        epsilon     epsilon;
+        Cl          0.15;
+    }
+
+    termination
+    {
+        escapePatches   (outlet);
+        maxTime         300;
+        maxDose         0;
+        wallReflection  true;
+    }
+
+    integration
+    {
+        dtMax           0.005;
+        cflMax          0.5;
+        maxStepsPerTrack 200000;
+    }
+
+    output
+    {
+        kInact          (0.1);
+    }
+}
+
+// ************************************************************************* //
