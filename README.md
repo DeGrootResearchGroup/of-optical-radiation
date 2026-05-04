@@ -1,22 +1,30 @@
-# opticalRadiation
+# opticalRadiation + radiationDose
 
-An OpenFOAM library and standalone solver for the **radiative transfer
-equation** in absorbing/scattering participating media, focused on
-**optical wavelengths**. Discrete-ordinates method (DOM), multi-band
-spectral support, anisotropic phase functions, refractive interfaces,
-and Lambertian/specular boundary conditions. Decoupled from the energy
-equation — no thermal `n²σT⁴` term — so the model is suited to
-applications where light originates at boundaries or known external
-sources rather than from the temperature of the medium itself
-(photobioreactors, optical-property characterisation, photochemistry,
-solar receivers, etc.).
+Two related but **independent** OpenFOAM extensions for radiation modelling
+in absorbing/scattering participating media:
 
-The implementation is similar in scope to ANSYS Fluent's DO model, but
-stands alone from any energy-equation coupling.
+- **opticalRadiation** — solves the radiative transfer equation with
+  the discrete-ordinates method (DOM). Multi-band spectral support,
+  anisotropic phase functions, refractive interfaces, Lambertian/
+  specular boundary conditions. Decoupled from the energy equation —
+  no `n²σT⁴` term — so the model is suited to applications where light
+  originates at boundaries or known external sources (photobioreactors,
+  optical-property characterisation, photochemistry, solar receivers,
+  etc.). Scope is similar to ANSYS Fluent's DO model.
+- **radiationDose** *(v0.1)* — integrates radiation dose along
+  Lagrangian particle trajectories given a frozen `U` and a
+  fluence-rate field `G`. Targeted at UV reactor modelling: stochastic
+  turbulent dispersion (DRW), specular wall reflection, escape
+  classification, dose CDF + log-reduction reporting. Reads any
+  `volScalarField` named in its dictionary, so `G` can come from the
+  DOM solver above, from the bundled `setFluenceRate` analytical
+  utility, or from any user-supplied source.
 
 ---
 
 ## Features
+
+### opticalRadiation (RTE solver)
 
 - Discrete ordinates angular discretisation with Murthy-Mathur
   pixelation for control-angle overhang at boundaries.
@@ -31,8 +39,29 @@ stands alone from any energy-equation coupling.
 - Standalone solver `opticalRadiationFoam`.
 - `fvModel` wrapper for embedding into any host solver via the
   `fvModels` dictionary, without modifying the host's source.
+
+### radiationDose (Lagrangian dose tracker, v0.1)
+
+- Function object `radiationDose` that integrates `D = ∫ G·dt` along
+  particle trajectories through any frozen flow.
+- Configurable particle seeding (RTS-selectable `seedingModel`,
+  currently `patchInjection` with face-area-weighted distribution).
+- Configurable turbulent dispersion (RTS-selectable `dispersionModel`:
+  `none` for deterministic streamlines, `discreteRandomWalk` for
+  Gosman-Ioannides DRW).
+- Specular wall reflection on non-escape patches, escape classification
+  via configurable `escapePatches`.
+- Output: per-particle dose CSV, summary stats (mean / stdev / min /
+  max), and log reduction at any number of inactivation rate
+  constants.
+- Companion utility `setFluenceRate` writes the analytical
+  infinite-line-source `G(r)` (Sozzi & Taghipour 2006 eq. 3) for cases
+  where the lamp can be modelled that way without a full RTE solve.
+
+### Both
+
 - Tutorial cases with built-in regression validation against an
-  analytical reference and against a cross-case match.
+  analytical reference, a cross-case match, or a paper benchmark.
 
 ---
 
@@ -79,16 +108,36 @@ Build products:
 
 | Path | Product |
 |------|---------|
-| `$FOAM_USER_LIBBIN/libopticalRadiation.so`        | core library (model + BCs + fvModel) |
-| `$FOAM_USER_APPBIN/opticalRadiationFoam`          | single-region standalone solver |
-| `$FOAM_USER_LIBBIN/libopticalRadiationModule.so`  | solver module for `foamMultiRun` (multi-region cases) |
+| `$FOAM_USER_LIBBIN/libopticalRadiation.so`        | opticalRadiation library (model + BCs + fvModel) |
+| `$FOAM_USER_APPBIN/opticalRadiationFoam`          | single-region standalone DOM solver |
+| `$FOAM_USER_LIBBIN/libopticalRadiationModule.so`  | DOM solver module for `foamMultiRun` (multi-region cases) |
+| `$FOAM_USER_LIBBIN/libradiationDose.so`           | radiationDose library (function object + RTS-selectable seeding/dispersion models) |
+| `$FOAM_USER_APPBIN/setFluenceRate`                | utility — writes the analytical infinite-line `G(r)` to a time directory |
 
 ---
 
 ## Running a tutorial
 
-Four tutorial cases ship under `tutorials/`. The simplest is a 2-D
-plane-parallel slab with an analytical reference:
+Six tutorial cases ship under `tutorials/`:
+
+opticalRadiation cases:
+
+- `diffuseSlab2D` — 2-D plane-parallel slab with an analytical reference.
+- `absorbingScatteringBox3D` — 3-D box, multi-band, anisotropic scatter.
+- `variableExtinctionBox3D` — same as above, driven by species fields;
+  cross-case identity check.
+- `refractiveInterface2D` — refractive-index step with collimated beam,
+  analytical Fresnel-transmission validation.
+
+radiationDose cases:
+
+- `doseSmokeBox` — uniform plug-flow box with analytical `G·t` dose;
+  unit-conversion + integrator sanity check.
+- `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
+  at 25 GPM with realizable k-ε flow + analytical radial `G`. v0.1
+  result matches the paper's mean dose and log reduction within ~10 %.
+
+Run an individual case:
 
 ```sh
 cd tutorials/diffuseSlab2D
@@ -96,7 +145,16 @@ cd tutorials/diffuseSlab2D
 ./validate              # check simulated G against 2*pi*L_w*E_2(kappa*x)
 ```
 
-Or run every case and validate end-to-end:
+The Sozzi case has a separate post-process step:
+
+```sh
+cd tutorials/uvReactorSozzi2006
+./Allrun                # mesh + flow solve
+./Allrun-postProcess    # setFluenceRate + radiationDose (3-5 min, 1k particles)
+./validate              # check mean dose + log reduction against the paper
+```
+
+Or run every case and validate end-to-end (slow — Sozzi dominates):
 
 ```sh
 cd tutorials
@@ -165,7 +223,7 @@ runtime registration are confirmed for both.
 ## Repository layout
 
 ```
-src/opticalRadiationModels/
+src/opticalRadiationModels/                  (opticalRadiation library)
     radiationModel/          base class (IOdictionary reader)
     DOM/
         DOM/                 discrete-ordinates solver
@@ -175,12 +233,27 @@ src/opticalRadiationModels/
     inScatterModels/         legacy scatter tree (excluded from build)
     derivedFvPatchFields/    boundary conditions
     fvModels/opticalRadiation/   fvModel wrapper (radiation as side-physics in host)
+
+src/radiationDose/                           (radiationDose library)
+    radiationDose/           function-object class (integrator + writer)
+    track/                   per-particle trajectory storage
+    trackPoint/              vertex struct (position, time, dose, cell)
+    seedingModels/           seedingModel RTS family
+        seedingModel/        abstract base + factory
+        patchInjection/      face-area-weighted patch seeding
+    dispersionModels/        dispersionModel RTS family
+        dispersionModel/     abstract base + factory
+        noDispersion/        deterministic streamlines
+        discreteRandomWalk/  Gosman-Ioannides DRW (needs k, epsilon)
+
 applications/
-    solvers/opticalRadiationFoam/    single-region standalone solver
-    modules/opticalRadiation/        solver module for foamMultiRun
-tutorials/               runnable cases + Alltest validation harness
+    solvers/opticalRadiationFoam/    single-region standalone DOM solver
+    modules/opticalRadiation/        DOM solver module for foamMultiRun
+    utilities/setFluenceRate/        analytical radial G writer
+
+tutorials/               six runnable cases + Alltest validation harness
 Dockerfile               OpenFOAM 13 build environment
-Allwmake                 build everything (lib + solver + module)
+Allwmake                 build everything (both libs + solver + module + utility)
 Allwclean                clean all build outputs
 ```
 
@@ -192,22 +265,51 @@ guide for details.
 
 ## Theory references
 
-The implementation follows:
+opticalRadiation:
 
 - Murthy, J. Y. & Mathur, S. R. (1998). *Finite Volume Method for
   Radiative Heat Transfer Using Unstructured Meshes.* J. Thermophys.
   Heat Transfer **12**(3), 313–321.
 - ANSYS Fluent Theory Guide, §"Discrete Ordinates (DO) Radiation Model".
 
+radiationDose:
+
+- Sozzi, D. A. & Taghipour, F. (2006). *UV Reactor Performance Modeling
+  by Eulerian and Lagrangian Methods.* Environ. Sci. Technol. **40**(5),
+  1609–1615. — Provides the L-shape benchmark, the analytical
+  infinite-line-source `G(r)` expression that `setFluenceRate`
+  implements, and the dose-distribution targets validated against by
+  the `uvReactorSozzi2006` tutorial.
+- Gosman, A. D. & Ioannides, E. (1981). *Aspects of computer
+  simulation of liquid-fuelled combustors.* AIAA-81-0323. — DRW
+  dispersion model.
+
 ---
 
 ## Status
 
-Active. The library and solver are working and validated; tutorials
-run on every PR via GitHub Actions. A few deferred items
-(end-to-end fvModel runtime test in a real multi-region host case,
-exterior-refraction BC, intensity → radiance identifier rename) are
-documented in the developer guide.
+opticalRadiation: active. Library and solver are working and
+validated; tutorials run on every PR via GitHub Actions. Deferred
+items (end-to-end fvModel runtime test in a real multi-region host
+case, exterior-refraction BC, intensity → radiance identifier rename)
+are documented in the developer guide.
+
+radiationDose: **v0.1**. The pipeline runs end-to-end and validates
+against Sozzi 2006 within ~10 % on mean dose and log reduction.
+Known limitations:
+
+- Curved-wall leakage in the boundary-hit detector — ~65 % of
+  particles in the Sozzi case end up classified as `leftDomain`
+  rather than `escaped`. The remaining 35 % are statistically
+  representative for mean dose and log reduction, but the dose CDF
+  tails are clipped.
+- Single-thread; no parallel particle handoff across processor
+  patches.
+- No VTK polyline output yet (per-particle dose along the trajectory).
+
+The v0.2 work list (proper `trackToFace` integration, parallel
+handoff, VTK writer, warm-start cell-index cache) is documented in
+the developer guide.
 
 ---
 
