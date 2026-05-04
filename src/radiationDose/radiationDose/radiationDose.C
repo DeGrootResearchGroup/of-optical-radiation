@@ -8,6 +8,7 @@
 
 #include "radiationDose.H"
 #include "OFstream.H"
+#include "OSspecific.H"
 #include "addToRunTimeSelectionTable.H"
 #include "polyBoundaryMesh.H"
 
@@ -128,8 +129,6 @@ bool Foam::functionObjects::radiationDose::execute()
     autoPtr<interpolation<scalar>> GintPtr =
         interpolation<scalar>::New("cellPoint", G);
 
-    const meshSearch& search = meshSearch::New(mesh_);
-
     dispersion_->reset();
 
     Info<< type() << ": seeding particles..." << endl;
@@ -147,7 +146,7 @@ bool Foam::functionObjects::radiationDose::execute()
     Info<< type() << ": integrating..." << endl;
     forAll(tracks_, i)
     {
-        integrateTrack(tracks_[i], UintPtr(), GintPtr(), search, rng);
+        integrateTrack(tracks_[i], UintPtr(), GintPtr(), rng);
     }
 
     label nEscaped = 0, nTimedOut = 0, nStuck = 0, nLeft = 0, nOther = 0;
@@ -178,18 +177,50 @@ void Foam::functionObjects::radiationDose::integrateTrack
     dose::track& tr,
     const interpolation<vector>& Uint,
     const interpolation<scalar>& Gint,
-    const meshSearch& search,
     randomGenerator& rng
 ) const
 {
+    // trackToFace integration:
+    //
+    //   Each outer iteration samples a velocity V at the current position
+    //   and walks face-by-face through the dt budget. The inner loop
+    //   advances cell-by-cell across internal faces (updating celli via
+    //   faceOwner/faceNeighbour) and, on hitting a boundary face, either
+    //   terminates (escape / stuck) or specularly reflects V and continues
+    //   inside the same cell. Cell index is maintained explicitly through
+    //   face crossings so no findCell calls are needed mid-track.
+    //
+    //   This eliminates the v0.1 leftDomain class of bug, which arose from
+    //   the post-step findCell + boundary-of-celli_prev scan missing
+    //   segment-face intersections on curved walls.
+    //
+    //   Notation: for each face fi of celli the area-weighted normal Sf[fi]
+    //   points OUT of the face's owner cell. Whether celli is the owner or
+    //   the neighbour determines the "outward" sign convention for that face.
+
     const scalarField& cellVolumes = mesh_.V();
+    const cellList& meshCells = mesh_.cells();
+    const vectorField& Sf = mesh_.faceAreas();
+    const vectorField& Cf = mesh_.faceCentres();
+    const labelList& faceOwner = mesh_.faceOwner();
+    const labelList& faceNeighbour = mesh_.faceNeighbour();
+    const label nInternal = mesh_.nInternalFaces();
+    const polyBoundaryMesh& bMesh = mesh_.boundaryMesh();
+
+    // Cap reflections within a single outer step: catches pathological
+    // corner cases where a particle would bounce indefinitely. Set
+    // generously: at high turbulent intensity, DRW fluctuations can push
+    // a near-wall particle back into the wall repeatedly across many
+    // velocity samples; we want to allow the natural physics rather than
+    // class genuinely-tracked particles as stuck. The cap exists only
+    // to bound runtime in pathological corners.
+    constexpr label maxReflectionsPerStep = 100;
 
     label step = 0;
     while (tr.end() == dose::track::endReason::active
         && step < maxStepsPerTrack_)
     {
         const dose::trackPoint p = tr.back();
-
         if (p.celli < 0)
         {
             tr.setEnd(dose::track::endReason::leftDomain);
@@ -197,73 +228,143 @@ void Foam::functionObjects::radiationDose::integrateTrack
         }
 
         const vector Umean = Uint.interpolate(p.x, p.celli);
-        const vector Ufluc =
-            dispersion_->fluctuation(tr.id(), p.x, p.celli, dtMax_, rng);
-        const vector V = Umean + Ufluc;
+        vector V = Umean
+            + dispersion_->fluctuation(tr.id(), p.x, p.celli, dtMax_, rng);
 
-        const scalar Vmag = mag(V);
-        if (Vmag < small)
+        if (mag(V) < small)
         {
             tr.setEnd(dose::track::endReason::stuck);
             break;
         }
 
+        // CFL-bounded budget for this outer iteration
         const scalar cellSize = cbrt(cellVolumes[p.celli]);
-        scalar dt = min(dtMax_, cflMax_*cellSize/Vmag);
+        scalar dtRemaining = min(dtMax_, cflMax_*cellSize/mag(V));
 
-        // RK2 midpoint
-        point x_mid = p.x + 0.5*dt*V;
-        label celli_mid = search.findCell(x_mid);
-        if (celli_mid < 0)
-        {
-            // Mid-step crossed boundary; halve dt and retry once
-            dt *= 0.5;
-            x_mid = p.x + 0.5*dt*V;
-            celli_mid = search.findCell(x_mid);
-        }
+        point x = p.x;
+        label celli = p.celli;
+        scalar D = p.D;
+        scalar t_now = p.t;
+        // Clamp interpolated G to [0, +inf): cellPoint interpolation can
+        // produce small negative values near boundaries on cells where the
+        // tet-decomposition's vertex weights overshoot, even when the
+        // underlying field is strictly non-negative. Clamping here keeps the
+        // dose accumulation monotonic.
+        scalar G_here = max(scalar(0), Gint.interpolate(x, celli));
+        label nReflected = 0;
 
-        vector V_mid;
-        if (celli_mid >= 0)
+        bool terminated = false;
+        while (dtRemaining > small)
         {
-            const vector Umean_mid = Uint.interpolate(x_mid, celli_mid);
-            const vector Ufluc_mid =
-                dispersion_->fluctuation(tr.id(), x_mid, celli_mid, 0.5*dt, rng);
-            V_mid = Umean_mid + Ufluc_mid;
-        }
-        else
-        {
-            // Fallback to forward Euler if mid-point still outside
-            V_mid = V;
-        }
+            // Find first face crossing
+            scalar tHit = dtRemaining;
+            label hitFi = -1;
 
-        const point x_new = p.x + dt*V_mid;
-        const label celli_new = search.findCell(x_new);
-
-        if (celli_new < 0)
-        {
-            if (!handleBoundaryHit(tr, p.x, p.celli, V_mid, dt, Gint))
+            const cell& c = meshCells[celli];
+            forAll(c, i)
             {
+                const label fi = c[i];
+
+                // outward = Sf when celli is owner, -Sf when celli is neighbour
+                const scalar sign = (faceOwner[fi] == celli) ? 1.0 : -1.0;
+                const scalar denom = sign*(Sf[fi] & V);
+                if (denom <= small)
+                {
+                    // V doesn't point out through this face
+                    continue;
+                }
+
+                const scalar t = sign*((Cf[fi] - x) & Sf[fi])/denom;
+                if (t < -small)
+                {
+                    continue;
+                }
+
+                if (t < tHit)
+                {
+                    tHit = t;
+                    hitFi = fi;
+                }
+            }
+
+            // Advance to the hit (or to dtRemaining if none) and accrue dose
+            const scalar tStep = max(scalar(0), tHit);
+            const point xNext = x + tStep*V;
+            const scalar G_at_next =
+                max(scalar(0), Gint.interpolate(xNext, celli));
+            D += 0.5*(G_here + G_at_next)*tStep*Wm2_s_to_mJcm2;
+            t_now += tStep;
+            x = xNext;
+            G_here = G_at_next;
+            dtRemaining -= tStep;
+
+            if (hitFi < 0)
+            {
+                // No face reachable in remaining dt; particle stays in cell
                 break;
             }
-            ++step;
-            continue;
+
+            if (hitFi < nInternal)
+            {
+                // Internal face: walk to neighbour
+                celli = (faceOwner[hitFi] == celli)
+                    ? faceNeighbour[hitFi] : faceOwner[hitFi];
+                G_here = max(scalar(0), Gint.interpolate(x, celli));
+                continue;
+            }
+
+            // Boundary face
+            const label patchi = bMesh.whichPatch(hitFi);
+            if (escapePatchIDs_.found(patchi))
+            {
+                tr.append(dose::trackPoint(x, t_now, D, celli));
+                tr.setEnd(dose::track::endReason::escaped);
+                terminated = true;
+                break;
+            }
+            if (!wallReflection_)
+            {
+                tr.append(dose::trackPoint(x, t_now, D, celli));
+                tr.setEnd(dose::track::endReason::stuck);
+                terminated = true;
+                break;
+            }
+
+            // Reflect V about the face normal and stay in the same cell.
+            const scalar Smag = mag(Sf[hitFi]);
+            if (Smag < small)
+            {
+                tr.append(dose::trackPoint(x, t_now, D, celli));
+                tr.setEnd(dose::track::endReason::stuck);
+                terminated = true;
+                break;
+            }
+            const vector n = Sf[hitFi]/Smag;
+            V = V - 2.0*(V & n)*n;
+
+            ++nReflected;
+            if (nReflected > maxReflectionsPerStep)
+            {
+                tr.append(dose::trackPoint(x, t_now, D, celli));
+                tr.setEnd(dose::track::endReason::stuck);
+                terminated = true;
+                break;
+            }
         }
 
-        // Accumulate dose using trapezoidal rule on G
-        const scalar G_n = Gint.interpolate(p.x, p.celli);
-        const scalar G_new = Gint.interpolate(x_new, celli_new);
-        const scalar G_avg = 0.5*(G_n + G_new);
-        const scalar D_new = p.D + G_avg*dt*Wm2_s_to_mJcm2;
-        const scalar t_new = p.t + dt;
+        if (terminated)
+        {
+            break;
+        }
 
-        tr.append(dose::trackPoint(x_new, t_new, D_new, celli_new));
+        tr.append(dose::trackPoint(x, t_now, D, celli));
 
-        if (maxTime_ > 0 && t_new >= maxTime_)
+        if (maxTime_ > 0 && t_now >= maxTime_)
         {
             tr.setEnd(dose::track::endReason::timedOut);
             break;
         }
-        if (maxDose_ > 0 && D_new >= maxDose_)
+        if (maxDose_ > 0 && D >= maxDose_)
         {
             tr.setEnd(dose::track::endReason::terminated);
             break;
@@ -277,118 +378,6 @@ void Foam::functionObjects::radiationDose::integrateTrack
     {
         tr.setEnd(dose::track::endReason::stuck);
     }
-}
-
-
-bool Foam::functionObjects::radiationDose::handleBoundaryHit
-(
-    dose::track& tr,
-    const point& x_prev,
-    label celli_prev,
-    const vector& V,
-    scalar dt,
-    const interpolation<scalar>& Gint
-) const
-{
-    // Find which boundary face of celli_prev the segment x_prev -> x_prev+dt*V
-    // crosses first.
-    const cell& c = mesh_.cells()[celli_prev];
-    const vectorField& Sf = mesh_.faceAreas();
-    const vectorField& Cf = mesh_.faceCentres();
-    const label nInternal = mesh_.nInternalFaces();
-
-    scalar tHit = great;
-    label hitFacei = -1;
-    forAll(c, i)
-    {
-        const label fi = c[i];
-        if (fi < nInternal) continue;
-
-        const scalar denom = Sf[fi] & V;
-        if (denom <= 0) continue;
-
-        const scalar tCross = ((Cf[fi] - x_prev) & Sf[fi]) / (denom*dt);
-        if (tCross < 0 || tCross > 1.0 + small) continue;
-
-        if (tCross < tHit)
-        {
-            tHit = tCross;
-            hitFacei = fi;
-        }
-    }
-
-    if (hitFacei < 0)
-    {
-        // Couldn't locate the exit face; fall back to leftDomain
-        const point xEnd = x_prev + dt*V;
-        const scalar G_n = Gint.interpolate(x_prev, celli_prev);
-        const scalar G_avg = 0.5*(G_n + G_n);
-        const scalar D_new =
-            tr.back().D + G_avg*dt*Wm2_s_to_mJcm2;
-        tr.append(dose::trackPoint(xEnd, tr.back().t + dt, D_new, -1));
-        tr.setEnd(dose::track::endReason::leftDomain);
-        return false;
-    }
-
-    const scalar dtHit = max(small, tHit*dt);
-    const point xHit = x_prev + dtHit*V;
-
-    // Dose accumulated up to the wall hit
-    const scalar G_n = Gint.interpolate(x_prev, celli_prev);
-    const scalar G_hit = Gint.interpolate(xHit, celli_prev);
-    const scalar G_avgPre = 0.5*(G_n + G_hit);
-    const scalar D_atHit = tr.back().D + G_avgPre*dtHit*Wm2_s_to_mJcm2;
-    const scalar t_atHit = tr.back().t + dtHit;
-
-    const label hitPatchi = mesh_.boundaryMesh().whichPatch(hitFacei);
-
-    if (escapePatchIDs_.found(hitPatchi))
-    {
-        tr.append(dose::trackPoint(xHit, t_atHit, D_atHit, celli_prev));
-        tr.setEnd(dose::track::endReason::escaped);
-        return false;
-    }
-
-    if (!wallReflection_)
-    {
-        tr.append(dose::trackPoint(xHit, t_atHit, D_atHit, celli_prev));
-        tr.setEnd(dose::track::endReason::stuck);
-        return false;
-    }
-
-    // Specularly reflect the residual displacement about the face normal,
-    // accumulating the rest of the step's dose along the reflected segment.
-    const vector n = Sf[hitFacei]/mag(Sf[hitFacei]);
-    const scalar dtPost = max(small, dt - dtHit);
-    const vector residual = (1.0 - tHit)*dt*V;
-    const vector reflected = residual - 2.0*(residual & n)*n;
-    const point xReflected = xHit + reflected;
-
-    // Reflected position is almost always still in celli_prev (small
-    // displacement mirrored across a face of that cell). If a subsequent
-    // step finds otherwise, findCell at the start of the next iteration
-    // resolves it.
-    const label celli_after = celli_prev;
-    const scalar G_after = Gint.interpolate(xReflected, celli_after);
-    const scalar G_avgPost = 0.5*(G_hit + G_after);
-    const scalar D_after = D_atHit + G_avgPost*dtPost*Wm2_s_to_mJcm2;
-    const scalar t_after = t_atHit + dtPost;
-
-    tr.append(dose::trackPoint(xHit, t_atHit, D_atHit, celli_prev));
-    tr.append(dose::trackPoint(xReflected, t_after, D_after, celli_after));
-
-    if (maxTime_ > 0 && t_after >= maxTime_)
-    {
-        tr.setEnd(dose::track::endReason::timedOut);
-        return false;
-    }
-    if (maxDose_ > 0 && D_after >= maxDose_)
-    {
-        tr.setEnd(dose::track::endReason::terminated);
-        return false;
-    }
-
-    return true;
 }
 
 

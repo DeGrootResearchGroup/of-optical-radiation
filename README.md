@@ -134,8 +134,9 @@ radiationDose cases:
 - `doseSmokeBox` — uniform plug-flow box with analytical `G·t` dose;
   unit-conversion + integrator sanity check.
 - `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
-  at 25 GPM with realizable k-ε flow + analytical radial `G`. v0.1
-  result matches the paper's mean dose and log reduction within ~10 %.
+  at 25 GPM with realizable k-ε flow + analytical radial `G`. v0.2
+  result matches the paper's mean dose, min dose, and log reduction
+  within ~15 %.
 
 Run an individual case:
 
@@ -296,22 +297,34 @@ items (end-to-end fvModel runtime test in a real multi-region host
 case, exterior-refraction BC, intensity → radiance identifier rename)
 are documented in the developer guide.
 
-radiationDose: **v0.1**. The pipeline runs end-to-end and validates
-against Sozzi 2006 within ~10 % on mean dose and log reduction.
-Known limitations:
+radiationDose: **v0.2**. The pipeline runs end-to-end and validates
+against Sozzi 2006 within ~15 % on mean dose, log reduction, and the
+low-dose tail.
 
-- Curved-wall leakage in the boundary-hit detector — ~65 % of
-  particles in the Sozzi case end up classified as `leftDomain`
-  rather than `escaped`. The remaining 35 % are statistically
-  representative for mean dose and log reduction, but the dose CDF
-  tails are clipped.
+What v0.2 added on top of v0.1:
+
+- `trackToFace` integrator: each step walks face-by-face through the
+  mesh, maintaining cell index explicitly via `faceOwner`/
+  `faceNeighbour`. Eliminates the v0.1 wall-leakage class of bug —
+  no more particles classified as `leftDomain` from missed
+  segment-face intersections on curved surfaces.
+- G is clamped to `[0, +inf)` at every interpolation site to absorb
+  small negative overshoots that the cell-tet decomposition can
+  produce near boundaries.
+
+Still on the priority list:
+
+- ~35 % of Sozzi particles end up classified as `stuck` after
+  running to `maxTime` while still inside the reactor (recirculation
+  in the iter-500 flow snapshot). Their dose is excluded from the
+  summary. Sozzi reports nearly 100 % escape; closing this gap
+  needs either a more-converged flow or a stall-detection heuristic.
 - Single-thread; no parallel particle handoff across processor
   patches.
-- No VTK polyline output yet (per-particle dose along the trajectory).
+- No VTK polyline output yet (per-particle dose along the
+  trajectory).
 
-The v0.2 work list (proper `trackToFace` integration, parallel
-handoff, VTK writer, warm-start cell-index cache) is documented in
-the developer guide.
+The developer guide tracks the rest of the v0.x list.
 
 ---
 
