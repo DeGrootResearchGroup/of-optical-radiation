@@ -155,12 +155,17 @@ cd tutorials/uvReactorSozzi2006
 ./validate              # check mean dose + log reduction against the paper
 ```
 
-Or run every case and validate end-to-end (slow — Sozzi dominates):
+Or run every case and validate end-to-end:
 
 ```sh
 cd tutorials
-./Alltest               # exits 0 only if all cases pass
+./Alltest                    # short cases only (the CI default)
+RUN_LONG_TESTS=1 ./Alltest   # also include long cases (Sozzi, ~30 min)
 ```
+
+Cases marked with a `LONG_RUNNING` marker file (currently just
+`uvReactorSozzi2006`) are skipped by default to keep CI runs short;
+set `RUN_LONG_TESTS=1` to include them.
 
 Each case has its own `README.md` describing the geometry, BCs, and
 expected behaviour.
