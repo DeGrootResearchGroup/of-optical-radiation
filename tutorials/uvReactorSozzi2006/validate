@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Validate the radiationDose result against Sozzi & Taghipour 2006.
+
+The paper reports for the L-shape reactor at 25 GPM (Section 4.3, Figure 5):
+  - Lagrangian dose distribution from ~21 to ~270 mJ/cm^2
+  - Mean dose: 68 mJ/cm^2
+  - Log reduction at k = 0.1 cm^2/mJ: 1.87
+
+We allow generous tolerances for v0.1 (the goal is order-of-magnitude
+agreement, not exact match — the radiation source is the analytical
+infinite-line model, the flow field is our own RANS solution, and the
+dispersion model is our DRW which differs in details from Fluent's).
+
+Targets, with v0.1 tolerances:
+  mean dose       in [50, 90] mJ/cm^2  (paper: 68)
+  log reduction   in [1.4, 2.4]        (paper: 1.87)
+  range max/min   > 5                  (paper: ~270/21 ≈ 13)
+
+The script reads postProcessing/radiationDose/<latest>/summary.dat
+and exits 0 on pass, 1 on fail.
+"""
+
+import os
+import re
+import sys
+
+
+def find_latest_summary():
+    base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "postProcessing", "radiationDose",
+    )
+    if not os.path.isdir(base):
+        return None
+    times = []
+    for name in os.listdir(base):
+        try:
+            times.append((float(name), name))
+        except ValueError:
+            pass
+    if not times:
+        return None
+    times.sort()
+    return os.path.join(base, times[-1][1], "summary.dat")
+
+
+def parse_summary(path):
+    out = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            key, *rest = parts
+            try:
+                out[key] = float(rest[-1])
+            except ValueError:
+                pass
+    return out
+
+
+def main():
+    path = find_latest_summary()
+    if path is None or not os.path.isfile(path):
+        sys.stderr.write(
+            "validate: no postProcessing/radiationDose summary found.\n"
+            "         Did you run foamPostProcess -dict system/postProcess.dict?\n"
+        )
+        return 1
+
+    data = parse_summary(path)
+    print(f"validate: parsing {path}")
+    print(f"  totalSeeded = {data.get('totalSeeded', '?')}")
+    print(f"  escaped     = {data.get('escaped', '?')}")
+    print(f"  meanDose    = {data.get('meanDose_mJcm2', '?')} mJ/cm^2")
+    print(f"  stdevDose   = {data.get('stdevDose_mJcm2', '?')} mJ/cm^2")
+    print(f"  minDose     = {data.get('minDose_mJcm2', '?')} mJ/cm^2")
+    print(f"  maxDose     = {data.get('maxDose_mJcm2', '?')} mJ/cm^2")
+
+    # Sozzi log-reduction key is "logReduction_k=0.1"
+    k_key = "logReduction_k=0.1"
+    log_red = data.get(k_key)
+    print(f"  log red (k=0.1) = {log_red}")
+
+    failures = []
+
+    mean = data.get("meanDose_mJcm2")
+    if mean is None or not (50.0 <= mean <= 90.0):
+        failures.append(f"meanDose out of [50, 90]: {mean}")
+
+    if log_red is None or not (1.4 <= log_red <= 2.4):
+        failures.append(f"log_red(k=0.1) out of [1.4, 2.4]: {log_red}")
+
+    mn = data.get("minDose_mJcm2")
+    mx = data.get("maxDose_mJcm2")
+    if mn and mx and mn > 0:
+        ratio = mx/mn
+        if ratio < 5.0:
+            failures.append(
+                f"max/min dose ratio = {ratio:.1f} (< 5; expected ~13 per paper)"
+            )
+
+    nseeded = data.get("totalSeeded", 0)
+    nescaped = data.get("escaped", 0)
+    if nseeded > 0:
+        frac = nescaped/nseeded
+        if frac < 0.50:
+            failures.append(
+                f"escape fraction = {frac:.2f} ({int(nescaped)}/{int(nseeded)});"
+                f" expected > 0.5"
+            )
+
+    if failures:
+        print()
+        print("FAIL:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+
+    print()
+    print("PASS: all checks within tolerance")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
