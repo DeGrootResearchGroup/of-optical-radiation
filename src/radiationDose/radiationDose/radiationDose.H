@@ -84,7 +84,6 @@ SourceFiles
 #include "fvMeshFunctionObject.H"
 #include "interpolation.H"
 #include "HashSet.H"
-#include "meshSearch.H"
 #include "randomGenerator.H"
 #include "seedingModel.H"
 #include "track.H"
@@ -155,29 +154,18 @@ class radiationDose
 
     // Private Member Functions
 
-        //- Integrate a single track to termination
+        //- Integrate a single track to termination using trackToFace:
+        //  each outer iteration samples V once at the current position
+        //  and walks face-by-face through the dt budget, advancing
+        //  cell-by-cell across internal faces and handling boundary hits
+        //  (escape, wall reflection, or stuck) inline. No more leftDomain
+        //  classification from missed segment-face intersections.
         void integrateTrack
         (
             dose::track& tr,
             const interpolation<vector>& Uint,
             const interpolation<scalar>& Gint,
-            const meshSearch& search,
             randomGenerator& rng
-        ) const;
-
-        //- Handle a step that crossed the domain boundary: locate the hit
-        //  face, snap to it, classify endReason. When wallReflection_ is on
-        //  and the hit patch is not in escapePatches, mirror the residual
-        //  displacement about the face normal and return true so the outer
-        //  loop continues. Returns false when the track has been terminated.
-        bool handleBoundaryHit
-        (
-            dose::track& tr,
-            const point& x_prev,
-            label celli_prev,
-            const vector& V,
-            scalar dt,
-            const interpolation<scalar>& Gint
         ) const;
 
         //- Write the per-track dose CSV
