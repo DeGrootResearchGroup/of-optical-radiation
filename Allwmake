@@ -8,5 +8,8 @@ cd "${0%/*}" || exit 1
 # Standalone solver
 ( cd applications/solvers/opticalRadiationFoam && wmake )
 
+# Utilities
+( cd applications/utilities/setFluenceRate && wmake )
+
 # Solver module (loaded by foamMultiRun for multi-region cases)
 ( cd applications/modules/opticalRadiation && wmake libso )

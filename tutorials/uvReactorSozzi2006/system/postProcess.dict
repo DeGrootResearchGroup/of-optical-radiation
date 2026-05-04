@@ -1,6 +1,6 @@
 /*--------------------------------*- C++ -*----------------------------------*\
   =========                 |
-  \\      /  F ield         | uvReactorSozzi2006: post-process control dict
+  \\      /  F ield         | uvReactorSozzi2006: post-process function objects
    \\    /   O peration     |
     \\  /    A nd           |
      \\/     M anipulation  |
@@ -9,163 +9,57 @@ FoamFile
 {
     format      ascii;
     class       dictionary;
-    object      controlDict;
+    object      postProcess;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+//
+// Run with:
+//   setFluenceRate -latestTime              (writes G to latest time dir)
+//   foamPostProcess -dict system/postProcess.dict -latestTime
+//
 
-application     foamPostProcess;
-
-startFrom       latestTime;
-
-stopAt          endTime;
-endTime         99999;
-deltaT          1;
-
-writeControl    timeStep;
-writeInterval   1;
-
-writeFormat     binary;
-writePrecision  8;
-writeCompression off;
-timeFormat      general;
-timePrecision   6;
-
-functions
+radiationDose
 {
-    // ----------------------------------------------------------------
-    // setG: create the analytical radial fluence-rate field G [W/m^2]
-    // following the infinite-line-source model from Sozzi & Taghipour
-    // 2006 eq. (3):
-    //
-    //   E(r) = P / (2 pi L_arc r) * exp(-sigma_w (r - r_L))
-    //
-    // P       = 35 W       (germicidal lamp output)
-    // L_arc   = 0.80 m     (illuminated arc length)
-    // r_L     = 0.01 m     (lamp+sleeve outer radius)
-    // sigma_w = 35.67 1/m  (= -ln(0.7) per cm, = water absorption at 70%
-    //                       UV transmissivity per cm)
-    //
-    // r is the radial distance from the lamp axis; in this case the
-    // lamp axis lies along +x at (y, z) = (0, 0), so r = sqrt(y^2 + z^2),
-    // clamped at the lamp surface r_L.
-    // ----------------------------------------------------------------
-    setG
+    type            radiationDose;
+    libs            ("libradiationDose.so");
+
+    U               U;
+    fluenceRate     G;
+    seed            42;
+
+    seeding
     {
-        type            coded;
-        libs            ("libutilityFunctionObjects.so");
-        name            setG;
-
-        codeInclude
-        #{
-            #include "volFields.H"
-            #include "mathematicalConstants.H"
-        #};
-
-        codeExecute
-        #{
-            const fvMesh& m = mesh();
-
-            // Create G in the registry if it doesn't already exist
-            if (!m.foundObject<volScalarField>("G"))
-            {
-                autoPtr<volScalarField> Gptr
-                (
-                    new volScalarField
-                    (
-                        IOobject
-                        (
-                            "G",
-                            m.time().name(),
-                            m,
-                            IOobject::NO_READ,
-                            IOobject::AUTO_WRITE
-                        ),
-                        m,
-                        dimensionedScalar
-                        (
-                            "G",
-                            dimensionSet(1, 0, -3, 0, 0, 0, 0),
-                            0.0
-                        )
-                    )
-                );
-                Gptr.ptr()->store();
-            }
-
-            volScalarField& G = const_cast<volScalarField&>
-            (
-                m.lookupObject<volScalarField>("G")
-            );
-
-            const scalar P_W = 35.0;
-            const scalar L_arc = 0.80;
-            const scalar r_L = 0.01;
-            const scalar sigma_w = 35.67;
-            const scalar twoPi = 2.0*Foam::constant::mathematical::pi;
-
-            const volVectorField& C = m.C();
-            forAll(G, i)
-            {
-                const scalar yy = C[i].y();
-                const scalar zz = C[i].z();
-                const scalar r = max(sqrt(yy*yy + zz*zz), r_L);
-                G[i] = P_W/(twoPi*L_arc*r)*exp(-sigma_w*(r - r_L));
-            }
-            G.correctBoundaryConditions();
-            G.write();
-
-            Info<< "setG: min(G) = " << min(G).value()
-                << " W/m^2,  max(G) = " << max(G).value() << " W/m^2"
-                << endl;
-        #};
+        type        patchInjection;
+        patches     (inlet);
+        nParticles  10000;
     }
 
-    // ----------------------------------------------------------------
-    // radiationDose: integrate dose along Lagrangian particle paths
-    // ----------------------------------------------------------------
-    radiationDose
+    dispersion
     {
-        type            radiationDose;
-        libs            ("libradiationDose.so");
+        type        discreteRandomWalk;
+        k           k;
+        epsilon     epsilon;
+        Cl          0.15;
+    }
 
-        U               U;
-        fluenceRate     G;
-        seed            42;
+    termination
+    {
+        escapePatches   (outlet);
+        maxTime         300;
+        maxDose         0;
+        wallReflection  true;
+    }
 
-        seeding
-        {
-            type        patchInjection;
-            patches     (inlet);
-            nParticles  10000;
-        }
+    integration
+    {
+        dtMax           0.005;
+        cflMax          0.5;
+        maxStepsPerTrack 200000;
+    }
 
-        dispersion
-        {
-            type        discreteRandomWalk;
-            k           k;
-            epsilon     epsilon;
-            Cl          0.15;
-        }
-
-        termination
-        {
-            escapePatches   (outlet);
-            maxTime         300;
-            maxDose         0;
-            wallReflection  true;
-        }
-
-        integration
-        {
-            dtMax           0.005;     // s — small enough for 5 m/s flow at 8 mm cells
-            cflMax          0.5;
-            maxStepsPerTrack 200000;
-        }
-
-        output
-        {
-            kInact          (0.1);     // cm^2/mJ (MS2 phage, Sozzi 2006)
-        }
+    output
+    {
+        kInact          (0.1);
     }
 }
 
