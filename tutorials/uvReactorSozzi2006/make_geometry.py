@@ -1,68 +1,70 @@
 #!/usr/bin/env python3
-"""Generate STL files for the Sozzi & Taghipour 2006 L-shape annular UV reactor.
+"""Build snappyHexMesh STL geometry from the SozziTaghipour.step CAD model.
 
-Geometry per Table 1 and Section 2.2 of:
-    Sozzi & Taghipour, Environ. Sci. Technol., 40 (5), 1609-1615 (2006).
+Source: SozziTaghipour.step (OnShape export, four solids, mm units, body axis
+along +y). Produces four watertight ASCII STL files under
+constant/triSurface/ corresponding to the patch names that
+snappyHexMeshDict expects:
 
-Layout:
-- Body: 8.9 cm OD x 88.9 cm length, axis along +x
-- Lamp+sleeve: 2 cm OD x 80 cm arc length, centered axially within the body
-- Inlet pipe: 1.91 cm dia x 85 cm length, concentric with the body axis,
-  attached to the front-plate (x = 0). The 85 cm length is the development
-  length the paper used (L/D = 45) to ensure fully-developed flow.
-- Outlet pipe: 1.91 cm dia x 85 cm length, perpendicular to the body axis,
-  attached to the body at x = L_body - 3.81 cm, extending in +z direction.
+    bodyWall.stl   - reactor body wall, end caps, and pipe walls
+    lampWall.stl   - lamp+sleeve outer surface (cylinder + hemispherical tip
+                     + base disc)
+    inlet.stl      - open face at the upstream end of the inlet pipe
+    outlet.stl     - open face at the downstream end of the outlet pipe
 
-Output convention:
-- All surface normals point OUT of the FLUID region (into the surrounding
-  solid wall / lamp / source / sink). snappyHexMesh resolves topology by
-  locationInMesh anyway, but consistent normals help when inspecting in
-  ParaView.
+Operations performed on the STEP geometry (gmsh + OpenCASCADE backend):
 
-Output: four ASCII STL files in constant/triSurface/, one per snappyHexMesh
-patch:
-    bodyWall.stl  - reactor body wall + end caps + pipe walls
-    lampWall.stl  - lamp+sleeve outer surface (cylinder + 2 end caps)
-    inlet.stl     - upstream open face of the inlet pipe
-    outlet.stl    - downstream open face of the outlet pipe
+  1. Boolean: fluid = (body union inletPipe union outletPipe) - lamp.
+     This yields a single watertight surface for the fluid region with
+     proper holes at the pipe attachments.
+
+  2. Classify each face of the resulting fluid solid by location:
+       - inlet  = planar disc at the largest x in the model
+       - outlet = planar disc at the largest z in the model
+       - lampWall = faces whose bounding cylinder (around the body axis)
+                    has radius <= R_LAMP + small_tol
+       - bodyWall = everything else
+
+  3. Coordinate transform applied at STL write time:
+       (x_step, y_step, z_step) [mm]  ->  (y_step/1000, x_step/1000, z_step/1000) [m]
+     so the body axis aligns with +x (matching this case's convention).
+
+The STEP file dimensions are taken from Sozzi & Taghipour 2006 (Section 2.2,
+Table 1, L-shape geometry with lamp holder).
 """
 
 import math
 import os
 import sys
 
+import gmsh
 
-# ---------------------------------------------------------------------------
-# Geometry parameters [m]
-# ---------------------------------------------------------------------------
 
-R_BODY = 0.0445       # body inner radius (= 8.9 cm OD / 2)
-R_LAMP = 0.01         # lamp+sleeve outer radius
-R_PIPE = 0.00955      # inlet/outlet pipe inner radius (= 1.91 cm / 2)
+# Geometric constants used for surface classification (mm in STEP coords).
+R_LAMP_MM = 10.0
+R_BODY_MM = 44.5
+R_PIPE_MM = 9.55
+TOL_MM = 0.5
 
-L_BODY = 0.889        # body length along x
-L_ARC = 0.80          # lamp arc length
-L_INLET = 0.85        # inlet pipe length (paper's L1/D1 = 45)
-L_OUTLET = 0.85       # outlet pipe length
 
-LAMP_ARC_X_MIN = (L_BODY - L_ARC) / 2.0   # 0.0445; start of illuminated arc
-LAMP_ARC_X_MAX = LAMP_ARC_X_MIN + L_ARC   # 0.8445; end of illuminated arc
-
-# Physical lamp+sleeve assembly: free (rounded) tip at LAMP_ARC_X_MIN,
-# extends through the body all the way to the back wall on the holder side.
-LAMP_X_MIN = LAMP_ARC_X_MIN
-LAMP_X_MAX = L_BODY
-
-OUTLET_X = L_BODY - 0.0381            # 3.81 cm from back end
-
-# Discretisation
-N_THETA = 64      # circumferential segments per cylinder (~4 mm arc on body OD)
-N_AXIAL = 96      # axial divisions on the body cylinder (~9 mm steps)
+HERE = os.path.dirname(os.path.abspath(__file__))
+STEP = os.path.join(HERE, "SozziTaghipour.step")
+OUTDIR = os.path.join(HERE, "constant", "triSurface")
 
 
 # ---------------------------------------------------------------------------
-# STL emission
+# STL emission with coordinate transform
 # ---------------------------------------------------------------------------
+
+def transform(p_mm):
+    """STEP (x, y, z) [mm] -> case (y/1000, x/1000, z/1000) [m].
+
+    Swaps x and y so the body axis (originally +y in the STEP) aligns with
+    +x in the case, then scales mm to m.
+    """
+    x, y, z = p_mm
+    return (y*1e-3, x*1e-3, z*1e-3)
+
 
 def _normal(v0, v1, v2):
     e0 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
@@ -78,270 +80,52 @@ def _normal(v0, v1, v2):
     return (n[0]/nm, n[1]/nm, n[2]/nm)
 
 
-def emit_solid(name, triangles, fout):
-    fout.write(f"solid {name}\n")
-    for v0, v1, v2 in triangles:
-        nx, ny, nz = _normal(v0, v1, v2)
-        fout.write(f"  facet normal {nx:.6e} {ny:.6e} {nz:.6e}\n")
-        fout.write("    outer loop\n")
-        for v in (v0, v1, v2):
-            fout.write(f"      vertex {v[0]:.6e} {v[1]:.6e} {v[2]:.6e}\n")
-        fout.write("    endloop\n")
-        fout.write("  endfacet\n")
-    fout.write(f"endsolid {name}\n")
+def write_ascii_stl(path, name, triangles_mm):
+    """triangles_mm: list of ((x0,y0,z0), (x1,y1,z1), (x2,y2,z2)) in mm."""
+    with open(path, "w") as f:
+        f.write(f"solid {name}\n")
+        for v0, v1, v2 in triangles_mm:
+            t0 = transform(v0)
+            t1 = transform(v1)
+            t2 = transform(v2)
+            nx, ny, nz = _normal(t0, t1, t2)
+            f.write(f"  facet normal {nx:.6e} {ny:.6e} {nz:.6e}\n")
+            f.write("    outer loop\n")
+            for v in (t0, t1, t2):
+                f.write(f"      vertex {v[0]:.6e} {v[1]:.6e} {v[2]:.6e}\n")
+            f.write("    endloop\n")
+            f.write("  endfacet\n")
+        f.write(f"endsolid {name}\n")
 
 
 # ---------------------------------------------------------------------------
-# Geometry primitives. Vertex order is chosen so the right-hand-rule normal
-# matches the documented convention (out of fluid).
+# Surface classification
 # ---------------------------------------------------------------------------
 
-def cyl_side_x(x0, x1, r, cy=0.0, cz=0.0, n=N_THETA, normal_outward_radial=True):
-    """Cylindrical side, axis along x at (cy, cz), radii r, x in [x0, x1].
+def classify_surface(mesh_size, surface_tag):
+    """Return one of {'inlet', 'outlet', 'lampWall', 'bodyWall'}."""
+    bounds = gmsh.model.getBoundingBox(2, surface_tag)
+    xmin, ymin, zmin, xmax, ymax, zmax = bounds
 
-    normal_outward_radial=True  -> normals point in +r direction (away from axis).
-    normal_outward_radial=False -> normals point in -r direction (toward axis).
-    """
-    tris = []
-    for i in range(n):
-        t1 = 2.0*math.pi*i/n
-        t2 = 2.0*math.pi*(i + 1)/n
-        a = (x0, cy + r*math.cos(t1), cz + r*math.sin(t1))
-        b = (x0, cy + r*math.cos(t2), cz + r*math.sin(t2))
-        c = (x1, cy + r*math.cos(t2), cz + r*math.sin(t2))
-        d = (x1, cy + r*math.cos(t1), cz + r*math.sin(t1))
-        if normal_outward_radial:
-            tris.append((a, b, c))
-            tris.append((a, c, d))
-        else:
-            tris.append((a, c, b))
-            tris.append((a, d, c))
-    return tris
+    # The inlet face is the planar disc at the maximum y in the model
+    # (far end of the inlet pipe, originally at y=1739 mm in STEP coords).
+    if ymin > 1700.0 and ymax > 1700.0:
+        return "inlet"
 
+    # The outlet face is the planar disc at the maximum z in the model
+    # (top of the outlet pipe, originally at z=894.5 mm).
+    if zmin > 800.0 and zmax > 800.0:
+        return "outlet"
 
-def cyl_side_z(z0, z1, r, cx, cy, n=N_THETA, normal_outward_radial=True):
-    """Cylindrical side, axis along z at (cx, cy), radius r, z in [z0, z1]."""
-    tris = []
-    for i in range(n):
-        t1 = 2.0*math.pi*i/n
-        t2 = 2.0*math.pi*(i + 1)/n
-        a = (cx + r*math.cos(t1), cy + r*math.sin(t1), z0)
-        b = (cx + r*math.cos(t2), cy + r*math.sin(t2), z0)
-        c = (cx + r*math.cos(t2), cy + r*math.sin(t2), z1)
-        d = (cx + r*math.cos(t1), cy + r*math.sin(t1), z1)
-        if normal_outward_radial:
-            tris.append((a, b, c))
-            tris.append((a, c, d))
-        else:
-            tris.append((a, c, b))
-            tris.append((a, d, c))
-    return tris
+    # lampWall: the only surfaces of the fluid solid that lie entirely
+    # inside the cylinder of radius R_LAMP+tol around the body axis (y in STEP).
+    # Body axis is along +y at (x=0, z=0), so radial distance is sqrt(x^2 + z^2).
+    # Per-axis extent: consistent with a cylinder centred on the y-axis.
+    rmax = max(abs(xmin), abs(xmax), abs(zmin), abs(zmax))
+    if rmax < R_LAMP_MM + TOL_MM:
+        return "lampWall"
 
-
-def annulus_x(x, r_inner, r_outer, cy=0.0, cz=0.0, n=N_THETA, normal_pos=True):
-    """Annular disc at x = const, between r_inner and r_outer.
-
-    normal_pos=True  -> normal in +x direction.
-    normal_pos=False -> normal in -x direction.
-    """
-    tris = []
-    for i in range(n):
-        t1 = 2.0*math.pi*i/n
-        t2 = 2.0*math.pi*(i + 1)/n
-        ai = (x, cy + r_inner*math.cos(t1), cz + r_inner*math.sin(t1))
-        bi = (x, cy + r_inner*math.cos(t2), cz + r_inner*math.sin(t2))
-        ao = (x, cy + r_outer*math.cos(t1), cz + r_outer*math.sin(t1))
-        bo = (x, cy + r_outer*math.cos(t2), cz + r_outer*math.sin(t2))
-        if normal_pos:
-            tris.append((ai, bi, bo))
-            tris.append((ai, bo, ao))
-        else:
-            tris.append((ai, bo, bi))
-            tris.append((ai, ao, bo))
-    return tris
-
-
-def disc_x(x, r, cy=0.0, cz=0.0, n=N_THETA, normal_pos=True):
-    """Solid disc (no hole) at x = const, radius r, normal +/- x."""
-    tris = []
-    for i in range(n):
-        t1 = 2.0*math.pi*i/n
-        t2 = 2.0*math.pi*(i + 1)/n
-        center = (x, cy, cz)
-        a = (x, cy + r*math.cos(t1), cz + r*math.sin(t1))
-        b = (x, cy + r*math.cos(t2), cz + r*math.sin(t2))
-        if normal_pos:
-            tris.append((center, a, b))
-        else:
-            tris.append((center, b, a))
-    return tris
-
-
-def hemisphere_minus_x(cx, r, n_theta=N_THETA, n_phi=24):
-    """Hemisphere bulging in the -x direction, centred at (cx, 0, 0), radius r.
-
-    Apex at (cx - r, 0, 0), rim circle at x = cx (matches a cylinder cap).
-    Vertex order is chosen so the right-hand-rule normal points TOWARD the
-    sphere centre (out-of-fluid, into the lamp), matching the convention of
-    the flat lamp end caps elsewhere in this module.
-
-    The strip closest to the apex is replaced with a triangle fan to avoid
-    degenerate quads.
-    """
-    tris = []
-
-    def pt(alpha, theta):
-        return (
-            cx - r*math.sin(alpha),
-            r*math.cos(alpha)*math.cos(theta),
-            r*math.cos(alpha)*math.sin(theta),
-        )
-
-    # Quad strips from the rim (alpha=0) up to near the apex
-    for j in range(n_phi - 1):
-        a0 = (math.pi/2.0)*j/n_phi
-        a1 = (math.pi/2.0)*(j + 1)/n_phi
-        for i in range(n_theta):
-            t1 = 2.0*math.pi*i/n_theta
-            t2 = 2.0*math.pi*(i + 1)/n_theta
-            p00 = pt(a0, t1)
-            p01 = pt(a0, t2)
-            p10 = pt(a1, t1)
-            p11 = pt(a1, t2)
-            tris.append((p00, p01, p11))
-            tris.append((p00, p11, p10))
-
-    # Apex fan
-    apex = (cx - r, 0.0, 0.0)
-    a_last = (math.pi/2.0)*(n_phi - 1)/n_phi
-    for i in range(n_theta):
-        t1 = 2.0*math.pi*i/n_theta
-        t2 = 2.0*math.pi*(i + 1)/n_theta
-        p1 = pt(a_last, t1)
-        p2 = pt(a_last, t2)
-        tris.append((apex, p1, p2))
-
-    return tris
-
-
-def disc_z(z, r, cx, cy, n=N_THETA, normal_pos=True):
-    """Solid disc at z = const, perpendicular to z, normal +/- z."""
-    tris = []
-    for i in range(n):
-        t1 = 2.0*math.pi*i/n
-        t2 = 2.0*math.pi*(i + 1)/n
-        center = (cx, cy, z)
-        a = (cx + r*math.cos(t1), cy + r*math.sin(t1), z)
-        b = (cx + r*math.cos(t2), cy + r*math.sin(t2), z)
-        if normal_pos:
-            tris.append((center, a, b))
-        else:
-            tris.append((center, b, a))
-    return tris
-
-
-def body_cyl_with_outlet_hole(
-    R, L, hole_x, R_pipe, n_axial=N_AXIAL, n_theta=N_THETA, hole_pad=1.05
-):
-    """Body cylinder side wall along x, axis along x at (0,0), with a hole
-    cut for the perpendicular outlet pipe.
-
-    The outlet pipe pierces the cylinder near theta = pi/2 (the +z side of
-    the body, since z = R sin(theta) is maximal there). The hole footprint
-    in (x, theta) parameter space is approximated by an ellipse with
-    semi-axes (R_pipe, R_pipe/R) padded slightly. Quads whose centre falls
-    inside this ellipse are skipped, leaving a small rim that snappyHexMesh
-    will resolve into the actual elliptical-on-cylinder intersection.
-    """
-    tris = []
-    hole_th = math.pi/2.0
-    hole_dx = R_pipe*hole_pad
-    hole_dth = (R_pipe/R)*hole_pad
-    for i in range(n_axial):
-        x1 = i*L/n_axial
-        x2 = (i + 1)*L/n_axial
-        for j in range(n_theta):
-            t1 = 2.0*math.pi*j/n_theta
-            t2 = 2.0*math.pi*(j + 1)/n_theta
-            xc = 0.5*(x1 + x2)
-            tc = 0.5*(t1 + t2)
-            dx = xc - hole_x
-            dth = abs(((tc - hole_th + math.pi) % (2.0*math.pi)) - math.pi)
-            if (dx/hole_dx)**2 + (dth/hole_dth)**2 < 1.0:
-                continue
-            a = (x1, R*math.cos(t1), R*math.sin(t1))
-            b = (x1, R*math.cos(t2), R*math.sin(t2))
-            c = (x2, R*math.cos(t2), R*math.sin(t2))
-            d = (x2, R*math.cos(t1), R*math.sin(t1))
-            tris.append((a, b, c))
-            tris.append((a, c, d))
-    return tris
-
-
-# ---------------------------------------------------------------------------
-# Build the four patches
-# ---------------------------------------------------------------------------
-
-def build_bodyWall():
-    """Body cylinder + end caps + pipe walls (everything that's a solid wall
-    of the reactor enclosure, with the appropriate holes for inlet/outlet)."""
-    tris = []
-
-    # Body side wall (with hole at outlet attach point), normal +r out of fluid
-    tris += body_cyl_with_outlet_hole(R_BODY, L_BODY, OUTLET_X, R_PIPE)
-
-    # Body front face: annular disc from r=R_PIPE to r=R_BODY at x=0,
-    # normal -x (out of fluid which is at x>0)
-    tris += annulus_x(0.0, R_PIPE, R_BODY, normal_pos=False)
-
-    # Body back face: ANNULAR disc at x=L_BODY (lamp+sleeve seals the centre).
-    # Normal +x (out of fluid which is at x<L_BODY).
-    tris += annulus_x(L_BODY, R_LAMP, R_BODY, normal_pos=True)
-
-    # Inlet pipe wall: axis along x at (0,0), x in [-L_INLET, 0], radius R_PIPE.
-    # Fluid is INSIDE the pipe, so out-of-fluid normal is +r.
-    tris += cyl_side_x(-L_INLET, 0.0, R_PIPE, normal_outward_radial=True)
-
-    # Outlet pipe wall: axis along z at (OUTLET_X, 0), z in [R_BODY, R_BODY+L_OUTLET].
-    # Fluid is INSIDE the pipe, so out-of-fluid normal is +r (away from pipe axis).
-    tris += cyl_side_z(R_BODY, R_BODY + L_OUTLET, R_PIPE, OUTLET_X, 0.0,
-                       normal_outward_radial=True)
-
-    return tris
-
-
-def build_lampWall():
-    """Lamp+sleeve outer surface: side cylinder + hemispherical free tip.
-
-    The lamp extends from a rounded free end at x=LAMP_X_MIN (apex at
-    x=LAMP_X_MIN-R_LAMP) all the way to the back end-cap of the body at
-    x=L_BODY, where it seals against the (annular) back wall on the
-    holder side. No flat end-cap on the holder side.
-
-    Out-of-fluid normals point TOWARD the lamp axis on the side wall and
-    INTO the lamp interior on the rounded tip.
-    """
-    tris = []
-
-    # Lamp side wall, normal -r (out of fluid which is at r>R_LAMP)
-    tris += cyl_side_x(LAMP_X_MIN, LAMP_X_MAX, R_LAMP, normal_outward_radial=False)
-
-    # Rounded free tip at x=LAMP_X_MIN (hemisphere bulging in -x)
-    tris += hemisphere_minus_x(LAMP_X_MIN, R_LAMP)
-
-    return tris
-
-
-def build_inlet():
-    """Open inlet face: disc at x=-L_INLET, radius R_PIPE. Out-of-fluid
-    normal is -x (upstream)."""
-    return disc_x(-L_INLET, R_PIPE, normal_pos=False)
-
-
-def build_outlet():
-    """Open outlet face: disc at z=R_BODY+L_OUTLET, perpendicular to z,
-    centred at (OUTLET_X, 0). Out-of-fluid normal is +z (downstream)."""
-    return disc_z(R_BODY + L_OUTLET, R_PIPE, OUTLET_X, 0.0, normal_pos=True)
+    return "bodyWall"
 
 
 # ---------------------------------------------------------------------------
@@ -349,37 +133,114 @@ def build_outlet():
 # ---------------------------------------------------------------------------
 
 def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    outdir = os.path.join(here, "constant", "triSurface")
-    os.makedirs(outdir, exist_ok=True)
+    if not os.path.isfile(STEP):
+        sys.stderr.write(f"STEP file not found: {STEP}\n")
+        return 1
+    os.makedirs(OUTDIR, exist_ok=True)
 
-    patches = [
-        ("bodyWall", build_bodyWall()),
-        ("lampWall", build_lampWall()),
-        ("inlet",    build_inlet()),
-        ("outlet",   build_outlet()),
-    ]
+    gmsh.initialize()
+    gmsh.option.setNumber("General.Terminal", 0)
 
-    print(f"Output directory: {outdir}")
-    for name, tris in patches:
-        path = os.path.join(outdir, f"{name}.stl")
-        with open(path, "w") as f:
-            emit_solid(name, tris, f)
-        size = os.path.getsize(path)
-        print(f"  {name:10s}  {len(tris):>7d} triangles   {size/1024:>7.1f} KiB")
+    # Load STEP. The OpenCASCADE backend supports boolean operations.
+    gmsh.merge(STEP)
+    gmsh.model.occ.synchronize()
 
-    # Quick consistency report
+    # Identify the four volumes by their bounding box.
+    # Convention from inspection of the STEP file:
+    #   vol 1 = lamp        bounds y[0, 810]      (small radius)
+    #   vol 2 = outlet pipe bounds y[38.1, 57.2]  z[43.5, 894.5]
+    #   vol 3 = inlet pipe  bounds y[889, 1739]   (long, +y)
+    #   vol 4 = body        bounds y[0, 889]      (large radius)
+    vols = {}
+    for dim, tag in gmsh.model.getEntities(3):
+        b = gmsh.model.getBoundingBox(dim, tag)
+        xmax_abs = max(abs(b[0]), abs(b[3]))
+        zmax_abs = max(abs(b[2]), abs(b[5]))
+        # Per-axis extent (not sqrt sum), to test cylinder radius
+        # consistently with a cylinder centred on the y-axis.
+        rmax = max(xmax_abs, zmax_abs)
+        if b[4] > 1700.0:
+            vols["inlet"] = tag
+        elif b[5] > 800.0:
+            vols["outlet"] = tag
+        elif rmax < R_LAMP_MM + TOL_MM:
+            vols["lamp"] = tag
+        elif rmax > R_BODY_MM - TOL_MM:
+            vols["body"] = tag
+
+    for k in ("body", "lamp", "inlet", "outlet"):
+        if k not in vols:
+            sys.stderr.write(f"Could not identify volume: {k}\n")
+            return 2
+    print(f"Identified volumes: {vols}")
+
+    # Boolean: fluid = (body union inlet union outlet) - lamp.
+    union, _ = gmsh.model.occ.fuse(
+        [(3, vols["body"])],
+        [(3, vols["inlet"]), (3, vols["outlet"])],
+    )
+    gmsh.model.occ.synchronize()
+
+    fluid, _ = gmsh.model.occ.cut(union, [(3, vols["lamp"])])
+    gmsh.model.occ.synchronize()
+    if len(fluid) != 1:
+        sys.stderr.write(f"Expected 1 fluid volume, got {len(fluid)}\n")
+        return 3
+    fluid_tag = fluid[0][1]
+
+    # Classify the surfaces of the fluid volume
+    boundary = gmsh.model.getBoundary([(3, fluid_tag)], oriented=False)
+    classified = {"bodyWall": [], "lampWall": [], "inlet": [], "outlet": []}
+    for dim, tag in boundary:
+        cls = classify_surface(None, tag)
+        classified[cls].append(tag)
+
     print()
-    print("Geometry summary:")
-    print(f"  Body:    x in [0, {L_BODY:.4f}] m, OD = {2*R_BODY*100:.1f} cm")
-    print(f"  Lamp:    x in [{LAMP_X_MIN:.4f}, {LAMP_X_MAX:.4f}] m physical "
-          f"(rounded free tip at apex x={LAMP_X_MIN - R_LAMP:.4f}); "
-          f"OD = {2*R_LAMP*100:.1f} cm")
-    print(f"  Arc:     x in [{LAMP_ARC_X_MIN:.4f}, {LAMP_ARC_X_MAX:.4f}] m "
-          f"({L_ARC*100:.0f} cm illuminated)")
-    print(f"  Inlet:  axial pipe, x in [{-L_INLET:.4f}, 0], dia = {2*R_PIPE*100:.2f} cm")
-    print(f"  Outlet: perpendicular pipe at x = {OUTLET_X:.4f}, "
-          f"z in [{R_BODY:.4f}, {R_BODY + L_OUTLET:.4f}], dia = {2*R_PIPE*100:.2f} cm")
+    print("Surface classification:")
+    for k, tags in classified.items():
+        print(f"  {k:10s}  {len(tags):>3d} surface(s)  tags={tags}")
+
+    # Mesh the surface, then extract triangles per group and write STLs
+    gmsh.option.setNumber("Mesh.MeshSizeMin", 0.5)   # mm
+    gmsh.option.setNumber("Mesh.MeshSizeMax", 4.0)   # mm
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 12)
+    gmsh.model.mesh.generate(2)
+
+    print()
+    print("STL output:")
+    for name, tags in classified.items():
+        path = os.path.join(OUTDIR, f"{name}.stl")
+        triangles = []
+        for tag in tags:
+            etypes, etags, enodes = gmsh.model.mesh.getElements(2, tag)
+            # Get all node coordinates for this surface
+            for elem_type, elem_tags, node_tags in zip(etypes, etags, enodes):
+                if elem_type != 2:  # 3-node triangle
+                    continue
+                # node_tags is a flat list: 3 entries per triangle
+                for i in range(0, len(node_tags), 3):
+                    nts = node_tags[i:i + 3]
+                    verts = []
+                    for nt in nts:
+                        coords = gmsh.model.mesh.getNode(nt)[0]
+                        verts.append(tuple(coords))
+                    triangles.append(tuple(verts))
+        write_ascii_stl(path, name, triangles)
+        size_kib = os.path.getsize(path)/1024
+        print(f"  {name:10s}  {len(triangles):>6d} triangles   {size_kib:>7.1f} KiB")
+
+    gmsh.finalize()
+
+    # Summary in case coordinates (m)
+    print()
+    print("Geometry summary (case coords, after STEP transform):")
+    print(f"  Body:    x in [0, 0.889] m, OD = 8.9 cm")
+    print(f"  Lamp:    x in [0, 0.810] m physical (free-tip apex at x=0.810);"
+          f" OD = 2.0 cm")
+    print(f"  Inlet:   axial pipe, x in [0.889, 1.739] m,  dia = 1.91 cm")
+    print(f"  Outlet:  perpendicular pipe at x = 0.0477,"
+          f" z in [0.0435, 0.8945] m, dia = 1.91 cm")
+    return 0
 
 
 if __name__ == "__main__":
