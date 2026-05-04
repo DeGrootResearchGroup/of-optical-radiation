@@ -117,12 +117,13 @@ def classify_surface(mesh_size, surface_tag):
     if zmin > 800.0 and zmax > 800.0:
         return "outlet"
 
-    # lampWall: the only surfaces of the fluid solid that lie entirely
-    # inside the cylinder of radius R_LAMP+tol around the body axis (y in STEP).
-    # Body axis is along +y at (x=0, z=0), so radial distance is sqrt(x^2 + z^2).
-    # Per-axis extent: consistent with a cylinder centred on the y-axis.
+    # lampWall: the only surfaces of the fluid solid that lie entirely inside
+    # the cylinder of radius R_LAMP+tol around the body axis (y in STEP) AND
+    # whose y-extent stays within the body (y in [0, 889] mm). The latter
+    # check excludes the inlet pipe wall, which is also a thin cylinder
+    # concentric with the y-axis but at y > 889 mm.
     rmax = max(abs(xmin), abs(xmax), abs(zmin), abs(zmax))
-    if rmax < R_LAMP_MM + TOL_MM:
+    if rmax < R_LAMP_MM + TOL_MM and ymax <= 889.0 + TOL_MM:
         return "lampWall"
 
     return "bodyWall"
