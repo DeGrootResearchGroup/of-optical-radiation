@@ -5,3 +5,9 @@ constant/polyMesh/
 0.*
 log.*
 postProcessing/
+
+# Override parent tutorials/.gitignore (which ignores all */0/) — we
+# track 0/ here because it contains the case boundary conditions and
+# initial fields, not regenerated content.
+!0/
+!0/*

@@ -1,6 +1,6 @@
 /*--------------------------------*- C++ -*----------------------------------*\
   =========                 |
-  \\      /  F ield         | uvReactorSozzi2006: SIMPLE-loop incompressibleFluid
+  \\      /  F ield         | uvReactorSozzi2006: realizable k-eps RANS
    \\    /   O peration     |
     \\  /    A nd           |
      \\/     M anipulation  |
@@ -9,30 +9,21 @@ FoamFile
 {
     format      ascii;
     class       dictionary;
-    object      controlDict;
+    location    "constant";
+    object      momentumTransport;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-solver          incompressibleFluid;
+simulationType RAS;
 
-startFrom       startTime;
-startTime       0;
+RAS
+{
+    // Realizable k-epsilon as used by Sozzi & Taghipour 2006.
+    model           realizableKE;
 
-stopAt          endTime;
-endTime         3000;
+    turbulence      on;
 
-deltaT          1;
-
-writeControl    timeStep;
-writeInterval   500;
-purgeWrite      2;
-
-writeFormat     binary;
-writePrecision  8;
-writeCompression off;
-timeFormat      general;
-timePrecision   6;
-
-runTimeModifiable true;
+    viscosityModel  Newtonian;
+}
 
 // ************************************************************************* //
