@@ -171,7 +171,10 @@ Foam::scalar  Foam::optical::schlickModel::correct
     const label iBand
 ) const
 {
-    return phaseFunction_[rayJ + rayI*nAngle_ +iBand*nAngle_*nAngle_];
+    // See HenyeyGreensteinModel::correct() for the band-offset rationale.
+    const label i = rayI - iBand*nAngle_;
+    const label j = rayJ - iBand*nAngle_;
+    return phaseFunction_[j + i*nAngle_ + iBand*nAngle_*nAngle_];
 }
 
  Foam::scalar  Foam::optical::schlickModel::sl3d

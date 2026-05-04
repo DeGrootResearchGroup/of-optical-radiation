@@ -87,9 +87,11 @@ Foam::optical::
               └── PtrList<intensityRay>   (one per direction × band)
 
   extinctionModel                 (absorption & scattering coefficients)
-    ├── noExtinction
-    ├── wideBandConstantExtinction
-    └── wideBandVariableExtinction   (auto-loads species fields if not registered)
+    ├── transparentExtinction       (kappa = sigma_s = 0)
+    ├── constantExtinction           (per-band uniform coefficients)
+    └── linearSpeciesExtinction      (per-band, linear in named species
+                                      concentration fields; auto-loads
+                                      species fields if not registered)
 
   phaseFunctionModel              (phase function P(θ) between ray pairs)
     ├── HenyeyGreensteinModel
@@ -198,6 +200,37 @@ the API port:
   edges (south pole, φ-seam) so direction lookups don't overflow.
 - `refractiveCoupled::write()` emits `nBands`; `nNbg`/`nOwn`
   are size-checked against `nBands` on read.
+- **Three latent bugs in the in-scatter source path were fixed
+  together.** All three were silent because they conspired with the
+  first to make the source effectively zero, masking the others:
+    1. `phaseFunctionModel::inScatter()` returned `false`
+       unconditionally in the base class, and neither
+       `HenyeyGreensteinModel` nor `schlickModel` overrode it. The
+       in-scatter source was therefore dead throughout the
+       codebase's history. Both subclasses now override the virtual
+       to return their stored `inScatter_` flag.
+    2. `HenyeyGreensteinModel::correct(rayI, rayJ, iBand)` and the
+       `schlickModel` equivalent indexed the precomputed phase-function
+       table with the *flat* ray IDs (which already include the band
+       offset, `rayI = iAngleI + iBand·nAngle`) but used a formula
+       that already added the band offset itself. Band 0 happened to
+       index correctly; bands ≥ 1 read out-of-bounds garbage, which
+       on AArch64/macOS surfaced as NaN. Subtracting the band offset
+       from `rayI`/`rayJ` before forming the index fixes it.
+    3. The outer iteration in `DOM::calculate()` was a Gauss-Seidel
+       sweep over rays — when computing ray *i*'s scatter source,
+       rays *j < i* had already been updated this iteration while
+       rays *j ≥ i* hadn't. With strong-coupling cases this drove an
+       outer-iteration oscillation. The fix snapshots all `I_j`
+       fields at the start of each outer iteration into `ISnapshot_`
+       and uses the snapshot for every source computation that
+       iteration (Jacobi update). The in-scatter source path is now
+       order-symmetric.
+  Validated by `scatteringSlab2D` against a Schwarzschild-Milne
+  integral-equation reference (~9.7% peak error vs 10% tol with
+  `nPhi=8` isotropic) and by the
+  `absorbingScatteringBox3D` vs `variableExtinctionBox3D` bit-for-bit
+  cross-case match in 3-D with strong-forward HG (g=0.98/0.99).
 
 ### Methodology notes — settled design decisions
 
@@ -274,10 +307,13 @@ Implementation choices:
   the solve should move to `prePredictor()` (post-motion, inside the
   PIMPLE loop).
 
-End-to-end runtime test of either the fvModel or the solver-module
-form inside a real multi-region host run is **deferred** until a
-concrete use case lands. Build, linking, `TypeName`, and RTS-table
-registration are confirmed for both.
+End-to-end runtime tests of both forms ship as tutorials:
+- `tutorials/fvModelChannel2D` exercises the fvModel inside
+  `incompressibleFluid` (driven by `foamRun`) and confirms G is
+  bit-for-bit identical to `tutorials/diffuseSlab2D`'s standalone-solver
+  answer.
+- `tutorials/refractiveInterface2D` exercises the solver-module form
+  via `foamMultiRun` with two regions both running `opticalRadiation`.
 
 ### Multi-region cases — no dedicated binary
 
@@ -540,7 +576,8 @@ opticalRadiation:
 - **`diffuseSlab2D`** — 2-D plane-parallel slab, mirror sides, validated
   against `2π·L_w·E_2(κx)`.
 - **`absorbingScatteringBox3D`** — 3-D box, four bands, constant
-  extinction + Henyey-Greenstein scattering.
+  extinction + Henyey-Greenstein scattering with strong-forward
+  asymmetry (g=0.98/0.99).
 - **`variableExtinctionBox3D`** — same as above but driven by species
   fields (`X1`, `X2`, `S1`, `S2`); equivalent to the constant case at
   uniform 0.5 concentrations and produces a bit-for-bit identical `G`.
@@ -549,6 +586,15 @@ opticalRadiation:
   with a collimated beam source, validated against the
   Fresnel-transmission analytical with the étendue n² factor. Runs via
   `foamMultiRun` and exercises the solver-module form.
+- **`fvModelChannel2D`** — same radiation problem as `diffuseSlab2D`,
+  but the radiation library is wired into `incompressibleFluid`
+  (driven by `foamRun`) via the `opticalRadiation` fvModel. Exercises
+  the fvModel embedding path end-to-end; `Alltest` requires
+  bit-for-bit `G` agreement with `diffuseSlab2D`.
+- **`scatteringSlab2D`** — 2-D plane-parallel slab with combined
+  absorption and isotropic scattering (κ=σ_s=0.5, ω=0.5), validated
+  against a Schwarzschild-Milne integral-equation reference solved
+  inline in the validate script. Tolerance 10%; observed ~9.7%.
 
 radiationDose:
 

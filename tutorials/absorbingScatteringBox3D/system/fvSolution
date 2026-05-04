@@ -19,10 +19,28 @@ solvers
 {
     "(G|Ii)"
     {
-        solver          PBiCG;
-        preconditioner  DILU;
+        // smoothSolver is more robust than PBiCG for the per-ray
+        // transport equation, which is hyperbolic-dominant and
+        // becomes ill-conditioned at fine angular discretisation
+        // (nPhi=5, nTheta=5 here).
+        solver          smoothSolver;
+        smoother        symGaussSeidel;
         tolerance       1e-06;
         relTol          0;
+    }
+}
+
+relaxationFactors
+{
+    equations
+    {
+        // Per-ray under-relaxation. The in-scatter source couples each
+        // ray's update to the current values of the other rays in the
+        // outer iteration; without damping, the resulting Picard-style
+        // fixed-point iteration can diverge to NaN at strong forward
+        // Henyey-Greenstein anisotropy on the 5x5 angular grid. 0.5 is
+        // conservative; tighter values may converge faster.
+        "Ii.*"  0.3;
     }
 }
 

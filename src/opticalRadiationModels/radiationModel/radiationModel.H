@@ -47,7 +47,6 @@ SourceFiles
 #include "volFields.H"
 #include "fvMatrices.H"
 #include "extinctionModel.H"
-#include "inScatterModel.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -58,7 +57,6 @@ namespace optical
 
 // Forward declaration of classes
 class extinctionModel;
-class inScatterModel;
 
 /*---------------------------------------------------------------------------*\
                        Class radiationModel Declaration
@@ -86,7 +84,6 @@ protected:
 
         //- References to the opticalRadiation sub-models
          autoPtr<extinctionModel> extinction_;
-         autoPtr<inScatterModel> inScatter_;
 
 private:
 
@@ -108,25 +105,25 @@ public:
              radiationModel,
              dictionary,
              (
-                 const volScalarField& intensity
+                 const volScalarField& I
              ),
-             (intensity)
+             (I)
          );
 
 
     // Constructors
 
         //- Null constructor
-        radiationModel(const volScalarField& intensity);
+        radiationModel(const volScalarField& I);
 
         //- Construct from components
-        radiationModel(const word& type, const volScalarField& intensity);
+        radiationModel(const word& type, const volScalarField& I);
 
 
     // Selectors
 
          //- Return a reference to the selected opticalRadiation model
-        static autoPtr<radiationModel> New(const volScalarField& intensity);
+        static autoPtr<radiationModel> New(const volScalarField& I);
 
 
     //- Destructor

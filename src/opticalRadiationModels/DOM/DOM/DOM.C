@@ -49,9 +49,9 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::DOM::DOM(const volScalarField& intensity)
+Foam::optical::DOM::DOM(const volScalarField& I)
 :
-    radiationModel(typeName, intensity),
+    radiationModel(typeName, I),
     G_
     (
         IOobject
@@ -87,6 +87,7 @@ Foam::optical::DOM::DOM(const volScalarField& intensity)
     nPixelTheta_(coeffs_.lookupOrDefault<label>("nPixelTheta", 1)),
     GLambda_(nBand_),
     IRay_(0),
+    ISnapshot_(0),
     convergence_(coeffs_.lookupOrDefault<scalar>("convergence", 0.0)),
     maxIter_(coeffs_.lookupOrDefault<label>("maxIter", 50))
 {
@@ -145,6 +146,31 @@ Foam::optical::DOM::DOM(const volScalarField& intensity)
     }
 
     Info<< "DOM : Allocated " << IRay_.size() << " rays" << endl;
+
+    // Allocate the per-ray radiance snapshot (one volScalarField per ray,
+    // matching IRay_[i].I() in size and dimensions). Used by calculate()
+    // to freeze I_j values at the start of each outer iteration so the
+    // in-scatter source uses a Jacobi update.
+    ISnapshot_.setSize(nRay_);
+    forAll(IRay_, rayI)
+    {
+        ISnapshot_.set
+        (
+            rayI,
+            new volScalarField
+            (
+                IOobject
+                (
+                    "ISnapshot_" + Foam::name(rayI),
+                    mesh_.time().name(),
+                    mesh_,
+                    IOobject::NO_READ,
+                    IOobject::NO_WRITE
+                ),
+                IRay_[rayI].I()
+            )
+        );
+    }
 
     forAll(GLambda_, iBand)
     {
@@ -223,6 +249,22 @@ void Foam::optical::DOM::calculate()
     {
         radIter++;
         maxResidual = 0.0;
+
+        // Snapshot the current per-ray radiance fields for use as the
+        // in-scatter source. The inner loop below updates IRay_[i].I()
+        // sequentially (Gauss-Seidel over rays), and using the partially
+        // updated values to build ds for ray i can drive an oscillation
+        // in the outer iteration on strongly-coupled cases. Computing ds
+        // from a snapshot frozen at the start of the outer iteration
+        // (Jacobi) symmetrises the coupling and stabilises convergence.
+        if (phaseFunctionModel_->inScatter())
+        {
+            forAll(IRay_, rayI)
+            {
+                ISnapshot_[rayI] == IRay_[rayI].I();
+            }
+        }
+
         forAll(IRay_, rayI)
 	{
             iBand = IRay_[rayI].iBand();
@@ -246,7 +288,7 @@ void Foam::optical::DOM::calculate()
                         scalar rayCos = IRay_[rayI].d() & IRay_[rayJ].d();
                         if(rayCos > 0 )
                         {
-                            diffusionScatter_ = diffusionScatter_ + IRay_[rayJ].I()*phaseFunctionModel_->correct(rayI,rayJ, iBand)*IRay_[rayJ].omega();
+                            diffusionScatter_ = diffusionScatter_ + ISnapshot_[rayJ]*phaseFunctionModel_->correct(rayI,rayJ, iBand)*IRay_[rayJ].omega();
                         }
                     }
                 }
@@ -416,7 +458,7 @@ void Foam::optical::DOM::setRay_
     IRay_.set
     (
         i,
-        new intensityRay
+        new ray
         (
             *this,
             mesh_,

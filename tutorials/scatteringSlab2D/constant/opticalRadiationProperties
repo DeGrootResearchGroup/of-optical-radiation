@@ -1,0 +1,57 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation        on;
+radiationModel          DOM;
+
+DOMCoeffs
+{
+    nPhi          8;
+    nTheta        1;
+    convergence   1e-5;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+
+    // Isotropic phase function (Henyey-Greenstein with g=0 collapses
+    // to P_ij = 1, matching the analytical reference solver in
+    // ./validate which uses the Schwarzschild-Milne integral
+    // equation with the isotropic kernel E_1(|tau-tau'|)).
+    phaseFunctionModel HenyeyGreensteinModel;
+    HenyeyGreensteinModelCoeffs
+    {
+        subAngleNum     4;
+        asymmetryFactor (0.0);
+        inScatter       true;
+    }
+}
+
+// Mixed absorption + scattering with single-scatter albedo omega = 0.5.
+// kappa = sigma_s = 0.5, total extinction beta = 1, slab length 1 m
+// gives optical thickness tau_L = 1.
+extinctionModel constant;
+constantCoeffs
+{
+    nBands           1;
+    absorption       true;
+    absorptionCoeff  (0.5);
+    scattering       true;
+    scatteringCoeff  (0.5);
+}
+
+// ************************************************************************* //

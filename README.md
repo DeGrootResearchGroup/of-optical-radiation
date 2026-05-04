@@ -214,9 +214,11 @@ the irradiance field `G` is exposed via the mesh registry and downstream
 couplings (e.g. `G` driving a species growth term) belong in the host's
 own fvModels.
 
-End-to-end runtime testing of either path inside a real multi-region
-host solver is deferred until a concrete use case lands; build and
-runtime registration are confirmed for both.
+The fvModel path is exercised end-to-end by `tutorials/fvModelChannel2D`
+(radiation library wired into `incompressibleFluid` driven by
+`foamRun`); the solver-module path is exercised by
+`tutorials/refractiveInterface2D` (both regions running the
+`opticalRadiation` solver module under `foamMultiRun`).
 
 ---
 
