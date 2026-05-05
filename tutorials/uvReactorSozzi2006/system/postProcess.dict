@@ -57,7 +57,7 @@ radiationDose
     {
         dtMax           0.005;
         cflMax          0.5;
-        maxStepsPerTrack 200000;
+        maxOuterSteps    200000;
     }
 
     output

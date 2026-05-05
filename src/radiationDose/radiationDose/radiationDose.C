@@ -10,14 +10,9 @@
 #include "OFstream.H"
 #include "OSspecific.H"
 #include "addToRunTimeSelectionTable.H"
+#include "interpolationCellPoint.H"
+#include "meshSearch.H"
 #include "polyBoundaryMesh.H"
-
-#ifdef _OPENMP
-    #include <omp.h>
-#else
-    static inline int omp_get_thread_num() { return 0; }
-    static inline int omp_get_num_threads() { return 1; }
-#endif
 
 // * * * * * * * * * * * * * * * * Static Data * * * * * * * * * * * * * * * //
 
@@ -49,13 +44,11 @@ Foam::functionObjects::radiationDose::radiationDose
     wallReflection_(true),
     dtMax_(0.01),
     cflMax_(0.5),
-    maxStepsPerTrack_(100000)
+    maxOuterSteps_(100000)
 {
     read(dict);
 }
 
-
-// * * * * * * * * * * * * * * * * Destructor * * * * * * * * * * * * * * * //
 
 Foam::functionObjects::radiationDose::~radiationDose()
 {}
@@ -72,7 +65,7 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
     randomSeed_ = dict.lookupOrDefault<label>("seed", 0);
 
     seeding_ = dose::seedingModel::New(dict.subDict("seeding"), mesh_);
-    dispersion_ = dose::dispersionModel::New(dict.subDict("dispersion"), mesh_);
+    dispersionDict_ = dict.subDict("dispersion");
 
     const dictionary& termDict = dict.subDict("termination");
     const wordList escapePatches(termDict.lookup("escapePatches"));
@@ -98,8 +91,15 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
     const dictionary& intDict = dict.subDict("integration");
     dtMax_ = readScalar(intDict.lookup("dtMax"));
     cflMax_ = readScalar(intDict.lookup("cflMax"));
-    maxStepsPerTrack_ =
-        intDict.lookupOrDefault<label>("maxStepsPerTrack", 100000);
+    // Old name "maxStepsPerTrack" was a per-track inner-loop cap; the
+    // new tracker has only an outer-step cap (number of dtMax steps).
+    // Accept both names for now to keep tutorials working.
+    maxOuterSteps_ =
+        intDict.lookupOrDefault<label>
+        (
+            "maxOuterSteps",
+            intDict.lookupOrDefault<label>("maxStepsPerTrack", 100000)
+        );
 
     const dictionary& outDict = dict.subDict("output");
     kInact_ = outDict.lookupOrDefault<scalarList>("kInact", scalarList());
@@ -113,11 +113,12 @@ Foam::wordList Foam::functionObjects::radiationDose::fields() const
     DynamicList<word> f;
     f.append(UName_);
     f.append(GName_);
-    if (dispersion_.valid())
-    {
-        const wordList extra = dispersion_->requiredFields();
-        forAll(extra, i) { f.append(extra[i]); }
-    }
+    // The dispersion model may need additional fields (e.g. k, epsilon
+    // for DRW). Probe its requiredFields() with a temporary instance.
+    autoPtr<dose::dispersionModel> probe =
+        dose::dispersionModel::New(dispersionDict_, mesh_);
+    const wordList extra = probe->requiredFields();
+    forAll(extra, i) { f.append(extra[i]); }
     return wordList(f);
 }
 
@@ -131,293 +132,105 @@ bool Foam::functionObjects::radiationDose::execute()
 
     randomGenerator rng{randomGenerator::seed(randomSeed_)};
 
-    autoPtr<interpolation<vector>> UintPtr =
-        interpolation<vector>::New("cellPoint", U);
-    autoPtr<interpolation<scalar>> GintPtr =
-        interpolation<scalar>::New("cellPoint", G);
+    // Build the dispersion model fresh per execute() so its internal
+    // counter / RNG state is reproducible.
+    autoPtr<dose::dispersionModel> dispersion =
+        dose::dispersionModel::New(dispersionDict_, mesh_);
 
+    // Construct the cloud (or rebuild if execute() is called twice in
+    // one run). The cloud takes ownership of the dispersion model.
+    cloud_.reset
+    (
+        new dose::dosePathCloud
+        (
+            mesh_,
+            "doseCloud",
+            dtMax_,
+            cflMax_,
+            escapePatchIDs_,
+            maxTime_,
+            maxDose_,
+            wallReflection_,
+            std::move(dispersion)
+        )
+    );
+
+    // Seed the cloud. The seedingModel returns initial trackPoints
+    // (position + cell index); we use those to construct dosePath-
+    // particles via OpenFOAM's locate-by-tree constructor.
     Info<< type() << ": seeding particles..." << endl;
     List<dose::trackPoint> seeds = seeding_->seed(rng);
     Info<< type() << ": seeded " << seeds.size() << " particles" << endl;
 
-    tracks_.clear();
-    tracks_.setSize(seeds.size());
+    const meshSearch& ms = meshSearch::New(mesh_);
+    label nLocateBoundaryHits = 0;
     forAll(seeds, i)
     {
-        tracks_.set(i, new dose::track(i));
-        tracks_[i].append(seeds[i]);
-        // Per-track dispersion state lives on the track, not on the
-        // model — this is what makes the integration loop thread-safe.
-        tracks_[i].setDispState(dispersion_->newState());
+        dose::dosePathParticle* p =
+            new dose::dosePathParticle
+            (
+                ms,
+                seeds[i].x,
+                seeds[i].celli,
+                nLocateBoundaryHits
+            );
+        // Per-track dispersion state is owned by the particle; the
+        // cloud's dispersion model is the factory.
+        p->setDispState(cloud_->dispersion().newState());
+        // Initial trajectory vertex (so the writer reports the seed
+        // position even if the particle never advances).
+        p->appendPoint(seeds[i]);
+        cloud_->addParticle(p);
     }
 
-    // Threaded integration. Each particle's trajectory is independent
-    // of every other particle's (mesh + fields are read-only, dispersion
-    // state is per-track), so we partition tracks across threads and
-    // give each thread its own RNG (seeded deterministically from the
-    // master seed + thread id, so runs are reproducible).
-    #ifdef _OPENMP
-    Info<< type() << ": integrating with " << omp_get_max_threads()
-        << " thread(s)..." << endl;
-    #else
-    Info<< type() << ": integrating (serial)..." << endl;
-    #endif
+    interpolationCellPoint<vector> UInterp(U);
+    interpolationCellPoint<scalar> GInterp(G);
 
-    #pragma omp parallel
+    Info<< type() << ": integrating..." << endl;
+    const label nSteps =
+        cloud_->runToCompletion
+        (
+            UInterp,
+            GInterp,
+            rng,
+            maxOuterSteps_
+        );
+
+    label nEscaped = 0, nTimedOut = 0, nStuck = 0, nTerm = 0, nActive = 0;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
     {
-        randomGenerator threadRng
+        switch (iter().end())
         {
-            randomGenerator::seed(randomSeed_ + omp_get_thread_num())
-        };
-
-        #pragma omp for schedule(dynamic, 50)
-        for (label i = 0; i < tracks_.size(); ++i)
-        {
-            integrateTrack(tracks_[i], UintPtr(), GintPtr(), threadRng);
+            case dose::dosePathParticle::endReason::escaped:    ++nEscaped;  break;
+            case dose::dosePathParticle::endReason::timedOut:   ++nTimedOut; break;
+            case dose::dosePathParticle::endReason::stuck:      ++nStuck;    break;
+            case dose::dosePathParticle::endReason::terminated: ++nTerm;     break;
+            case dose::dosePathParticle::endReason::active:     ++nActive;   break;
         }
     }
-
-    label nEscaped = 0, nTimedOut = 0, nStuck = 0, nLeft = 0, nOther = 0;
-    forAll(tracks_, i)
-    {
-        switch (tracks_[i].end())
-        {
-            case dose::track::endReason::escaped:    ++nEscaped;  break;
-            case dose::track::endReason::timedOut:   ++nTimedOut; break;
-            case dose::track::endReason::stuck:      ++nStuck;    break;
-            case dose::track::endReason::leftDomain: ++nLeft;     break;
-            default:                                 ++nOther;    break;
-        }
-    }
-    Info<< type() << ": done. "
-        << nEscaped << " escaped, "
+    Info<< type() << ": done in " << nSteps << " outer steps. "
+        << nEscaped  << " escaped, "
         << nTimedOut << " timed out, "
-        << nStuck << " stuck, "
-        << nLeft << " left domain, "
-        << nOther << " other" << endl;
+        << nStuck    << " stuck, "
+        << nTerm     << " hit maxDose, "
+        << nActive   << " still active (capped by maxOuterSteps)"
+        << endl;
 
     return true;
 }
 
 
-void Foam::functionObjects::radiationDose::integrateTrack
-(
-    dose::track& tr,
-    const interpolation<vector>& Uint,
-    const interpolation<scalar>& Gint,
-    randomGenerator& rng
-) const
-{
-    // trackToFace integration:
-    //
-    //   Each outer iteration samples a velocity V at the current position
-    //   and walks face-by-face through the dt budget. The inner loop
-    //   advances cell-by-cell across internal faces (updating celli via
-    //   faceOwner/faceNeighbour) and, on hitting a boundary face, either
-    //   terminates (escape / stuck) or specularly reflects V and continues
-    //   inside the same cell. Cell index is maintained explicitly through
-    //   face crossings so no findCell calls are needed mid-track.
-    //
-    //   This eliminates the v0.1 leftDomain class of bug, which arose from
-    //   the post-step findCell + boundary-of-celli_prev scan missing
-    //   segment-face intersections on curved walls.
-    //
-    //   Notation: for each face fi of celli the area-weighted normal Sf[fi]
-    //   points OUT of the face's owner cell. Whether celli is the owner or
-    //   the neighbour determines the "outward" sign convention for that face.
-
-    const scalarField& cellVolumes = mesh_.V();
-    const cellList& meshCells = mesh_.cells();
-    const vectorField& Sf = mesh_.faceAreas();
-    const vectorField& Cf = mesh_.faceCentres();
-    const labelList& faceOwner = mesh_.faceOwner();
-    const labelList& faceNeighbour = mesh_.faceNeighbour();
-    const label nInternal = mesh_.nInternalFaces();
-    const polyBoundaryMesh& bMesh = mesh_.boundaryMesh();
-
-    // Cap reflections within a single outer step: catches pathological
-    // corner cases where a particle would bounce indefinitely. Set
-    // generously: at high turbulent intensity, DRW fluctuations can push
-    // a near-wall particle back into the wall repeatedly across many
-    // velocity samples; we want to allow the natural physics rather than
-    // class genuinely-tracked particles as stuck. The cap exists only
-    // to bound runtime in pathological corners.
-    constexpr label maxReflectionsPerStep = 100;
-
-    label step = 0;
-    while (tr.end() == dose::track::endReason::active
-        && step < maxStepsPerTrack_)
-    {
-        const dose::trackPoint p = tr.back();
-        if (p.celli < 0)
-        {
-            tr.setEnd(dose::track::endReason::leftDomain);
-            break;
-        }
-
-        const vector Umean = Uint.interpolate(p.x, p.celli);
-        vector V = Umean
-            + dispersion_->fluctuation
-              (
-                  tr.dispState(),
-                  p.x,
-                  p.celli,
-                  dtMax_,
-                  rng
-              );
-
-        if (mag(V) < small)
-        {
-            tr.setEnd(dose::track::endReason::stuck);
-            break;
-        }
-
-        // CFL-bounded budget for this outer iteration
-        const scalar cellSize = cbrt(cellVolumes[p.celli]);
-        scalar dtRemaining = min(dtMax_, cflMax_*cellSize/mag(V));
-
-        point x = p.x;
-        label celli = p.celli;
-        scalar D = p.D;
-        scalar t_now = p.t;
-        // Clamp interpolated G to [0, +inf): cellPoint interpolation can
-        // produce small negative values near boundaries on cells where the
-        // tet-decomposition's vertex weights overshoot, even when the
-        // underlying field is strictly non-negative. Clamping here keeps the
-        // dose accumulation monotonic.
-        scalar G_here = max(scalar(0), Gint.interpolate(x, celli));
-        label nReflected = 0;
-
-        bool terminated = false;
-        while (dtRemaining > small)
-        {
-            // Find first face crossing
-            scalar tHit = dtRemaining;
-            label hitFi = -1;
-
-            const cell& c = meshCells[celli];
-            forAll(c, i)
-            {
-                const label fi = c[i];
-
-                // outward = Sf when celli is owner, -Sf when celli is neighbour
-                const scalar sign = (faceOwner[fi] == celli) ? 1.0 : -1.0;
-                const scalar denom = sign*(Sf[fi] & V);
-                if (denom <= small)
-                {
-                    // V doesn't point out through this face
-                    continue;
-                }
-
-                const scalar t = sign*((Cf[fi] - x) & Sf[fi])/denom;
-                if (t < -small)
-                {
-                    continue;
-                }
-
-                if (t < tHit)
-                {
-                    tHit = t;
-                    hitFi = fi;
-                }
-            }
-
-            // Advance to the hit (or to dtRemaining if none) and accrue dose
-            const scalar tStep = max(scalar(0), tHit);
-            const point xNext = x + tStep*V;
-            const scalar G_at_next =
-                max(scalar(0), Gint.interpolate(xNext, celli));
-            D += 0.5*(G_here + G_at_next)*tStep*Wm2_s_to_mJcm2;
-            t_now += tStep;
-            x = xNext;
-            G_here = G_at_next;
-            dtRemaining -= tStep;
-
-            if (hitFi < 0)
-            {
-                // No face reachable in remaining dt; particle stays in cell
-                break;
-            }
-
-            if (hitFi < nInternal)
-            {
-                // Internal face: walk to neighbour
-                celli = (faceOwner[hitFi] == celli)
-                    ? faceNeighbour[hitFi] : faceOwner[hitFi];
-                G_here = max(scalar(0), Gint.interpolate(x, celli));
-                continue;
-            }
-
-            // Boundary face
-            const label patchi = bMesh.whichPatch(hitFi);
-            if (escapePatchIDs_.found(patchi))
-            {
-                tr.append(dose::trackPoint(x, t_now, D, celli));
-                tr.setEnd(dose::track::endReason::escaped);
-                terminated = true;
-                break;
-            }
-            if (!wallReflection_)
-            {
-                tr.append(dose::trackPoint(x, t_now, D, celli));
-                tr.setEnd(dose::track::endReason::stuck);
-                terminated = true;
-                break;
-            }
-
-            // Reflect V about the face normal and stay in the same cell.
-            const scalar Smag = mag(Sf[hitFi]);
-            if (Smag < small)
-            {
-                tr.append(dose::trackPoint(x, t_now, D, celli));
-                tr.setEnd(dose::track::endReason::stuck);
-                terminated = true;
-                break;
-            }
-            const vector n = Sf[hitFi]/Smag;
-            V = V - 2.0*(V & n)*n;
-
-            ++nReflected;
-            if (nReflected > maxReflectionsPerStep)
-            {
-                tr.append(dose::trackPoint(x, t_now, D, celli));
-                tr.setEnd(dose::track::endReason::stuck);
-                terminated = true;
-                break;
-            }
-        }
-
-        if (terminated)
-        {
-            break;
-        }
-
-        tr.append(dose::trackPoint(x, t_now, D, celli));
-
-        if (maxTime_ > 0 && t_now >= maxTime_)
-        {
-            tr.setEnd(dose::track::endReason::timedOut);
-            break;
-        }
-        if (maxDose_ > 0 && D >= maxDose_)
-        {
-            tr.setEnd(dose::track::endReason::terminated);
-            break;
-        }
-
-        ++step;
-    }
-
-    if (step >= maxStepsPerTrack_
-     && tr.end() == dose::track::endReason::active)
-    {
-        tr.setEnd(dose::track::endReason::stuck);
-    }
-}
-
-
 bool Foam::functionObjects::radiationDose::write()
 {
+    if (!cloud_.valid())
+    {
+        return true;
+    }
     writeDoseCsv();
     writeSummary();
     return true;
@@ -432,15 +245,20 @@ void Foam::functionObjects::radiationDose::writeDoseCsv() const
 
     OFstream os(outDir/"doseDistribution.csv");
     os  << "# trackId,endReason,time_s,dose_mJ_cm2,xEnd,yEnd,zEnd" << nl;
-    forAll(tracks_, i)
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
     {
-        const dose::track& tr = tracks_[i];
-        const dose::trackPoint& p = tr.back();
-        os  << tr.id() << ','
-            << dose::track::endReasonNames[tr.end()] << ','
-            << p.t << ','
-            << p.D << ','
-            << p.x.x() << ',' << p.x.y() << ',' << p.x.z() << nl;
+        const dose::dosePathParticle& p = iter();
+        const vector x = p.position(mesh_);
+        os  << p.origId() << ','
+            << dose::dosePathParticle::endReasonNames[p.end()] << ','
+            << p.t() << ','
+            << p.D() << ','
+            << x.x() << ',' << x.y() << ',' << x.z() << nl;
     }
 }
 
@@ -451,13 +269,17 @@ void Foam::functionObjects::radiationDose::writeSummary() const
         time_.path()/"postProcessing"/name()/time_.name();
     mkDir(outDir);
 
-    // Count active (escaped) tracks and gather their final doses
-    DynamicList<scalar> doses(tracks_.size());
-    forAll(tracks_, i)
+    DynamicList<scalar> doses(cloud_->size());
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
     {
-        if (tracks_[i].end() == dose::track::endReason::escaped)
+        if (iter().end() == dose::dosePathParticle::endReason::escaped)
         {
-            doses.append(tracks_[i].finalDose());
+            doses.append(iter().D());
         }
     }
 
@@ -481,14 +303,13 @@ void Foam::functionObjects::radiationDose::writeSummary() const
 
     OFstream os(outDir/"summary.dat");
     os  << "# radiationDose summary" << nl
-        << "totalSeeded     " << tracks_.size() << nl
+        << "totalSeeded     " << cloud_->size() << nl
         << "escaped         " << N << nl
         << "meanDose_mJcm2  " << mean << nl
         << "stdevDose_mJcm2 " << stdev << nl
         << "minDose_mJcm2   " << (N > 0 ? minD : 0) << nl
         << "maxDose_mJcm2   " << maxD << nl;
 
-    // Log reduction = -log10( (1/N) sum_i exp(-k * D_i) )
     forAll(kInact_, i)
     {
         const scalar k = kInact_[i];

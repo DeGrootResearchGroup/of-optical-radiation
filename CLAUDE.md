@@ -33,8 +33,11 @@ extensions:
    model, or from any user-supplied volScalarField). Targeted at UV
    reactor modelling: stochastic turbulent dispersion (DRW), wall
    reflection, escape classification, dose CDF + RED + log-reduction
-   reporting. **v0.1**, single-threaded, with known wall-leakage
-   limitations on curved surfaces — see "radiationDose Library" below.
+   reporting. **v0.3** uses OpenFOAM's barycentric-tet particle
+   tracker (a `Foam::particle` subclass in a
+   `lagrangian::Cloud<...>`); drift-free by construction and gets
+   parallel particle handoff for free. See "radiationDose Library"
+   below.
 
 The two libraries can be used together (DOM-computed `G` driving the
 dose tracker) or independently (analytical `G` for the tracker; DOM
@@ -109,7 +112,13 @@ Foam::fv::
 Foam::dose::
 
   trackPoint                       (vertex: position, time, accumulated dose, cell index)
-  track                            (DynamicList<trackPoint> + endReason enum)
+
+  particle (OF base, barycentric tracking)
+  └── dosePathParticle             (adds V, D, t, endReason, dispersion state, trajectory)
+
+  lagrangian::Cloud<dosePathParticle>
+  └── dosePathCloud                (case config: dtMax, cflMax, escapePatchIDs,
+                                    maxTime/maxDose, wallReflection, dispersion model)
 
   seedingModel                     (RTS family — initial particle distribution)
     └── patchInjection             (face-area-weighted on listed patches)
@@ -149,7 +158,9 @@ and étendue-n² methodology fixes.
 | `applications/solvers/opticalRadiationFoam/opticalRadiationFoam.C` | Standalone DOM solver entry point |
 | `applications/modules/opticalRadiation/opticalRadiation.{H,C}` | Solver-module form for `foamMultiRun` |
 | `applications/utilities/setFluenceRate/setFluenceRate.C` | Analytical-G writer utility (Sozzi 2006 eq. 3) |
-| `src/radiationDose/radiationDose/radiationDose.{H,C}` | radiationDose function-object class (integrator + writer) |
+| `src/radiationDose/radiationDose/radiationDose.{H,C}` | radiationDose function-object class (seeds the cloud + writer) |
+| `src/radiationDose/dosePathParticle/dosePathParticle.{H,C}` | Foam::particle subclass; barycentric-tet tracker with dose accumulation, wall reflection, escape-patch dispatch |
+| `src/radiationDose/dosePathCloud/dosePathCloud.{H,C}` | Foam::lagrangian::Cloud<dosePathParticle> subclass; case config + runToCompletion driver |
 | `src/radiationDose/track/track.{H,C}` | Per-particle trajectory storage (vertices + endReason) |
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (currently: patchInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
@@ -377,46 +388,66 @@ If a future case needs `terminationByDoseRate`, `terminationByCellZone`,
 etc., it's straightforward to promote this block to an RTS family
 later.
 
-### Integration kernel
+### Integration kernel — barycentric tet tracking (v0.3)
 
-Forward Euler with **trackToFace** face-by-face walk through each
-integration step. CFL-bounded `dt` per outer step; the inner loop
-walks across cell faces until the dt budget is consumed or the
-trajectory terminates. Pseudocode for one outer step:
+Particles are subclasses of `Foam::particle` (`dosePathParticle`,
+held in a `dosePathCloud` derived from `lagrangian::Cloud<...>`).
+Position is stored as **barycentric tet coordinates** within a
+decomposition of the current cell, never as Cartesian `(x,y,z)`.
+Cartesian position is reconstructed on demand from
+`λᵢ * tet_vertex_i`. After a tet-face crossing one barycentric
+coordinate is *exactly* zero, so there is no perpendicular
+floating-point error to compound — drift is impossible by
+construction.
+
+Each call to `dosePathParticle::move()` advances one outer step of
+duration `dtMax` (CFL-bounded against the local cell size), with the
+inner loop driven by `trackToAndHitFace`:
 
 ```
-V = interp(U, x) + dispersion->fluctuation(trackId, x, celli, dt, rng)
-dt_remaining = min(dtMax, cflMax * cellSize / |V|)
-G_here = max(0, interp(G, x, celli))
+V = U(coordinates, tetIs) + dispersion.fluctuation(state, x, celli, dt, rng)
+dt = min(dtMax, cflMax * cbrt(V_cell) / |V|)
+reset(0)                              # stepFraction tracks 0->1 over this dt
 
-while dt_remaining > 0:
-    # Find first face the trajectory crosses
-    for each face fi of celli:
-        sign = +1 if owner == celli else -1
-        denom = sign * (Sf[fi] . V)
-        if denom <= 0: continue                         # not exiting
-        t = sign * ((Cf[fi] - x) . Sf[fi]) / denom
-        if t in [0, dt_remaining]: track minimum (t, fi)
-
-    advance x to x + tStep*V; accrue trapezoidal dose with G_here
-    dt_remaining -= tStep
-    if no face crossed: stayed in cell, break
-
-    if internal face: celli <- neighbour via faceOwner/faceNeighbour
-    if escape patch:  terminate as escaped
-    if other patch:   reflect V about Sf/|Sf|; cap at 100 reflections
-                      per outer step (then terminate as stuck)
+while stepFraction < 1 and active:
+    G_pre  = max(0, G(coordinates_pre,  tetIs_pre))
+    trackToAndHitFace((1-sf)*dt*V, 1-sf, cloud, td)   # OF tracker
+    G_post = max(0, G(coordinates_post, tetIs_post))
+    actualDt = (stepFraction - sf) * dt
+    D += 0.5*(G_pre + G_post) * actualDt * 0.1        # mJ/cm^2 conversion
+    t += actualDt
 ```
 
-Cell index is maintained explicitly through internal-face crossings,
-so `meshSearch::findCell` is no longer called per step. The seeded
-particle's initial cell index comes from `patchInjection`'s
-`faceCells` lookup.
+Patch interactions are dispatched by OF's `hitFace`. We override:
+- `hitWallPatch`: specular reflection `V -= 2*(V·n)*n`. The particle
+  stays on the boundary face and the inner loop continues with the
+  reflected V_ for the remaining time budget.
+- `hitBasicPatch`: marks `endReason::escaped` if the patch is in
+  `escapePatchIDs_`, else `stuck`. We deliberately do NOT call the
+  base-class `hitBasicPatch`, which would set `keepParticle=false`
+  and discard the dose accumulator.
 
-Interpolation via `interpolation<Type>::New("cellPoint", field)`
-(linear cell-point); G is clamped to `[0, +inf)` at every interp
-call to absorb small negative overshoots that the cell-tet
-decomposition can produce near boundaries.
+The function-object `radiationDose::execute()` seeds the cloud
+(constructing each particle via `meshSearch::New(mesh)` to locate the
+initial tet), installs a per-particle dispersion state, then calls
+`cloud.runToCompletion()` which loops `Cloud::move()` until every
+particle's `endReason != active`. CSV + summary are written from
+`write()`.
+
+Drift control is handled by OF's tracking infrastructure, not by us:
+- After every face crossing, position is exactly on the face plane
+  (one barycentric coord = 0). No "snap-to-plane" or "tangent face
+  skip" workarounds are required.
+- Parallel particle handoff across processor patches works through
+  OF's built-in `prepareForParallelTransfer` / `correctAfterParallel-
+  Transfer` machinery. Set up in `dosePathParticle` via the standard
+  `friend Cloud<dosePathParticle>` declaration; no extra code needed.
+
+Interpolation uses `interpolationCellPoint<Type>` (the concrete type
+that takes barycentric coordinates + tetIndices directly, matching
+the particle's storage). G is clamped to `[0, +inf)` at every
+interpolation site to absorb small negative overshoots from the
+cell-tet decomposition near boundaries.
 
 ### Output
 
@@ -430,51 +461,35 @@ For each `execute()` call, `write()` emits:
   value the user supplied.
 
 VTK polyline output (per-vertex dose along each track for ParaView)
-is **deferred to v0.2**.
+is **deferred to v0.4**.
 
 ### Known limitations
 
-1. **Recirculation traps a fraction of particles.** On the Sozzi
-   25 GPM case, ~35 % of seeded particles escape cleanly through
-   the outlet; the remaining ~65 % run to `maxTime` (300 s) or hit
-   `maxStepsPerTrack` while still inside the reactor and are
-   classified as `stuck` / `timedOut`. Their accumulated dose is
-   excluded from the summary (only escaped particles contribute to
-   the dose CDF). Up through v0.2 these were the same particles
-   the v0.1 integrator dropped to `leftDomain` via missed
-   segment-face intersections; the trackToFace integrator now
-   tracks them correctly through the curved walls, but they never
-   make it out of the recirculation zones at the lamp tip and the
-   pipe-body junctions in the iter-500 flow snapshot used by the
-   tutorial. Two factors are likely at play: (a) the iter-500 flow
-   isn't fully converged (residuals plateaued around 1e-3), so
-   spurious recirculation cells trap particles that wouldn't be
-   trapped in a more-converged flow; (b) the DRW eddy lifetime
-   keeps fluctuations correlated long enough that a near-wall
-   particle can be repeatedly pushed back into the wall over
-   successive eddies. Sozzi reports nearly 100 % escape with
-   Fluent at 25 GPM. Items to investigate: longer flow solve,
-   tuned `Cl`, alternative dispersion models, `terminationByStall`
-   (kill if no spatial progress over N steps).
+1. **Serial within each processor.** OpenMP threading was removed
+   when we pivoted to OF's particle infrastructure (`Cloud::move()`
+   iterates the IDLList serially). Cross-processor parallelism via
+   MPI is automatic — particles transfer across processor patches
+   through `hitProcessorPatch`. For an O(10⁵)-particle Sozzi run
+   that needs throughput, run with `decomposePar` + `mpirun -n N
+   foamPostProcess`. Per-processor OMP within a Cloud iteration is
+   a future optimisation.
 
-2. **Single-thread, no parallel particle handoff.** Serial only;
-   parallel runs would lose particles that cross processor patches.
-   Fix: implement an MPI-aware particle handoff in the integration
-   loop.
+2. **No VTK polyline writer.** Per-particle trajectory output (for
+   ParaView ribbons / streamlines coloured by accumulated dose) is
+   the obvious next-most-useful feature. The particle stores every
+   end-of-outer-step vertex in its `points_` member; the writer is
+   the only missing piece.
 
-3. **No VTK polyline writer.** Per-particle trajectory output (for
-   ParaView ribbons / streamlines) is the obvious next-most-useful
-   feature. The track storage already records every vertex, so this
-   is mostly a writer concern.
+3. **Trajectory storage is unbounded.** Every vertex along every
+   track is kept in memory until `write()`; a long-trajectory run
+   can grow into the GB range. Until the VTK writer lands, this is
+   wasted memory and a future `output.storeFullTrack` switch
+   (default false) should drop everything but the final point.
 
-4. **Trajectory storage is unbounded.** Every vertex along every
-   track is kept in memory until `write()`; a single-particle run
-   can grow to hundreds of MBs of `trackPoint` records on a long
-   trajectory. Tomorrow's VTK writer needs the data, but until then
-   the case has no use for it. Could be optionally suppressed by a
-   future `output.storeFullTrack` switch (default false).
-
-5. **Termination model is not an RTS family** (see above).
+4. **Termination model is not an RTS family.** The three soft
+   stops (escapePatches, maxTime, maxDose) live as plain data on
+   the cloud. Promote to a full RTS family if a real case needs
+   `terminationByDoseRate` or `terminationByCellZone`.
 
 ### `setFluenceRate` utility
 
@@ -594,11 +609,12 @@ radiationDose:
   watertight). Steady RANS solve with realizable k-ε via foamRun's
   `incompressibleFluid` solver. Analytical `G` set by setFluenceRate.
   radiationDose post-process with DRW dispersion (`Cl = 0.15`),
-  `wallReflection = true`. v0.2 result on the iter-500 flow snapshot:
-  mean dose 76.9 mJ/cm² (paper: 68), min dose 20.2 (paper: ~21), log
-  reduction at `kInact = 0.1 cm²/mJ` = 2.06 (paper: 1.87). The escape
-  fraction is ~35 % — see "Known limitations" item 1; the validate
-  script's escape-fraction threshold is loose to accommodate this.
+  `wallReflection = true`. v0.3 result on the iter-1000 flow snapshot
+  (1000 particles, barycentric tracker): **1000/1000 escaped**, mean
+  dose **68.6 mJ/cm²** (paper: 68 — within 1 %), min dose 31.2,
+  max dose 233.0 (paper: ~270), log reduction at
+  `kInact = 0.1 cm²/mJ` = **2.07** (paper: 1.87). Runtime ~21 s
+  serial.
 
 `tutorials/Alltest` is the orchestrator: builds (cheap if up-to-date),
 runs every case's `Allrun`, runs each case's `validate` script if
@@ -658,53 +674,46 @@ done as its own commit so the diff stays reviewable.
 
 ## Planned: radiationDose next steps
 
-Done in v0.2:
+Done in v0.3:
 
-- **`trackToFace` integration through internal cell faces** — done.
-  Each integration step now walks face-by-face from x along V using
-  per-face plane equations and sign-aware `outward = ±Sf` normals;
-  on internal-face crossing the cell index updates via
-  `faceOwner` / `faceNeighbour`, on boundary hit it terminates or
-  specularly reflects. Eliminates the v0.1 leftDomain class of bug.
-  No more `meshSearch::findCell` calls per step — cell index is
-  maintained explicitly.
+- **Pivot to OpenFOAM's `Foam::particle` infrastructure.** The
+  in-house plane-equation tracker had a fundamental drift problem
+  on snapped polyhedral cells (~46 % of Sozzi particles drifted
+  outside the mesh in v0.2.x even with snap-to-plane and tangent-
+  face skipping). Subclassing `Foam::particle` switches us to
+  barycentric tet tracking, which is drift-free by construction
+  and brings parallel particle handoff for free. Sozzi 1000-
+  particle escape fraction went from ~12 % to **100 %**, mean dose
+  from 90 to 68.6 (paper: 68), max dose from 688 to 233 (paper:
+  ~270).
 
 Still on the list:
 
-1. **Parallel particle handoff.** Refactor `integrateTrack` so a
-   particle that walks across a `processor` boundary patch is
-   serialised to its post-hand-off processor and tracking continues
-   there. Pattern is well-established in OpenFOAM's legacy
-   Lagrangian `Cloud<parcel>` (`particle::trackToTri` machinery).
-   Should make the Sozzi 10 k-particle run feasible in O(minutes)
-   on 4–8 cores.
+1. **VTK polyline writer.** The particle stores every end-of-
+   outer-step vertex in `points_`; emit a `.vtp` per `execute()`
+   with `time`, `dose`, and `cell` as point-data scalars. Killer
+   feature for UV reactor designers — colour streamlines by
+   accumulated dose.
 
-2. **VTK polyline writer.** Each `track` already records every
-   vertex; emit a `.vtp` per `execute()` with `time`, `dose`, and
-   `cell` as point-data scalars. This is the killer feature for UV
-   reactor designers — colour the streamlines by accumulated dose.
+2. **Trajectory storage opt-out.** When the VTK writer doesn't run
+   (most cases pre-VTK), keep only the last `trackPoint` to bound
+   memory at O(N_particles). With 100 % escape, Sozzi
+   trajectories are short, but the lever exists for cases that
+   genuinely run long.
 
-3. **Stuck-particle reduction.** Bring the Sozzi escape fraction
-   from ~35 % toward Sozzi's reported ~100 %. Two complementary
-   directions: (a) start from a more-converged flow (the iter-500
-   snapshot has residuals at ~1e-3 plateau and visible spurious
-   recirculation); (b) add a `terminationByStall` heuristic — kill
-   tracks whose centre-of-mass hasn't moved more than (say) one
-   cell over the last N outer steps, freeing the runtime + memory
-   they were consuming for nothing.
+3. **Per-Cloud OMP threading.** Iterate the cloud's IDLList in
+   parallel (each thread gets a stride; particles' state is
+   independent except for the shared RNG which we'd partition
+   per-thread). Restores the threaded throughput we had before
+   the pivot. Must coexist cleanly with OF's MPI handoff.
 
-4. **Trajectory storage opt-out.** When the VTK writer doesn't run
-   (most cases pre-VTK), keep only the last `trackPoint` per track
-   to bound memory at O(N_particles). Today a 1000-particle Sozzi
-   run can swell to ~7 GB of `trackPoint` storage when the
-   stuck-particle long-tail drives long trajectories.
-
-5. **Termination model RTS family** (only when a real use case
+4. **Termination model RTS family** (only when a real use case
    demands `terminationByDoseRate` or `terminationByCellZone`).
 
-A v0.3 doseSmokeBox variant on a deliberately curved geometry (a
-torus or annular slip-wall channel) would catch regressions in the
-trackToFace face-walk against curved boundaries.
+A future doseSmokeBox variant on a deliberately curved geometry
+(annular slip-wall channel) would tighten coverage for the
+barycentric tracker against curved boundaries — though the Sozzi
+case effectively does this already.
 
 ---
 

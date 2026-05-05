@@ -1,9 +1,11 @@
 EXE_INC = \
     -I$(LIB_SRC)/finiteVolume/lnInclude \
     -I$(LIB_SRC)/meshTools/lnInclude \
-    -fopenmp
+    -I$(LIB_SRC)/lagrangian/basic/lnInclude \
+    -I$(LIB_SRC)/tracking/lnInclude
 
 LIB_LIBS = \
     -lfiniteVolume \
     -lmeshTools \
-    -fopenmp
+    -llagrangian \
+    -ltracking
