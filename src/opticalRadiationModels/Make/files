@@ -11,6 +11,7 @@ phaseFunctionModels/phaseFunctionModel/newPhaseFunctionModel.C
 phaseFunctionModels/HenyeyGreensteinModel/HenyeyGreensteinModel.C
 phaseFunctionModels/schlickModel/schlickModel.C
 phaseFunctionModels/nullModel/nullModel.C
+phaseFunctionModels/isotropicModel/isotropicModel.C
 
 extinctionModels/extinctionModel/extinctionModel.C
 extinctionModels/extinctionModel/newExtinctionModel.C

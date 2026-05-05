@@ -96,6 +96,7 @@ Foam::optical::
   phaseFunctionModel              (phase function P(θ) between ray pairs)
     ├── HenyeyGreensteinModel
     ├── schlickModel
+    ├── isotropicModel              (uniform P = 1)
     └── nullModel
 
   mixedFvPatchScalarField         (boundary conditions; active set)
