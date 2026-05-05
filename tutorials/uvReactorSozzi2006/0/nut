@@ -34,13 +34,17 @@ boundaryField
 
     bodyWall
     {
-        type            nutkWallFunction;
+        // Spalding's continuous wall function: smooth blend across the
+        // viscous sublayer (y+ < 5), buffer layer (5 < y+ < 30), and
+        // log-law region (y+ > 30). Tolerates the wide y+ range we
+        // observed (1.5 -> 547 across the body wall).
+        type            nutUSpaldingWallFunction;
         value           uniform 0;
     }
 
     lampWall
     {
-        type            nutkWallFunction;
+        type            nutUSpaldingWallFunction;
         value           uniform 0;
     }
 }

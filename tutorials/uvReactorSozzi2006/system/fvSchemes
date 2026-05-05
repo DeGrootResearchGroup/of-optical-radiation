@@ -1,6 +1,6 @@
 /*--------------------------------*- C++ -*----------------------------------*\
   =========                 |
-  \\      /  F ield         | uvReactorSozzi2006: steady RANS schemes
+  \\      /  F ield         | uvReactorSozzi2006: LTS pseudo-transient schemes
    \\    /   O peration     |
     \\  /    A nd           |
      \\/     M anipulation  |
@@ -13,9 +13,15 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
+// Local time stepping: each cell uses its own pseudo-time step driven
+// by local CFL. Equivalent to a PIMPLE-style relaxation toward steady
+// state, but typically converges further than steadyState SIMPLE on
+// flows with strong jets / recirculation (where SIMPLE residuals
+// plateau early).
+
 ddtSchemes
 {
-    default         steadyState;
+    default         localEuler;
 }
 
 gradSchemes
@@ -26,9 +32,9 @@ gradSchemes
 divSchemes
 {
     default         none;
-    div(phi,U)      bounded Gauss linearUpwind grad(U);
-    div(phi,k)      bounded Gauss limitedLinear 1;
-    div(phi,epsilon) bounded Gauss limitedLinear 1;
+    div(phi,U)      Gauss linearUpwind grad(U);
+    div(phi,k)      Gauss upwind;
+    div(phi,epsilon) Gauss upwind;
     div((nuEff*dev2(T(grad(U))))) Gauss linear;
 }
 
