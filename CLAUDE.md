@@ -610,10 +610,11 @@ radiationDose:
   `incompressibleFluid` solver. Analytical `G` set by setFluenceRate.
   radiationDose post-process with DRW dispersion (`Cl = 0.15`),
   `wallReflection = true`. v0.3 result on the iter-1000 flow snapshot
-  (1000 particles, barycentric tracker): **1000/1000 escaped**, mean
-  dose **68.6 mJ/cm²** (paper: 68 — within 1 %), min dose 31.2,
-  max dose 233.0 (paper: ~270), log reduction at
-  `kInact = 0.1 cm²/mJ` = **2.07** (paper: 1.87). Runtime ~21 s
+  (10000 particles, matching the paper's sample size, barycentric
+  tracker): **10008/10008 escaped**, mean dose
+  **67.93 mJ/cm²** (paper: 68 — within 0.1 %), min dose 30.6,
+  max dose 232 (paper: ~270), log reduction at
+  `kInact = 0.1 cm²/mJ` = **2.08** (paper: 1.87). Runtime ~90 s
   serial.
 
 `tutorials/Alltest` is the orchestrator: builds (cheap if up-to-date),
@@ -682,10 +683,10 @@ Done in v0.3:
   outside the mesh in v0.2.x even with snap-to-plane and tangent-
   face skipping). Subclassing `Foam::particle` switches us to
   barycentric tet tracking, which is drift-free by construction
-  and brings parallel particle handoff for free. Sozzi 1000-
+  and brings parallel particle handoff for free. Sozzi 10000-
   particle escape fraction went from ~12 % to **100 %**, mean dose
-  from 90 to 68.6 (paper: 68), max dose from 688 to 233 (paper:
-  ~270).
+  from ~90 to 67.93 (paper: 68 — within 0.1 %), max dose from 688
+  to 232 (paper: ~270).
 
 Still on the list:
 

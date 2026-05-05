@@ -31,10 +31,8 @@ radiationDose
     {
         type        patchInjection;
         patches     (inlet);
-        // Sozzi used 10000; we use 1000 for v0.1 to get a first-pass
-        // result in ~3-5 min on the 365k-cell mesh. Bump to 10000 once
-        // the pipeline validates.
-        nParticles  1000;
+        // Match Sozzi 2006's 10000 particles for tight dose statistics.
+        nParticles  10000;
     }
 
     dispersion

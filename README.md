@@ -138,8 +138,9 @@ radiationDose cases:
   unit-conversion + integrator sanity check.
 - `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
   at 25 GPM with realizable k-ε flow + analytical radial `G`. v0.3
-  result on a 1000-particle run: 100 % escape, mean dose 68.6 mJ/cm²
-  (paper: 68 — within 1 %), log reduction 2.07 (paper: 1.87).
+  result on a 10000-particle run (matching the paper): 100 % escape,
+  mean dose 67.93 mJ/cm² (paper: 68 — within 0.1 %), log reduction
+  2.08 (paper: 1.87).
 
 Run an individual case:
 
@@ -318,8 +319,9 @@ What v0.3 changed on top of v0.2:
   don't accumulate perpendicular floating-point error. The
   Sozzi escape fraction went from ~12 % (with the rest drifting
   on snapped polyhedral wall cells over long trajectories) to
-  100 %, mean dose from 90 to 68.6 mJ/cm² (paper: 68), and the
-  spurious 688 mJ/cm² max cleaned up to 233 (paper: ~270).
+  100 %, mean dose from ~90 to 67.93 mJ/cm² (paper: 68 — within
+  0.1 %), and the spurious 688 mJ/cm² max cleaned up to 232
+  (paper: ~270). 10k-particle Sozzi runs in ~90 s serial.
 - Parallel particle handoff across processor patches works
   out-of-the-box via OF's `prepareForParallelTransfer` machinery —
   this was the deferred v0.2 priority.
