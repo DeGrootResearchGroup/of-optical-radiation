@@ -1,0 +1,67 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        // Lambertian wall: radiance = emissivePower / pi.
+        // Total emitted flux per band = emissivePower (W/m^2).
+        type            diffuseEmitter;
+        nBands          1;
+        emissivePower   (1);
+        value           uniform 0;
+    }
+    radTop
+    {
+        // Pure diffuse reflector (diffuseFraction = 1, R = 0.5).
+        // This is the patch under regression test: with the bug
+        // present the diffuse term is halved, so G drops from 3.0
+        // to 2.5 across the slab.
+        type            reflective;
+        diffuseFraction 1;
+        reflectionCoef  0.5;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    sides
+    {
+        // Specular mirrors (R = 1, diffuseFraction = 0). With perfect
+        // mirrors at x = 0 and x = 1, the finite x-extent becomes
+        // equivalent to an infinite tiled slab in x, so the parallel-
+        // plate analytical applies and G is uniform.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  1;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

@@ -35,8 +35,11 @@ in absorbing/scattering participating media:
   isotropic option (uniform P = 1) for cleaner dictionary intent than
   Henyey-Greenstein with `g = 0`; in-scatter source term.
 - Boundary conditions: Lambertian diffuse emitter, specular/diffuse
-  reflective surface, refractive transmissive interface (with the
-  étendue-correct n² factor and full Fresnel reflectivity).
+  reflective surface, collimated beam (delta-direction, all flux
+  assigned to the single ray bin containing the beam direction —
+  no spreading across neighbouring bins), refractive transmissive
+  interface (with the étendue-correct n² factor and full Fresnel
+  reflectivity).
 - Standalone solver `opticalRadiationFoam`.
 - `fvModel` wrapper for embedding into any host solver via the
   `fvModels` dictionary, without modifying the host's source.
@@ -119,7 +122,7 @@ Build products:
 
 ## Running a tutorial
 
-Six tutorial cases ship under `tutorials/`:
+Nine tutorial cases ship under `tutorials/`:
 
 opticalRadiation cases:
 
@@ -129,6 +132,14 @@ opticalRadiation cases:
   cross-case identity check.
 - `refractiveInterface2D` — refractive-index step with collimated beam,
   analytical Fresnel-transmission validation.
+- `fvModelChannel2D` — same radiation problem as `diffuseSlab2D` but
+  embedded into `incompressibleFluid` via the fvModel wrapper;
+  bit-for-bit cross-case match against the standalone solver.
+- `scatteringSlab2D` — combined absorption + isotropic scattering,
+  validated against a Schwarzschild-Milne integral-equation reference.
+- `diffuseReflectionSlab2D` — transparent slab between a Lambertian
+  emitter and a pure diffuse reflector, analytical uniform G = 3.0;
+  regression guard for the diffuse term of the `reflective` BC.
 
 radiationDose cases:
 
@@ -236,7 +247,7 @@ src/opticalRadiationModels/                  (opticalRadiation library)
     radiationModel/          base class (IOdictionary reader)
     DOM/
         DOM/                 discrete-ordinates solver
-        intensityRay/        per-direction radiance ray
+        ray/                 per-direction radiance ray
     extinctionModels/        absorption + scattering coefficient models
     phaseFunctionModels/     Henyey-Greenstein, Schlick, null
     inScatterModels/         legacy scatter tree (excluded from build)
@@ -260,7 +271,7 @@ applications/
     modules/opticalRadiation/        DOM solver module for foamMultiRun
     utilities/setFluenceRate/        analytical radial G writer
 
-tutorials/               six runnable cases + Alltest validation harness
+tutorials/               nine runnable cases + Alltest validation harness
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)
 Allwclean                clean all build outputs
@@ -300,8 +311,7 @@ radiationDose:
 opticalRadiation: active. Library and solver are working and
 validated; tutorials run on every PR via GitHub Actions. Deferred
 items (end-to-end fvModel runtime test in a real multi-region host
-case, exterior-refraction BC, intensity → radiance identifier rename)
-are documented in the developer guide.
+case, exterior-refraction BC) are documented in the developer guide.
 
 radiationDose: **v0.2**. The pipeline runs end-to-end and validates
 against Sozzi 2006 within ~15 % on mean dose, log reduction, and the
