@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""
+Regression test for the diffuse-reflection term of the `reflective` BC.
+
+Geometry: 2-D slab, transparent medium, with a Lambertian emitter on
+the bottom wall (E = 1 W/m^2), a pure diffuse reflector on the top
+wall (diffuseFraction = 1, reflectionCoef = rho = 0.5), and specular
+mirrors on the sides (R = 1).
+
+Analytical fluence rate in the medium:
+
+    L_A = E / pi                          (radiance from the emitter)
+    L_B = rho * L_A                       (Lambertian-reflected radiance)
+    G   = 2*pi*L_A + 2*pi*L_B = 2*E*(1 + rho)
+
+With E = 1, rho = 0.5: G = 3.0 W/m^2 uniformly.
+
+The bug this case guards against was a divisor of 2*pi instead of pi
+in the diffuse-reflection radiance, which halved L_B and made G drop
+to 2.5 W/m^2 (~17 % low). The 5 % tolerance below comfortably rejects
+that buggy value while accepting finite-bin angular-discretisation
+error.
+
+Exits 0 if mean(G) is within tolerance of the analytical value AND
+the field is uniform across cells, 1 otherwise.
+"""
+
+import re
+import statistics
+import sys
+
+E = 1.0           # emissivePower of the source patch (W/m^2)
+RHO = 0.5         # reflectionCoef of the top patch
+G_ANALYTICAL = 2.0 * E * (1.0 + RHO)  # = 3.0
+TOL_MEAN = 0.05   # mean(G) must be within 5 % of analytical
+TOL_UNIFORMITY = 0.05  # max(|G - mean|) / mean must be below 5 %
+
+
+def read_G(path: str) -> list:
+    with open(path) as f:
+        txt = f.read()
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt,
+        re.S,
+    )
+    if m:
+        return list(map(float, m.group(2).split()))
+    m = re.search(r"internalField\s+uniform\s+([-+0-9.eE]+)", txt)
+    if m:
+        # uniform internalField means a single value applies everywhere
+        return [float(m.group(1))]
+    sys.exit(f"validate: could not parse {path}")
+
+
+def main() -> int:
+    G = read_G("1/G")
+    if not G:
+        sys.exit("validate: empty G field")
+
+    g_mean = statistics.mean(G)
+    g_min = min(G)
+    g_max = max(G)
+    rel_err = abs(g_mean - G_ANALYTICAL) / G_ANALYTICAL
+    nonunif = max(abs(g - g_mean) for g in G) / g_mean if g_mean > 0 else float("inf")
+
+    print(f"cells          : {len(G)}")
+    print(f"G mean         : {g_mean:.6f}")
+    print(f"G min/max      : {g_min:.6f} / {g_max:.6f}")
+    print(f"G analytical   : {G_ANALYTICAL:.6f}")
+    print(f"mean rel. err  : {rel_err:.2%}  (tol {TOL_MEAN:.2%})")
+    print(f"non-uniformity : {nonunif:.2%}  (tol {TOL_UNIFORMITY:.2%})")
+
+    ok_mean = rel_err <= TOL_MEAN
+    ok_unif = nonunif <= TOL_UNIFORMITY
+    return 0 if (ok_mean and ok_unif) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

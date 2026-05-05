@@ -87,7 +87,7 @@ Foam::optical::
   └── radiationModel              (abstract base; reads opticalRadiationProperties)
       └── DOM                     (discrete-ordinates implementation)
               ├── phaseFunctionModel   (phase function for in-scattering)
-              └── PtrList<intensityRay>   (one per direction × band)
+              └── PtrList<ray>            (one per direction × band)
 
   extinctionModel                 (absorption & scattering coefficients)
     ├── transparentExtinction       (kappa = sigma_s = 0)
@@ -104,7 +104,12 @@ Foam::optical::
 
   mixedFvPatchScalarField         (boundary conditions; active set)
     ├── diffuseEmitterMixedFvPatchScalarField
-    ├── reflectiveMixedFvPatchScalarField
+    ├── reflectiveMixedFvPatchScalarField           (specular + Lambertian-diffuse)
+    ├── collimatedBeamMixedFvPatchScalarField       (delta-direction beam:
+    │                                                all flux assigned to the
+    │                                                single ray bin containing
+    │                                                beamDirection; no spreading
+    │                                                across neighbours)
     └── refractiveCoupledMixedFvPatchScalarField
 
 Foam::fv::
@@ -153,7 +158,7 @@ and étendue-n² methodology fixes.
 | `src/opticalRadiationModels/radiationModel/radiationModel.{H,C}` | Abstract base class; IOdictionary reader for `opticalRadiationProperties` |
 | `src/opticalRadiationModels/radiationModel/radiationModelNew.C` | Factory (runtime selection) |
 | `src/opticalRadiationModels/DOM/DOM/DOM.{H,C,I.H}` | DOM solver core |
-| `src/opticalRadiationModels/DOM/intensityRay/intensityRay.{H,C,I.H}` | Single ray/band RTE solve, with pixelated `Ji0_`/`Ji1_` flux split |
+| `src/opticalRadiationModels/DOM/ray/ray.{H,C,rayI.H}` | Single ray/band RTE solve, with pixelated `Ji0_`/`Ji1_` flux split |
 | `src/opticalRadiationModels/extinctionModels/` | Absorption & scattering coefficient providers |
 | `src/opticalRadiationModels/phaseFunctionModels/` | Phase function P(θ) implementations |
 | `src/opticalRadiationModels/derivedFvPatchFields/` | Custom optical boundary conditions |
@@ -243,6 +248,15 @@ the API port:
   `nPhi=8` isotropic) and by the
   `absorbingScatteringBox3D` vs `variableExtinctionBox3D` bit-for-bit
   cross-case match in 3-D with strong-forward HG (g=0.98/0.99).
+- `reflective` BC's diffuse-reflection term divided by `2π` instead
+  of `π`, halving the Lambertian-reflection radiance. The accumulator
+  `Σ_j I_j |n·dAve_j|` is the discrete incident irradiance `q_in`
+  [W/m²], and the Lambertian relation is `L = ρ·q_in/π` (the `1/π`
+  comes from `∫_hemisphere cosθ dΩ = π`). Bug was silent until found
+  in review because every other shipped tutorial uses
+  `diffuseFraction = 0`; the `diffuseReflectionSlab2D` tutorial was
+  added at the same time as the fix and is the only in-tree
+  validation case that exercises the diffuse codepath.
 
 ### Methodology notes — settled design decisions
 
@@ -269,7 +283,7 @@ re-litigate them.
   reflective/refractive interior faces.** Reflection
   `r(d) = d − 2(d·n)n` is its own inverse, and Snell refraction is
   reversible, so the Phase 1 candidate-finding and Phase 2
-  contribution-accepting in `intensityRay` are bookkeeping-symmetric
+  contribution-accepting in `ray` are bookkeeping-symmetric
   in the continuous limit. With finite pixelation, sub-pixel-sized
   overlaps are missed *symmetrically* by both phases — no
   double-counting. The miss is the inherent
@@ -591,6 +605,52 @@ For piecewise builds:
 ( cd applications/modules/opticalRadiation     && wmake libso ) # solver module
 ```
 
+### Running the build + tests in Docker
+
+The repo's `Dockerfile` produces an `openfoam13` image with all
+dependencies. Build it once on each machine:
+
+```bash
+docker build -t openfoam13 .
+```
+
+Then build and run the tutorial suite the way CI does:
+
+```bash
+docker run --rm -e USER=root -v "$(pwd):/code" -w /code openfoam13 \
+    bash -c './Allwmake && cd tutorials && ./Alltest'
+```
+
+Two non-obvious gotchas when iterating from a host that doesn't have
+OpenFOAM installed:
+
+- **Build artefacts live inside the container.** `Allwmake` installs
+  binaries and libraries to `$FOAM_USER_APPBIN` / `$FOAM_USER_LIBBIN`
+  (i.e. `/root/OpenFOAM/root-13/...`), which is *inside* the container
+  and lost when `--rm` deletes it. Always run `./Allwmake` and
+  `./Alltest` in the **same** `docker run` invocation, not separate
+  ones.
+- **`runApplication` skips reruns when `log.<app>` exists.** If a
+  previous run produced a stale `log.opticalRadiationFoam` (e.g. from
+  a failed build attempt), the next `./Allrun` silently exits 0
+  without running the solver, and `Alltest`'s "ok" line lies. If you
+  see validate failures complaining about a missing time directory,
+  `./Allclean` each affected case and rerun. To prevent this, prepend
+  a `cd tutorials && for d in */; do ( cd "$d" && [ -x ./Allclean ]
+  && ./Allclean ); done` to the run command.
+
+A safe one-liner that handles both:
+
+```bash
+docker run --rm -e USER=root -v "$(pwd):/code" -w /code openfoam13 \
+    bash -c '
+        ./Allwmake > /tmp/build.log 2>&1 || { tail /tmp/build.log; exit 1; }
+        cd tutorials
+        for d in */; do [ -x "${d}Allclean" ] && ( cd "$d" && ./Allclean > /dev/null 2>&1 ); done
+        ./Alltest
+    '
+```
+
 ---
 
 ## OpenFOAM v13 Foundation Reference
@@ -611,7 +671,7 @@ For piecewise builds:
 
 ## Tutorials & validation
 
-`tutorials/` ships six cases — four for opticalRadiation, two for
+`tutorials/` ships nine cases — seven for opticalRadiation, two for
 radiationDose:
 
 opticalRadiation:
@@ -638,6 +698,13 @@ opticalRadiation:
   absorption and isotropic scattering (κ=σ_s=0.5, ω=0.5), validated
   against a Schwarzschild-Milne integral-equation reference solved
   inline in the validate script. Tolerance 10%; observed ~9.7%.
+- **`diffuseReflectionSlab2D`** — 2-D transparent slab between a
+  Lambertian emitter (E=1 W/m²) and a pure diffuse reflector
+  (`diffuseFraction=1`, `reflectionCoef=0.5`), specular mirrors on the
+  sides. Analytical uniform `G = 2·E·(1+ρ) = 3.0` W/m². Regression
+  guard for the diffuse term of the `reflective` BC — without the
+  `1/π` Lambertian normalisation the answer drops to 2.5 (~17% low).
+  No other tutorial exercises `diffuseFraction > 0`.
 
 radiationDose:
 
@@ -689,34 +756,6 @@ Currently marked long-running:
 
 The marker file's content doesn't matter; presence is what counts.
 Remove it to opt the case back into the default suite.
-
----
-
-## Planned: rename intensity → radiance identifiers
-
-Code comments and prose now use "radiance" (W/m²/sr) consistently;
-remaining occurrences of "intensity" are code-level identifiers that
-were left in place to minimise churn:
-
-- Class `Foam::optical::intensityRay` (and its directory / file names
-  `src/opticalRadiationModels/DOM/intensityRay/intensityRay.{H,C,I.H}`).
-- Static member `intensityRay::intensityPrefix` ("I", used to build
-  the per-ray field name `I_<band>_<angle>`).
-- Constructor parameter name `const volScalarField& intensity` in
-  `radiationModel`/`DOM` constructors.
-
-When this is picked up:
-
-- Rename the class to `radianceRay` (or just `ray`); rename the
-  directory and files in step.
-- Rename `intensityPrefix` → `radiancePrefix`. The on-disk field
-  name `I` is conventional in radiation literature and should stay,
-  so the prefix's *value* remains `"I"` even though its identifier
-  changes.
-- Rename the constructor parameter to `radiance`.
-
-Mostly mechanical; affects ~50 lines plus a directory rename. Best
-done as its own commit so the diff stays reviewable.
 
 ---
 

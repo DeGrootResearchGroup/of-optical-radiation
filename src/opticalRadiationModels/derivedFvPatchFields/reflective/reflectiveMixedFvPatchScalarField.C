@@ -250,8 +250,11 @@ updateCoeffs()
 		   }
 
    //         label  i0 = label(Foam::acos(cosA)/deltaPhi);
+            // diffusive accumulator is the discrete irradiance q_in = ∫ I·(n·ŝ) dΩ
+            // over the incoming hemisphere; Lambertian-reflection radiance is
+            // ρ·q_in/π (the 1/π comes from ∫_hemisphere cosθ dΩ = π).
             refValue()[faceI] = reflectionCoef_*
-					(diffuseFraction_*diffusive/pi/2  + (1.0 - diffuseFraction_)*specular/bdOmega); 
+					(diffuseFraction_*diffusive/pi  + (1.0 - diffuseFraction_)*specular/bdOmega);
             refGrad()[faceI] = 0.0;
             valueFraction()[faceI] = 1.0;
         }

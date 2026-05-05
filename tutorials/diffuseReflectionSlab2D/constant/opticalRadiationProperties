@@ -1,0 +1,45 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation        on;
+radiationModel   DOM;
+
+DOMCoeffs
+{
+    nPhi          8;     // azimuthal divisions per pi (total 2*nPhi over [0,2pi))
+    nTheta        1;     // polar divisions; must be 1 in 2-D
+    convergence   1e-8;
+    maxIter       400;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+    phaseFunctionModel nullModel;
+}
+
+// Transparent medium: kappa = sigma_s = 0. The fluence rate in the
+// slab is set entirely by wall emission and wall reflection.
+extinctionModel constant;
+constantCoeffs
+{
+    nBands           1;
+    absorption       true;
+    absorptionCoeff  (0);
+    scattering       false;
+    scatteringCoeff  (0);
+}
+
+// ************************************************************************* //
