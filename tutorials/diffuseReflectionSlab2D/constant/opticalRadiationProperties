@@ -32,14 +32,6 @@ DOMCoeffs
 
 // Transparent medium: kappa = sigma_s = 0. The fluence rate in the
 // slab is set entirely by wall emission and wall reflection.
-extinctionModel constant;
-constantCoeffs
-{
-    nBands           1;
-    absorption       true;
-    absorptionCoeff  (0);
-    scattering       false;
-    scatteringCoeff  (0);
-}
+extinctionModel transparent;
 
 // ************************************************************************* //
