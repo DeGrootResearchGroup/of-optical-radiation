@@ -652,9 +652,25 @@ present, and performs a cross-case diff between
 `absorbingScatteringBox3D` and `variableExtinctionBox3D`. Exits 0 only
 if every check passes.
 
-Note: the Sozzi case is heavy (mesh + ~5 min flow solve + ~2 min
-radiationDose for 1 k particles, ~25 min for 10 k). When running
-`Alltest` interactively, expect the wall-clock to be dominated by it.
+### Long-running cases
+
+Any case directory containing a `LONG_RUNNING` marker file is
+skipped by default — these are too heavy for CI on every pull
+request. To include them, set `RUN_LONG_TESTS=1`:
+
+```sh
+cd tutorials
+./Alltest                    # short cases only (CI default)
+RUN_LONG_TESTS=1 ./Alltest   # everything, long cases included
+```
+
+Currently marked long-running:
+
+- `uvReactorSozzi2006` — full Sozzi 2006 pipeline (snappyHexMesh +
+  RANS solve + radiationDose post-process). ~10–30 min wall-clock.
+
+The marker file's content doesn't matter; presence is what counts.
+Remove it to opt the case back into the default suite.
 
 ---
 
