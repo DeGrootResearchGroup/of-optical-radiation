@@ -16,10 +16,10 @@ Description
     resampled. Each component of u' is drawn from N(0, sigma) with
     sigma^2 = 2k/3 (isotropic-turbulence assumption).
 
-    Per-particle eddy memory (current u', remaining lifetime) is held
-    in a Map keyed by track ID. The Map is cleared by reset() at the
-    start of every execute() call so successive runs of the same
-    function object don't carry stale state.
+    Per-particle eddy memory (current u' and remaining lifetime) lives
+    on the track object as a DRWState. The model has no shared mutable
+    state across tracks, which makes the per-track integration loop
+    trivially thread-parallel.
 
 Usage
     dispersion
@@ -35,7 +35,6 @@ Usage
 #ifndef dose_discreteRandomWalk_H
 #define dose_discreteRandomWalk_H
 
-#include "Map.H"
 #include "dispersionModel.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -64,16 +63,25 @@ class discreteRandomWalk
         //- Eddy lifetime constant: tau_e = Cl * k / epsilon
         scalar Cl_;
 
-        //- Per-track eddy state. Mutable so fluctuation() can stay const.
-        struct eddyState
-        {
-            vector uPrime;
-            scalar remaining;
-        };
-        mutable Map<eddyState> states_;
-
 
 public:
+
+    // Public Classes
+
+        //- Per-track eddy state. Lives on the track object.
+        class DRWState : public dispersionModel::State
+        {
+        public:
+            vector uPrime;
+            scalar remaining;
+
+            DRWState()
+            :
+                uPrime(vector::zero),
+                remaining(0)
+            {}
+        };
+
 
     //- Runtime type information
     TypeName("discreteRandomWalk");
@@ -95,11 +103,14 @@ public:
             return wordList({kName_, epsilonName_});
         }
 
-        virtual void reset();
+        virtual autoPtr<dispersionModel::State> newState() const
+        {
+            return autoPtr<dispersionModel::State>(new DRWState());
+        }
 
         virtual vector fluctuation
         (
-            label trackId,
+            dispersionModel::State& state,
             const vector& x,
             label celli,
             scalar dt,

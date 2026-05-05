@@ -34,22 +34,15 @@ Foam::dose::discreteRandomWalk::discreteRandomWalk
     dispersionModel(dict, mesh),
     kName_(dict.lookupOrDefault<word>("k", "k")),
     epsilonName_(dict.lookupOrDefault<word>("epsilon", "epsilon")),
-    Cl_(dict.lookupOrDefault<scalar>("Cl", 0.15)),
-    states_()
+    Cl_(dict.lookupOrDefault<scalar>("Cl", 0.15))
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::dose::discreteRandomWalk::reset()
-{
-    states_.clear();
-}
-
-
 Foam::vector Foam::dose::discreteRandomWalk::fluctuation
 (
-    label trackId,
+    dispersionModel::State& state,
     const vector& x,
     label celli,
     scalar dt,
@@ -69,13 +62,9 @@ Foam::vector Foam::dose::discreteRandomWalk::fluctuation
     const scalar kVal = max(kField[celli], scalar(0));
     const scalar epsVal = max(epsField[celli], small);
 
-    // Find or create the per-track eddy state. Initialised with remaining=0
-    // so the first call resamples immediately.
-    if (!states_.found(trackId))
-    {
-        states_.insert(trackId, eddyState{vector::zero, scalar(0)});
-    }
-    eddyState& s = states_[trackId];
+    // The track owns its own DRWState. No locking needed because each
+    // track is integrated by exactly one thread at a time.
+    DRWState& s = dynamic_cast<DRWState&>(state);
 
     if (s.remaining <= 0 || kVal <= small)
     {
