@@ -31,8 +31,9 @@ in absorbing/scattering participating media:
 - Multi-band spectral solve (one transport equation per direction per
   band).
 - Constant or species-driven (variable) extinction coefficients.
-- Anisotropic Henyey-Greenstein and Schlick phase functions; in-scatter
-  source term.
+- Anisotropic Henyey-Greenstein and Schlick phase functions, plus an
+  isotropic option (uniform P = 1) for cleaner dictionary intent than
+  Henyey-Greenstein with `g = 0`; in-scatter source term.
 - Boundary conditions: Lambertian diffuse emitter, specular/diffuse
   reflective surface, refractive transmissive interface (with the
   étendue-correct n² factor and full Fresnel reflectivity).
