@@ -51,7 +51,20 @@ Foam::optical::transparentExtinction::transparentExtinction
 )
 :
     extinctionModel(dict, mesh)
-{}
+{
+    const word coeffsName(typeName + "Coeffs");
+    const label nBands = dict.found(coeffsName)
+        ? dict.subDict(coeffsName).lookupOrDefault<label>("nBands", 1)
+        : 1;
+
+    init(nBands);
+
+    forAll(ALambda_, iBand)
+    {
+        ALambda_[iBand] = dimensionedScalar("A", dimless/dimLength, 0.0);
+        SLambda_[iBand] = dimensionedScalar("S", dimless/dimLength, 0.0);
+    }
+}
 
 
 // * * * * * * * * * * * * * * * * Destructor    * * * * * * * * * * * * * * //

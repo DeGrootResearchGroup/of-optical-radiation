@@ -25,15 +25,18 @@ Class
     Foam::optical::transparentExtinction
 
 Description
-    Dummy extinction model for 'none'
+    Convenience extinction model: zero absorption and scattering for all
+    bands. Equivalent to "constant" with all coefficients set to zero.
+    With no "transparentCoeffs" subdictionary the model is single-band;
+    add "transparentCoeffs { nBands N; }" to match a multi-band DOM.
 
 SourceFiles
     transparentExtinction.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationWideBandExtinction_H
-#define opticalRadiationWideBandExtinction_H
+#ifndef opticalRadiationTransparentExtinction_H
+#define opticalRadiationTransparentExtinction_H
 
 #include "extinctionModel.H"
 
@@ -45,7 +48,7 @@ namespace optical
 {
 
 /*---------------------------------------------------------------------------*\
-                  Class linearSpeciesExtinction Declaration
+                  Class transparentExtinction Declaration
 \*---------------------------------------------------------------------------*/
 
 class transparentExtinction
