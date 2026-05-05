@@ -11,9 +11,12 @@ in absorbing/scattering participating media:
   originates at boundaries or known external sources (photobioreactors,
   optical-property characterisation, photochemistry, solar receivers,
   etc.). Scope is similar to ANSYS Fluent's DO model.
-- **radiationDose** *(v0.1)* — integrates radiation dose along
+- **radiationDose** *(v0.3)* — integrates radiation dose along
   Lagrangian particle trajectories given a frozen `U` and a
-  fluence-rate field `G`. Targeted at UV reactor modelling: stochastic
+  fluence-rate field `G`. Built on OpenFOAM's `Foam::particle`
+  infrastructure: barycentric-tet tracking is drift-free by
+  construction and inherits parallel particle handoff across
+  processor patches. Targeted at UV reactor modelling: stochastic
   turbulent dispersion (DRW), specular wall reflection, escape
   classification, dose CDF + log-reduction reporting. Reads any
   `volScalarField` named in its dictionary, so `G` can come from the
@@ -41,7 +44,7 @@ in absorbing/scattering participating media:
 - `fvModel` wrapper for embedding into any host solver via the
   `fvModels` dictionary, without modifying the host's source.
 
-### radiationDose (Lagrangian dose tracker, v0.1)
+### radiationDose (Lagrangian dose tracker, v0.3)
 
 - Function object `radiationDose` that integrates `D = ∫ G·dt` along
   particle trajectories through any frozen flow.
@@ -135,9 +138,10 @@ radiationDose cases:
 - `doseSmokeBox` — uniform plug-flow box with analytical `G·t` dose;
   unit-conversion + integrator sanity check.
 - `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
-  at 25 GPM with realizable k-ε flow + analytical radial `G`. v0.2
-  result matches the paper's mean dose, min dose, and log reduction
-  within ~15 %.
+  at 25 GPM with realizable k-ε flow + analytical radial `G`. v0.3
+  result on a 10000-particle run (matching the paper): 100 % escape,
+  mean dose 67.93 mJ/cm² (paper: 68 — within 0.1 %), log reduction
+  2.08 (paper: 1.87).
 
 Run an individual case:
 
@@ -303,32 +307,35 @@ items (end-to-end fvModel runtime test in a real multi-region host
 case, exterior-refraction BC, intensity → radiance identifier rename)
 are documented in the developer guide.
 
-radiationDose: **v0.2**. The pipeline runs end-to-end and validates
-against Sozzi 2006 within ~15 % on mean dose, log reduction, and the
-low-dose tail.
+radiationDose: **v0.3**. The pipeline runs end-to-end and validates
+against Sozzi 2006 within 1 % on mean dose, with 100 % particle
+escape on the iter-1000 flow snapshot.
 
-What v0.2 added on top of v0.1:
+What v0.3 changed on top of v0.2:
 
-- `trackToFace` integrator: each step walks face-by-face through the
-  mesh, maintaining cell index explicitly via `faceOwner`/
-  `faceNeighbour`. Eliminates the v0.1 wall-leakage class of bug —
-  no more particles classified as `leftDomain` from missed
-  segment-face intersections on curved surfaces.
-- G is clamped to `[0, +inf)` at every interpolation site to absorb
-  small negative overshoots that the cell-tet decomposition can
-  produce near boundaries.
+- The integrator pivots to OpenFOAM's existing `Foam::particle`
+  infrastructure. We subclass `particle` as `dosePathParticle` and
+  hold a `lagrangian::Cloud<dosePathParticle>`; tracking is
+  barycentric-tet (the standard OF Lagrangian method) rather than
+  in-house plane-equation. Drift is impossible by construction —
+  position is barycentric, never Cartesian, so face crossings
+  don't accumulate perpendicular floating-point error. The
+  Sozzi escape fraction went from ~12 % (with the rest drifting
+  on snapped polyhedral wall cells over long trajectories) to
+  100 %, mean dose from ~90 to 67.93 mJ/cm² (paper: 68 — within
+  0.1 %), and the spurious 688 mJ/cm² max cleaned up to 232
+  (paper: ~270). 10k-particle Sozzi runs in ~90 s serial.
+- Parallel particle handoff across processor patches works
+  out-of-the-box via OF's `prepareForParallelTransfer` machinery —
+  this was the deferred v0.2 priority.
 
 Still on the priority list:
 
-- ~35 % of Sozzi particles end up classified as `stuck` after
-  running to `maxTime` while still inside the reactor (recirculation
-  in the iter-500 flow snapshot). Their dose is excluded from the
-  summary. Sozzi reports nearly 100 % escape; closing this gap
-  needs either a more-converged flow or a stall-detection heuristic.
-- Single-thread; no parallel particle handoff across processor
-  patches.
 - No VTK polyline output yet (per-particle dose along the
   trajectory).
+- Per-Cloud OMP threading was dropped during the pivot; throughput
+  on a single processor is back to serial. MPI parallelism via
+  `mpirun foamPostProcess` is the supported path for now.
 
 The developer guide tracks the rest of the v0.x list.
 

@@ -6,15 +6,17 @@ The paper reports for the L-shape reactor at 25 GPM (Section 4.3, Figure 5):
   - Mean dose: 68 mJ/cm^2
   - Log reduction at k = 0.1 cm^2/mJ: 1.87
 
-We allow generous tolerances for v0.1 (the goal is order-of-magnitude
-agreement, not exact match — the radiation source is the analytical
-infinite-line model, the flow field is our own RANS solution, and the
-dispersion model is our DRW which differs in details from Fluent's).
+With v0.3's barycentric tet tracker every seeded particle escapes
+(no drift, no recirculation traps), so we can tighten thresholds to
+something close to the paper's reported numbers. Remaining headroom
+covers RANS vs Fluent flow-field differences and DRW implementation
+details.
 
-Targets, with v0.1 tolerances:
-  mean dose       in [50, 90] mJ/cm^2  (paper: 68)
-  log reduction   in [1.4, 2.4]        (paper: 1.87)
-  range max/min   > 5                  (paper: ~270/21 ≈ 13)
+Targets:
+  escape fraction > 0.95                (paper: ~100 %)
+  mean dose       in [55, 85] mJ/cm^2   (paper: 68)
+  log reduction   in [1.6, 2.3]         (paper: 1.87)
+  range max/min   > 5                   (paper: ~270/21 ≈ 13)
 
 The script reads postProcessing/radiationDose/<latest>/summary.dat
 and exits 0 on pass, 1 on fail.
@@ -88,11 +90,11 @@ def main():
     failures = []
 
     mean = data.get("meanDose_mJcm2")
-    if mean is None or not (50.0 <= mean <= 90.0):
-        failures.append(f"meanDose out of [50, 90]: {mean}")
+    if mean is None or not (55.0 <= mean <= 85.0):
+        failures.append(f"meanDose out of [55, 85]: {mean}")
 
-    if log_red is None or not (1.4 <= log_red <= 2.4):
-        failures.append(f"log_red(k=0.1) out of [1.4, 2.4]: {log_red}")
+    if log_red is None or not (1.6 <= log_red <= 2.3):
+        failures.append(f"log_red(k=0.1) out of [1.6, 2.3]: {log_red}")
 
     mn = data.get("minDose_mJcm2")
     mx = data.get("maxDose_mJcm2")
@@ -103,23 +105,17 @@ def main():
                 f"max/min dose ratio = {ratio:.1f} (< 5; expected ~13 per paper)"
             )
 
-    # NOTE on escape fraction: in v0.1, handleBoundaryHit's cell-based
-    # segment-face intersection misses some near-wall step crossings on the
-    # curved lamp and body surfaces. Affected particles are classified as
-    # "leftDomain" rather than "escaped". On the Sozzi case, ~65% of
-    # particles end up as leftDomain. The 35% that escape cleanly give a
-    # representative sample of the dose distribution (mean and log reduction
-    # within 10% of paper), so the validate threshold here is intentionally
-    # loose. Tightening will follow once the wall-tracking is improved
-    # (proper trackToFace through internal cell faces).
+    # Escape fraction: with v0.3's barycentric tracker, every seeded
+    # particle reaches the outlet. Sub-95 % indicates a real bug
+    # (or a flow snapshot with genuine recirculation traps).
     nseeded = data.get("totalSeeded", 0)
     nescaped = data.get("escaped", 0)
     if nseeded > 0:
         frac = nescaped/nseeded
-        if frac < 0.20:
+        if frac < 0.95:
             failures.append(
                 f"escape fraction = {frac:.2f} ({int(nescaped)}/{int(nseeded)});"
-                f" expected > 0.2 (v0.1 has known wall-leakage issue)"
+                f" expected > 0.95 (v0.3 barycentric tracker)"
             )
 
     if failures:

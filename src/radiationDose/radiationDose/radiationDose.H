@@ -14,9 +14,12 @@ Description
     particle trajectories through a (typically frozen) flow field.
 
     Reads a velocity field U [m/s] and a fluence-rate field G [W/m^2],
-    seeds particles through a configurable seeding model, integrates
-    their motion (with optional stochastic turbulent dispersion), and
-    accumulates dose D along each trajectory.
+    seeds particles through a configurable seeding model, and integrates
+    their motion with optional stochastic turbulent dispersion through
+    OpenFOAM's barycentric-tet particle tracker. Drift-free by
+    construction: position is stored as barycentric coordinates within
+    the current tet, never as Cartesian (x,y,z), so face crossings
+    introduce no perpendicular floating-point error.
 
     Units convention:
     - Fluence rate input G is in W/m^2 (OpenFOAM SI standard).
@@ -53,13 +56,14 @@ Usage
             escapePatches   (outlet);
             maxTime         300;        // s; 0 disables
             maxDose         0;          // mJ/cm^2; 0 disables
+            wallReflection  true;
         }
 
         integration
         {
             dtMax           0.01;       // s
             cflMax          0.5;
-            maxStepsPerTrack 100000;
+            maxOuterSteps   100000;     // safety cap on outer iterations
         }
 
         output
@@ -77,18 +81,14 @@ SourceFiles
 #ifndef functionObjects_radiationDose_H
 #define functionObjects_radiationDose_H
 
-#include "PtrList.H"
 #include "Switch.H"
 #include "autoPtr.H"
 #include "dispersionModel.H"
+#include "dosePathCloud.H"
 #include "fvMeshFunctionObject.H"
-#include "interpolation.H"
 #include "HashSet.H"
 #include "randomGenerator.H"
 #include "seedingModel.H"
-#include "track.H"
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
 {
@@ -105,82 +105,45 @@ class radiationDose
 {
     // Private Data — configuration
 
-        //- Name of the velocity field [m/s]
         word UName_;
-
-        //- Name of the fluence-rate field [W/m^2]
         word GName_;
-
-        //- RNG seed for reproducible runs
         label randomSeed_;
 
-        //- Seeding model (RTS-selected)
         autoPtr<dose::seedingModel> seeding_;
 
-        //- Dispersion model (RTS-selected)
-        autoPtr<dose::dispersionModel> dispersion_;
+        //- Dispersion model dictionary (kept across read() so we can
+        //  rebuild the model fresh per execute() — its internal
+        //  state needs to start clean every run, but the
+        //  configuration is read once).
+        dictionary dispersionDict_;
 
-        //- Patches whose first hit terminates a track as "escaped"
         labelHashSet escapePatchIDs_;
-
-        //- Soft termination: maximum integration time [s]; 0 disables
         scalar maxTime_;
-
-        //- Soft termination: maximum accumulated dose [mJ/cm^2]; 0 disables
         scalar maxDose_;
-
-        //- Specularly reflect off non-escape patches (default true).
-        //  When false, a non-escape patch hit terminates the track as stuck.
         Switch wallReflection_;
 
-        //- Maximum integration step [s]
         scalar dtMax_;
-
-        //- CFL bound on per-step displacement
         scalar cflMax_;
+        label maxOuterSteps_;
 
-        //- Hard cap on substeps per track (safety net)
-        label maxStepsPerTrack_;
-
-        //- Inactivation rate constants [cm^2/mJ] for log-reduction reporting
         scalarList kInact_;
 
 
-    // Private Data — result of execute()
+    // Private Data — built per execute()
 
-        //- Trajectories (one per seeded particle)
-        PtrList<dose::track> tracks_;
+        //- Cloud of dose-tracking particles. Lives across execute()
+        //  and write() so that the writer can iterate the cloud's
+        //  particles for the per-track CSV.
+        autoPtr<dose::dosePathCloud> cloud_;
 
 
     // Private Member Functions
 
-        //- Integrate a single track to termination using trackToFace:
-        //  each outer iteration samples V once at the current position
-        //  and walks face-by-face through the dt budget, advancing
-        //  cell-by-cell across internal faces and handling boundary hits
-        //  (escape, wall reflection, or stuck) inline. No more leftDomain
-        //  classification from missed segment-face intersections.
-        void integrateTrack
-        (
-            dose::track& tr,
-            const interpolation<vector>& Uint,
-            const interpolation<scalar>& Gint,
-            randomGenerator& rng
-        ) const;
-
-        //- Write the per-track dose CSV
         void writeDoseCsv() const;
-
-        //- Write the summary statistics file
         void writeSummary() const;
 
 
 public:
-
-    //- Conversion factor: G [W/m^2] * dt [s] -> D [mJ/cm^2]
-    //  1 J/m^2 = 0.1 mJ/cm^2 (since 1 m^2 = 1e4 cm^2 and 1 J = 1e3 mJ)
-    static constexpr scalar Wm2_s_to_mJcm2 = 0.1;
-
 
     //- Runtime type information
     TypeName("radiationDose");
@@ -188,7 +151,6 @@ public:
 
     // Constructors
 
-        //- Construct from Time and dictionary
         radiationDose
         (
             const word& name,
@@ -196,7 +158,6 @@ public:
             const dictionary& dict
         );
 
-        //- Disallow default bitwise copy construction
         radiationDose(const radiationDose&) = delete;
 
 
@@ -206,32 +167,20 @@ public:
 
     // Member Functions
 
-        //- Read the data
         virtual bool read(const dictionary&);
-
-        //- Return the list of fields required
         virtual wordList fields() const;
-
-        //- Execute (integrate trajectories and accumulate dose)
         virtual bool execute();
-
-        //- Write outputs (dose CSV, summary)
         virtual bool write();
 
 
     // Member Operators
 
-        //- Disallow default bitwise assignment
         void operator=(const radiationDose&) = delete;
 };
 
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
-
 } // End namespace functionObjects
 } // End namespace Foam
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 #endif
 
