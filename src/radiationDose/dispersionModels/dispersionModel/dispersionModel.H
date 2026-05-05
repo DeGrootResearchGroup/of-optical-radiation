@@ -14,6 +14,12 @@ Description
     Returns a velocity fluctuation u' to add to the mean velocity at
     a given particle position.
 
+    Per-track state (e.g. DRW eddy memory) lives on the track object
+    rather than inside the model. The model defines a State subclass
+    plus a newState() factory; the track owns one State pointer.
+    Eliminating the model's shared state map makes the integration
+    loop trivially thread-parallel.
+
 \*---------------------------------------------------------------------------*/
 
 #ifndef dose_dispersionModel_H
@@ -52,6 +58,20 @@ protected:
 
 
 public:
+
+    // Public Classes
+
+        //- Per-track state slot. Each concrete model defines its own
+        //  derived State (e.g. discreteRandomWalk::DRWState carries the
+        //  current eddy fluctuation and remaining lifetime). Models with
+        //  no per-track state use this base class directly; the track
+        //  carries one State pointer.
+        class State
+        {
+        public:
+            virtual ~State() = default;
+        };
+
 
     //- Runtime type information
     TypeName("dispersionModel");
@@ -97,19 +117,22 @@ public:
             return wordList();
         }
 
-        //- Reset any per-track internal state (e.g. eddy memory).
-        //  Called by the function object at the start of every execute().
-        virtual void reset()
-        {}
+        //- Create a fresh per-track State object. The track owns it.
+        //  Default: a base State with no per-track memory.
+        virtual autoPtr<State> newState() const
+        {
+            return autoPtr<State>(new State());
+        }
 
-        //- Velocity fluctuation u' [m/s] at position x in cell celli over a
-        //  step of size dt [s]. trackId disambiguates per-particle state for
-        //  models that maintain memory across substeps (e.g. DRW eddies).
-        //  Concrete models look up their own turbulence fields (k, epsilon,
-        //  ...) from the registry as needed.
+        //- Velocity fluctuation u' [m/s] at position x in cell celli
+        //  over a step of size dt [s]. The State reference is the
+        //  track's own per-particle state (not shared across tracks),
+        //  so concurrent calls from different threads are race-free.
+        //  Concrete models look up their own turbulence fields
+        //  (k, epsilon, ...) from the registry as needed.
         virtual vector fluctuation
         (
-            label trackId,
+            State& state,
             const vector& x,
             label celli,
             scalar dt,

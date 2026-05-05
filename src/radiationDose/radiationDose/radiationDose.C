@@ -12,6 +12,13 @@
 #include "addToRunTimeSelectionTable.H"
 #include "polyBoundaryMesh.H"
 
+#ifdef _OPENMP
+    #include <omp.h>
+#else
+    static inline int omp_get_thread_num() { return 0; }
+    static inline int omp_get_num_threads() { return 1; }
+#endif
+
 // * * * * * * * * * * * * * * * * Static Data * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -129,8 +136,6 @@ bool Foam::functionObjects::radiationDose::execute()
     autoPtr<interpolation<scalar>> GintPtr =
         interpolation<scalar>::New("cellPoint", G);
 
-    dispersion_->reset();
-
     Info<< type() << ": seeding particles..." << endl;
     List<dose::trackPoint> seeds = seeding_->seed(rng);
     Info<< type() << ": seeded " << seeds.size() << " particles" << endl;
@@ -141,12 +146,35 @@ bool Foam::functionObjects::radiationDose::execute()
     {
         tracks_.set(i, new dose::track(i));
         tracks_[i].append(seeds[i]);
+        // Per-track dispersion state lives on the track, not on the
+        // model — this is what makes the integration loop thread-safe.
+        tracks_[i].setDispState(dispersion_->newState());
     }
 
-    Info<< type() << ": integrating..." << endl;
-    forAll(tracks_, i)
+    // Threaded integration. Each particle's trajectory is independent
+    // of every other particle's (mesh + fields are read-only, dispersion
+    // state is per-track), so we partition tracks across threads and
+    // give each thread its own RNG (seeded deterministically from the
+    // master seed + thread id, so runs are reproducible).
+    #ifdef _OPENMP
+    Info<< type() << ": integrating with " << omp_get_max_threads()
+        << " thread(s)..." << endl;
+    #else
+    Info<< type() << ": integrating (serial)..." << endl;
+    #endif
+
+    #pragma omp parallel
     {
-        integrateTrack(tracks_[i], UintPtr(), GintPtr(), rng);
+        randomGenerator threadRng
+        {
+            randomGenerator::seed(randomSeed_ + omp_get_thread_num())
+        };
+
+        #pragma omp for schedule(dynamic, 50)
+        for (label i = 0; i < tracks_.size(); ++i)
+        {
+            integrateTrack(tracks_[i], UintPtr(), GintPtr(), threadRng);
+        }
     }
 
     label nEscaped = 0, nTimedOut = 0, nStuck = 0, nLeft = 0, nOther = 0;
@@ -229,7 +257,14 @@ void Foam::functionObjects::radiationDose::integrateTrack
 
         const vector Umean = Uint.interpolate(p.x, p.celli);
         vector V = Umean
-            + dispersion_->fluctuation(tr.id(), p.x, p.celli, dtMax_, rng);
+            + dispersion_->fluctuation
+              (
+                  tr.dispState(),
+                  p.x,
+                  p.celli,
+                  dtMax_,
+                  rng
+              );
 
         if (mag(V) < small)
         {

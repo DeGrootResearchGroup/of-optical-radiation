@@ -20,6 +20,8 @@ Description
 
 #include "DynamicList.H"
 #include "NamedEnum.H"
+#include "autoPtr.H"
+#include "dispersionModel.H"
 #include "trackPoint.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -65,6 +67,12 @@ private:
         //- Why the track stopped accumulating
         endReason end_;
 
+        //- Per-track dispersion-model state. Owned by the track so each
+        //  thread can mutate its own particles' state without locking.
+        //  Set by the function object at seed time via the dispersion
+        //  model's newState() factory.
+        autoPtr<dispersionModel::State> dispState_;
+
 
 public:
 
@@ -75,7 +83,8 @@ public:
         :
             id_(id),
             points_(initialCapacity),
-            end_(endReason::active)
+            end_(endReason::active),
+            dispState_()
         {}
 
 
@@ -103,6 +112,13 @@ public:
                 return points_.empty() ? 0 : points_.last().t;
             }
 
+            //- Mutable per-track dispersion state. Caller owns thread
+            //  exclusivity (one track per thread at a time).
+            inline dispersionModel::State& dispState()
+            {
+                return *dispState_;
+            }
+
         // Edit
 
             //- Append a vertex
@@ -110,6 +126,13 @@ public:
 
             //- Mark the termination reason
             inline void setEnd(endReason r) { end_ = r; }
+
+            //- Install a per-track dispersion state (called once at
+            //  seed time, before the integration loop).
+            inline void setDispState(autoPtr<dispersionModel::State> s)
+            {
+                dispState_ = std::move(s);
+            }
 };
 
 

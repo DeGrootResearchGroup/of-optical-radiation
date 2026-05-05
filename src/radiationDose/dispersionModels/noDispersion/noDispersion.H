@@ -54,7 +54,7 @@ public:
 
         virtual vector fluctuation
         (
-            label trackId,
+            dispersionModel::State& state,
             const vector& x,
             label celli,
             scalar dt,
