@@ -176,19 +176,26 @@ bool Foam::dose::dosePathParticle::move
         endReason_ = endReason::terminated;
     }
 
-    // Record the end-of-outer-step position. The trajectory is
-    // currently always stored; a future storeFullTrack switch can
-    // make this conditional.
-    points_.append
-    (
-        trackPoint
+    // Record the end-of-outer-step position. Skipped when the cloud
+    // has storeTrack disabled — the only consumer of the stored
+    // trajectory is the function-object's VTK writer, so when VTK
+    // output is off there is no reason to grow points_ past its
+    // initial seed entry. Memory then stays O(N_particles) instead
+    // of O(N_particles × residence_time / dtMax), which matters for
+    // long-trajectory production runs.
+    if (cloud.storeTrack())
+    {
+        points_.append
         (
-            position(td.mesh),
-            t_,
-            D_,
-            cell()
-        )
-    );
+            trackPoint
+            (
+                position(td.mesh),
+                t_,
+                D_,
+                cell()
+            )
+        );
+    }
 
     return true;
 }
