@@ -69,6 +69,7 @@ Usage
         output
         {
             kInact          (0.1);      // cm^2/mJ for log-reduction reporting
+            writeVtk        true;       // emit trajectories.vtk per execute()
         }
     }
     \endverbatim
@@ -127,6 +128,7 @@ class radiationDose
         label maxOuterSteps_;
 
         scalarList kInact_;
+        Switch writeVtk_;
 
 
     // Private Data — built per execute()
@@ -141,6 +143,7 @@ class radiationDose
 
         void writeDoseCsv() const;
         void writeSummary() const;
+        void writeVtkTrajectories() const;
 
 
 public:

@@ -339,10 +339,22 @@ What v0.3 changed on top of v0.2:
   out-of-the-box via OF's `prepareForParallelTransfer` machinery —
   this was the deferred v0.2 priority.
 
+Done in v0.4:
+
+- VTK polyline output. `radiationDose::write()` emits a legacy
+  ASCII `trajectories.vtk` per `execute()` containing one polyline
+  per track, with `time_s`, `dose_mJcm2`, `cell` as point-data and
+  `trackId`, `endReason` as per-track cell-data. Toggled by
+  `output.writeVtk` (default `true`); ParaView reads the file
+  directly for streamline-style plots coloured by accumulated
+  dose. The doseSmokeBox tutorial ships a `validate` script that
+  guards the writer's structural correctness on every CI run.
+
 Still on the priority list:
 
-- No VTK polyline output yet (per-particle dose along the
-  trajectory).
+- Trajectory storage opt-out for runs with `writeVtk=false`
+  (currently every per-step vertex is held in memory until
+  `write()`, regardless of whether VTK output is enabled).
 - Per-Cloud OMP threading was dropped during the pivot; throughput
   on a single processor is back to serial. MPI parallelism via
   `mpirun foamPostProcess` is the supported path for now.

@@ -44,7 +44,8 @@ Foam::functionObjects::radiationDose::radiationDose
     wallReflection_(true),
     dtMax_(0.01),
     cflMax_(0.5),
-    maxOuterSteps_(100000)
+    maxOuterSteps_(100000),
+    writeVtk_(true)
 {
     read(dict);
 }
@@ -103,6 +104,7 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
 
     const dictionary& outDict = dict.subDict("output");
     kInact_ = outDict.lookupOrDefault<scalarList>("kInact", scalarList());
+    writeVtk_ = outDict.lookupOrDefault<Switch>("writeVtk", true);
 
     return true;
 }
@@ -233,6 +235,10 @@ bool Foam::functionObjects::radiationDose::write()
     }
     writeDoseCsv();
     writeSummary();
+    if (writeVtk_)
+    {
+        writeVtkTrajectories();
+    }
     return true;
 }
 
@@ -326,6 +332,159 @@ void Foam::functionObjects::radiationDose::writeSummary() const
         const scalar S = Ssum/N;
         const scalar logR = -log10(max(S, small));
         os  << "logReduction_k=" << k << "  " << logR << nl;
+    }
+}
+
+
+void Foam::functionObjects::radiationDose::writeVtkTrajectories() const
+{
+    // Legacy ASCII VTK PolyData. ParaView reads this directly as
+    // streamlines coloured by per-vertex time / dose / cell, with
+    // per-track (cell-data) trackId / endReason for filtering.
+    //
+    // We deliberately use the legacy single-file format rather than
+    // XML .vtp: it is hand-writable without an XML library, opens in
+    // ParaView identically, and the size penalty is negligible
+    // compared to the dataset itself.
+    //
+    // Tracks shorter than 2 vertices (a particle that became `stuck`
+    // before any successful step) are skipped — VTK lines require
+    // at least two points and the trajectory carries no information.
+    const fileName outDir =
+        time_.path()/"postProcessing"/name()/time_.name();
+    mkDir(outDir);
+
+    label nPoints = 0, nLines = 0, nLineConn = 0;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        const label n = iter().points().size();
+        if (n < 2) continue;
+        nPoints += n;
+        nLines  += 1;
+        nLineConn += n + 1;             // [count, idx0, idx1, ...]
+    }
+
+    OFstream os(outDir/"trajectories.vtk");
+    os.precision(8);
+
+    os  << "# vtk DataFile Version 3.0" << nl
+        << "radiationDose trajectories" << nl
+        << "ASCII" << nl
+        << "DATASET POLYDATA" << nl
+        << "POINTS " << nPoints << " float" << nl;
+
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        const DynamicList<dose::trackPoint>& pts = iter().points();
+        if (pts.size() < 2) continue;
+        forAll(pts, j)
+        {
+            const vector& x = pts[j].x;
+            os << x.x() << ' ' << x.y() << ' ' << x.z() << nl;
+        }
+    }
+
+    os  << "LINES " << nLines << ' ' << nLineConn << nl;
+    label idx = 0;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        const label n = iter().points().size();
+        if (n < 2) continue;
+        os << n;
+        for (label j = 0; j < n; ++j)
+        {
+            os << ' ' << (idx + j);
+        }
+        os << nl;
+        idx += n;
+    }
+
+    os  << "POINT_DATA " << nPoints << nl
+        << "SCALARS time_s float 1" << nl
+        << "LOOKUP_TABLE default" << nl;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        const DynamicList<dose::trackPoint>& pts = iter().points();
+        if (pts.size() < 2) continue;
+        forAll(pts, j) { os << pts[j].t << nl; }
+    }
+
+    os  << "SCALARS dose_mJcm2 float 1" << nl
+        << "LOOKUP_TABLE default" << nl;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        const DynamicList<dose::trackPoint>& pts = iter().points();
+        if (pts.size() < 2) continue;
+        forAll(pts, j) { os << pts[j].D << nl; }
+    }
+
+    os  << "SCALARS cell int 1" << nl
+        << "LOOKUP_TABLE default" << nl;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        const DynamicList<dose::trackPoint>& pts = iter().points();
+        if (pts.size() < 2) continue;
+        forAll(pts, j) { os << pts[j].celli << nl; }
+    }
+
+    os  << "CELL_DATA " << nLines << nl
+        << "SCALARS trackId int 1" << nl
+        << "LOOKUP_TABLE default" << nl;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        if (iter().points().size() < 2) continue;
+        os << iter().origId() << nl;
+    }
+
+    // endReason as integer enum index, keyed by endReasonNames in the
+    // particle header. ParaView's "Threshold" filter on this scalar
+    // is the cleanest way to isolate (e.g.) only escaped tracks.
+    os  << "SCALARS endReason int 1" << nl
+        << "LOOKUP_TABLE default" << nl;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        if (iter().points().size() < 2) continue;
+        os << label(iter().end()) << nl;
     }
 }
 

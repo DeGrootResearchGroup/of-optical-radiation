@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Smoke-test radiationDose: dose accumulation and VTK writer.
+
+The case is a 1 m x 0.1 m x 0.1 m box with uniform internal U =
+(0.5, 0, 0) m/s, no-slip walls, and uniform G = 10 W/m^2. The
+no-slip walls drag the cell-vertex-interpolated velocity down near
+the boundary, so particles seeded near the walls integrate over a
+longer residence time than the analytic plug-flow value — the
+*mean* dose ends up well above the plug-flow floor.
+
+What we *can* assert analytically is the **minimum** dose: a
+particle launched away from the walls flies straight through at
+full V_x, residence = L/V_x = 1/0.5 = 2 s, dose = G*t*0.1 = 2.0
+mJ/cm^2. No particle can escape faster than that.
+
+This script checks:
+
+  1. summary.dat: there is at least one escaped particle, and the
+     minimum escape dose is within 1 % of 2.0 mJ/cm^2.
+  2. trajectories.vtk exists, parses as legacy VTK ASCII PolyData,
+     and its POINT_DATA / CELL_DATA section counts agree with the
+     POINTS / LINES counts respectively.
+"""
+
+import os
+import re
+import sys
+
+
+def find_latest(name):
+    base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "postProcessing", "radiationDose",
+    )
+    if not os.path.isdir(base):
+        return None
+    times = sorted(
+        ((float(t), t) for t in os.listdir(base) if t.replace(".", "", 1).isdigit()),
+    )
+    if not times:
+        return None
+    p = os.path.join(base, times[-1][1], name)
+    return p if os.path.isfile(p) else None
+
+
+def parse_summary(path):
+    out = {}
+    with open(path) as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) >= 2 and not parts[0].startswith("#"):
+                try:
+                    out[parts[0]] = float(parts[-1])
+                except ValueError:
+                    pass
+    return out
+
+
+def check_vtk(path):
+    """Return list of failure strings (empty = pass)."""
+    fails = []
+    with open(path) as f:
+        head = [next(f).rstrip("\n") for _ in range(4)]
+    if head[0] != "# vtk DataFile Version 3.0":
+        fails.append(f"unexpected VTK header: {head[0]!r}")
+    if head[2] != "ASCII":
+        fails.append(f"expected ASCII format, got {head[2]!r}")
+    if head[3] != "DATASET POLYDATA":
+        fails.append(f"expected DATASET POLYDATA, got {head[3]!r}")
+
+    with open(path) as f:
+        body = f.read()
+
+    def section_count(keyword):
+        m = re.search(rf"^{keyword}\s+(\d+)", body, re.MULTILINE)
+        return int(m.group(1)) if m else None
+
+    nPoints = section_count("POINTS")
+    nLines = section_count("LINES")
+    nPointData = section_count("POINT_DATA")
+    nCellData = section_count("CELL_DATA")
+
+    if not nPoints or not nLines:
+        fails.append("missing POINTS or LINES section")
+        return fails
+
+    if nPointData != nPoints:
+        fails.append(f"POINT_DATA={nPointData} != POINTS={nPoints}")
+    if nCellData != nLines:
+        fails.append(f"CELL_DATA={nCellData} != LINES={nLines}")
+
+    for s in ("time_s", "dose_mJcm2", "cell", "trackId", "endReason"):
+        if f"SCALARS {s} " not in body:
+            fails.append(f"missing scalar {s!r}")
+
+    return fails
+
+
+def main():
+    summary = find_latest("summary.dat")
+    if summary is None:
+        sys.stderr.write("validate: no summary.dat found\n")
+        return 1
+
+    data = parse_summary(summary)
+    nEscaped = data.get("escaped", 0)
+    minDose = data.get("minDose_mJcm2")
+    meanDose = data.get("meanDose_mJcm2")
+    print(f"validate: escaped     = {int(nEscaped)}")
+    print(f"validate: minDose     = {minDose} mJ/cm^2 (analytical floor = 2.0)")
+    print(f"validate: meanDose    = {meanDose} mJ/cm^2 (must exceed floor)")
+
+    failures = []
+    if nEscaped < 1:
+        failures.append(f"no escaped particles (got {int(nEscaped)})")
+    if minDose is None or abs(minDose - 2.0) > 0.02:
+        failures.append(f"minDose {minDose} != 2.0 +/- 0.02 (plug-flow floor)")
+    if meanDose is None or meanDose < 2.0:
+        failures.append(f"meanDose {meanDose} below plug-flow floor 2.0")
+
+    vtk = find_latest("trajectories.vtk")
+    if vtk is None:
+        failures.append("trajectories.vtk not found")
+    else:
+        print(f"validate: checking {os.path.basename(vtk)}")
+        failures.extend(check_vtk(vtk))
+
+    if failures:
+        print("\nFAIL:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+
+    print("\nPASS: dose accumulation and VTK writer both healthy")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
