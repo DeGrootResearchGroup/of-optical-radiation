@@ -11,7 +11,7 @@ in absorbing/scattering participating media:
   originates at boundaries or known external sources (photobioreactors,
   optical-property characterisation, photochemistry, solar receivers,
   etc.). Scope is similar to ANSYS Fluent's DO model.
-- **radiationDose** *(v0.3)* — integrates radiation dose along
+- **radiationDose** — integrates radiation dose along
   Lagrangian particle trajectories given a frozen `U` and a
   fluence-rate field `G`. Built on OpenFOAM's `Foam::particle`
   infrastructure: barycentric-tet tracking is drift-free by
@@ -47,7 +47,7 @@ in absorbing/scattering participating media:
 - `fvModel` wrapper for embedding into any host solver via the
   `fvModels` dictionary, without modifying the host's source.
 
-### radiationDose (Lagrangian dose tracker, v0.3)
+### radiationDose (Lagrangian dose tracker)
 
 - Function object `radiationDose` that integrates `D = ∫ G·dt` along
   particle trajectories through any frozen flow.
@@ -149,10 +149,10 @@ radiationDose cases:
 - `doseSmokeBox` — uniform plug-flow box with analytical `G·t` dose;
   unit-conversion + integrator sanity check.
 - `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
-  at 25 GPM with realizable k-ε flow + analytical radial `G`. v0.3
-  result on a 10000-particle run (matching the paper): 100 % escape,
-  mean dose 67.93 mJ/cm² (paper: 68 — within 0.1 %), log reduction
-  2.08 (paper: 1.87).
+  at 25 GPM with realizable k-ε flow + analytical radial `G`. On a
+  10000-particle run (matching the paper): 100 % escape, mean dose
+  67.93 mJ/cm² (paper: 68 — within 0.1 %), log reduction 2.08
+  (paper: 1.87).
 
 Run an individual case:
 
@@ -317,56 +317,19 @@ validated; tutorials run on every PR via GitHub Actions. Deferred
 items (end-to-end fvModel runtime test in a real multi-region host
 case, exterior-refraction BC) are documented in the developer guide.
 
-radiationDose: **v0.3**. The pipeline runs end-to-end and validates
-against Sozzi 2006 within 1 % on mean dose, with 100 % particle
-escape on the iter-1000 flow snapshot.
-
-What v0.3 changed on top of v0.2:
-
-- The integrator pivots to OpenFOAM's existing `Foam::particle`
-  infrastructure. We subclass `particle` as `dosePathParticle` and
-  hold a `lagrangian::Cloud<dosePathParticle>`; tracking is
-  barycentric-tet (the standard OF Lagrangian method) rather than
-  in-house plane-equation. Drift is impossible by construction —
-  position is barycentric, never Cartesian, so face crossings
-  don't accumulate perpendicular floating-point error. The
-  Sozzi escape fraction went from ~12 % (with the rest drifting
-  on snapped polyhedral wall cells over long trajectories) to
-  100 %, mean dose from ~90 to 67.93 mJ/cm² (paper: 68 — within
-  0.1 %), and the spurious 688 mJ/cm² max cleaned up to 232
-  (paper: ~270). 10k-particle Sozzi runs in ~90 s serial.
-- Parallel particle handoff across processor patches works
-  out-of-the-box via OF's `prepareForParallelTransfer` machinery —
-  this was the deferred v0.2 priority.
-
-Done in v0.4:
-
-- VTK polyline output. `radiationDose::write()` emits a legacy
-  ASCII `trajectories.vtk` per `execute()` containing one polyline
-  per track, with `time_s`, `dose_mJcm2`, `cell` as point-data and
-  `trackId`, `endReason` as per-track cell-data. Toggled by
-  `output.writeVtk` (default `true`); ParaView reads the file
-  directly for streamline-style plots coloured by accumulated
-  dose. The doseSmokeBox tutorial ships a `validate` script that
-  guards the writer's structural correctness on every CI run.
-
-- Trajectory-storage opt-out. The same `output.writeVtk` switch
-  now governs whether per-step trajectory points are stored at
-  all. With `writeVtk=false` the cloud bounds memory at
-  O(N_particles) instead of O(N_particles × residence_time /
-  dtMax) — material for long-trajectory production runs.
-
-- Per-cloud OMP threading. Single-rank `foamPostProcess` runs
-  parallelise the per-particle iteration across
-  `OMP_NUM_THREADS`; each thread carries its own randomGenerator
-  and trackingData, with shared read-only field interpolators.
-  Multi-rank MPI runs continue to use the serial-per-rank path
-  (`Cloud::move`'s cross-rank queues aren't thread-safe yet).
-  Result is bit-for-bit reproducible for a fixed
-  (seed, nThreads); changing thread count reshuffles individual
-  particles' RNG draws but not the ensemble statistics.
-
-The developer guide tracks the rest of the v0.x list.
+radiationDose: functionally complete. Built on OpenFOAM's
+`Foam::particle` infrastructure (barycentric-tet tracking,
+drift-free by construction, parallel particle handoff via
+`prepareForParallelTransfer`); validates against Sozzi & Taghipour
+2006 within 1 % on mean dose with 100 % particle escape. Outputs
+per-track CSV + summary statistics + a legacy ASCII VTK polyline
+file (`output.writeVtk`, default on; doubles as the trajectory-
+storage switch — disable to bound memory for long-trajectory
+runs). Single-rank `foamPostProcess` runs OMP-parallelise the
+per-particle iteration across `OMP_NUM_THREADS`; multi-rank MPI
+runs use OF's serial-per-rank path. The developer guide tracks
+remaining open items (one: a termination-model RTS family, gated
+on a real driver case).
 
 ---
 
