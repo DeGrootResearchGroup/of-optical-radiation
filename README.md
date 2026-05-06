@@ -153,6 +153,12 @@ opticalRadiation cases:
   function. Validates the Bodhaine cross-section formula and the
   composite per-channel summation to 8 digits; G profile against the
   absorbing analytical regression-guards the phase-function path.
+- `molecularAbsorptionSlab2D` — `diffuseSlab2D` geometry with a
+  `composite` of two `molecularAbsorption` children: O₂ in `idealGas`
+  mode (atmospheric mole fraction at standard conditions) and O₃ in
+  `field` mode (volScalarField in mol/m³). Beer-Lambert validation at
+  222 nm; exercises the cross-section + concentration plumbing in
+  both modes through composite stacking.
 - `mieScatteringSlab2D` — Bohren-Huffman canonical Mie test case
   (`x = 3, m_rel = 1.55 + 0i`, monodisperse spheres) with both
   `mieExtinction` and the full `mieModel` phase function. Four-stage
@@ -273,6 +279,8 @@ src/opticalRadiationModels/                  (opticalRadiation library)
                              Shared by mieExtinction and mieModel.
     extinctionModels/        absorption + scattering coefficient models
                              (constant, linearSpecies, rayleigh, mie,
+                              molecularAbsorption — generic per-band
+                              molecular absorber, idealGas or field mode;
                               composite — sums multiple models)
     phaseFunctionModels/     Henyey-Greenstein, Schlick, isotropic,
                              rayleigh, mie, null

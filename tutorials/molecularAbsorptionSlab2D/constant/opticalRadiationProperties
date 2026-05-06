@@ -1,0 +1,89 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation        on;
+radiationModel          DOM;
+
+DOMCoeffs
+{
+    nPhi          8;
+    nTheta        1;
+    convergence   1e-5;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+
+    phaseFunctionModel nullModel;
+    nullModelCoeffs
+    {
+        inScatter off;
+    }
+}
+
+// composite of (a) atmospheric O2 (Herzberg continuum, ideal-gas mode) and
+// (b) trace O3 carried as a volScalarField in mol/m^3 (Hartley band, field
+// mode). Both are pure absorbers; the rayleigh-scattering channel of air
+// is a separate model and would be stacked here as a third child if we
+// wanted it. Cross-sections at 222 nm are representative literature values
+// (Yoshino 1992 for O2, Daumont/Brion for O3) -- the test exercises the
+// mode plumbing rather than spectroscopic accuracy.
+//
+// Analytical totals (re-derived in ./validate):
+//   kappa_O2 = (p * x_O2 / (k_B T)) * sigma_O2
+//            = (101325 * 0.2095 / (k_B * 293.15)) * 6.5e-28
+//            ~ 3.41e-3 1/m
+//   kappa_O3 = c_O3 * N_A * sigma_O3
+//            = 0.0188 * 6.022e23 * 4.4e-23
+//            ~ 0.4982 1/m
+//   kappa_tot ~ 0.5016 1/m, dominated by O3 (small but nonzero O2 floor).
+extinctionModel composite;
+compositeCoeffs
+{
+    nBands 1;
+
+    models
+    {
+        oxygen
+        {
+            extinctionModel molecularAbsorption;
+            molecularAbsorptionCoeffs
+            {
+                nBands         1;
+                crossSections  (6.5e-28);   // m^2/molecule, 222 nm
+                concentration  idealGas;
+                T              293.15;
+                p              101325;
+                moleFraction   0.2095;
+            }
+        }
+
+        ozone
+        {
+            extinctionModel molecularAbsorption;
+            molecularAbsorptionCoeffs
+            {
+                nBands         1;
+                crossSections  (4.4e-23);   // m^2/molecule, 222 nm
+                concentration  field;
+                field          O3;          // mol/m^3
+            }
+        }
+    }
+}
+
+// ************************************************************************* //

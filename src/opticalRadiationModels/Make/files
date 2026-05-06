@@ -23,6 +23,7 @@ extinctionModels/transparent/transparentExtinction.C
 extinctionModels/constant/constantExtinction.C
 extinctionModels/linearSpecies/linearSpeciesExtinction.C
 extinctionModels/rayleigh/rayleighExtinction.C
+extinctionModels/molecularAbsorption/molecularAbsorptionExtinction.C
 extinctionModels/mie/mieExtinction.C
 extinctionModels/composite/compositeExtinction.C
 
