@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """Smoke-test radiationDose: dose accumulation and VTK writer.
 
-The case is a 1 m x 0.1 m x 0.1 m box with uniform internal U =
-(0.5, 0, 0) m/s, no-slip walls, and uniform G = 10 W/m^2. The
-no-slip walls drag the cell-vertex-interpolated velocity down near
-the boundary, so particles seeded near the walls integrate over a
-longer residence time than the analytic plug-flow value — the
-*mean* dose ends up well above the plug-flow floor.
-
-What we *can* assert analytically is the **minimum** dose: a
-particle launched away from the walls flies straight through at
-full V_x, residence = L/V_x = 1/0.5 = 2 s, dose = G*t*0.1 = 2.0
-mJ/cm^2. No particle can escape faster than that.
+The case is a 1 m x 0.1 m x 0.1 m box with uniform U = (0.5, 0, 0)
+m/s, slip walls (so the cell-vertex-interpolated velocity stays
+equal to the bulk value everywhere), and uniform G = 10 W/m^2.
+Plug flow with constant G means *every* escaped particle sees the
+same residence time L/V_x = 1/0.5 = 2 s and the same accumulated
+dose G * t * 0.1 = 2.0 mJ/cm^2. The dose distribution is
+deterministic to floating-point precision.
 
 This script checks:
 
-  1. summary.dat: there is at least one escaped particle, and the
-     minimum escape dose is within 1 % of 2.0 mJ/cm^2.
+  1. summary.dat: every seeded particle escapes (no time-outs, no
+     stuck), the mean escape dose is 2.0 mJ/cm^2 within 1 part in
+     1000, and the spread is at floating-point noise level.
   2. trajectories.vtk exists, parses as legacy VTK ASCII PolyData,
      and its POINT_DATA / CELL_DATA section counts agree with the
      POINTS / LINES counts respectively.
@@ -103,20 +100,35 @@ def main():
         return 1
 
     data = parse_summary(summary)
+    nSeeded = data.get("totalSeeded", 0)
     nEscaped = data.get("escaped", 0)
     minDose = data.get("minDose_mJcm2")
+    maxDose = data.get("maxDose_mJcm2")
     meanDose = data.get("meanDose_mJcm2")
+    stdevDose = data.get("stdevDose_mJcm2")
+    print(f"validate: seeded      = {int(nSeeded)}")
     print(f"validate: escaped     = {int(nEscaped)}")
-    print(f"validate: minDose     = {minDose} mJ/cm^2 (analytical floor = 2.0)")
-    print(f"validate: meanDose    = {meanDose} mJ/cm^2 (must exceed floor)")
+    print(f"validate: meanDose    = {meanDose} mJ/cm^2 (analytical = 2.0)")
+    print(f"validate: stdevDose   = {stdevDose} mJ/cm^2")
+    print(f"validate: min/max     = {minDose} / {maxDose} mJ/cm^2")
 
     failures = []
-    if nEscaped < 1:
-        failures.append(f"no escaped particles (got {int(nEscaped)})")
-    if minDose is None or abs(minDose - 2.0) > 0.02:
-        failures.append(f"minDose {minDose} != 2.0 +/- 0.02 (plug-flow floor)")
-    if meanDose is None or meanDose < 2.0:
-        failures.append(f"meanDose {meanDose} below plug-flow floor 2.0")
+    # Plug flow with slip walls: every seeded particle must escape.
+    if nSeeded < 1 or nEscaped != nSeeded:
+        failures.append(
+            f"escaped {int(nEscaped)} != seeded {int(nSeeded)} (plug flow"
+            f" should escape all)"
+        )
+    if meanDose is None or abs(meanDose - 2.0) > 1e-3:
+        failures.append(f"meanDose {meanDose} != 2.0 +/- 1e-3")
+    # Spread should be floating-point noise; 1e-6 leaves headroom over
+    # the 1e-13 we observe in practice without depending on the exact
+    # arithmetic order.
+    if stdevDose is None or stdevDose > 1e-6:
+        failures.append(
+            f"stdevDose {stdevDose} > 1e-6 (plug flow should be"
+            f" deterministic)"
+        )
 
     vtk = find_latest("trajectories.vtk")
     if vtk is None:
