@@ -39,6 +39,8 @@ Description
 #include "interpolationCellPoint.H"
 #include "randomGenerator.H"
 
+#include <vector>
+
 namespace Foam
 {
 namespace dose
@@ -130,21 +132,65 @@ public:
 
         // Edit
 
-            //- Drive Cloud::move() in a loop until every particle is
-            //  no longer active (escaped / timedOut / stuck /
+            //- Drive an outer-step loop until every particle is no
+            //  longer active (escaped / timedOut / stuck /
             //  terminated) or maxOuterSteps is reached as a safety
             //  net. Returns the number of outer steps actually run.
+            //
+            //  In single-rank runs the inner per-particle iteration
+            //  is OpenMP-parallelised across the local cloud (see
+            //  moveOmp); in multi-rank MPI runs we fall back to OF's
+            //  serial Cloud::move(), which carries the parallel
+            //  particle handoff machinery needed at processor patches.
+            //  OMP-within-MPI is a future optimisation — the per-rank
+            //  transfer queues Cloud::move() builds at processor
+            //  patches would need explicit thread-safe synchronisation
+            //  to be safe under threading, and there is no real-world
+            //  driver for it yet.
             label runToCompletion
             (
                 const interpolationCellPoint<vector>& UInterp,
                 const interpolationCellPoint<scalar>& GInterp,
-                randomGenerator& rng,
+                randomGenerator& parentRng,
                 const label maxOuterSteps
             );
 
             //- Number of particles still in the active state
             //  (endReason == active). Counted via a forAllConstIter.
             label nActive() const;
+
+
+    private:
+
+        // Private Member Functions
+
+            //- Single outer step, OMP-parallelised across local
+            //  particles. Takes pre-built per-thread trackingData
+            //  and the particle pointer snapshot — `runToCompletion`
+            //  hoists this state out of the outer-step loop so it
+            //  is not rebuilt on every call. Each thread is bound
+            //  to its own randomGenerator (seeded deterministically
+            //  from the parent RNG and the thread index) via the
+            //  trackingData reference; field interpolators are
+            //  shared read-only.
+            //
+            //  Reproducibility: results are bit-for-bit reproducible
+            //  for a fixed (seed, nThreads, particle ordering). The
+            //  static schedule + parent-derived per-thread seeding
+            //  mean particle `i` is always processed by thread
+            //  (i / chunk) with the same RNG sequence — but
+            //  switching nThreads reshuffles which particles see
+            //  which RNG samples and therefore the per-particle
+            //  dose outcomes (the ensemble statistics still converge
+            //  in N).
+            void moveOmpStep
+            (
+                std::vector<dosePathParticle*>& particles,
+                std::vector<dosePathParticle::trackingData>& tds
+            );
+
+
+    public:
 
 
     // Member Operators

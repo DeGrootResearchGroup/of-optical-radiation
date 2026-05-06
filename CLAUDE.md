@@ -526,14 +526,18 @@ For each `execute()` call, `write()` emits:
 
 ### Known limitations
 
-1. **Serial within each processor.** OpenMP threading was removed
-   when we pivoted to OF's particle infrastructure (`Cloud::move()`
-   iterates the IDLList serially). Cross-processor parallelism via
-   MPI is automatic — particles transfer across processor patches
-   through `hitProcessorPatch`. For an O(10⁵)-particle Sozzi run
-   that needs throughput, run with `decomposePar` + `mpirun -n N
-   foamPostProcess`. Per-processor OMP within a Cloud iteration is
-   a future optimisation.
+1. **OMP threading is single-rank only.** Single-rank
+   `foamPostProcess` runs OMP-parallelise the per-particle
+   iteration via `dosePathCloud::moveOmpStep` (controlled by
+   `OMP_NUM_THREADS`). Multi-rank MPI runs fall back to OF's
+   serial-per-rank `Cloud::move` because the per-rank
+   `sendParticles[]` queues that Cloud builds for cross-rank
+   handoff at processor patches are not currently thread-safe.
+   For an O(10⁵)-particle run that needs both: `decomposePar` +
+   `mpirun -n N foamPostProcess` gives MPI-only parallelism (with
+   each rank serial); `OMP_NUM_THREADS=N foamPostProcess` gives
+   OMP-only (single-rank). OMP-within-MPI is a future
+   optimisation gated on a real driver case.
 
 2. **Termination model is not an RTS family.** The three soft
    stops (escapePatches, maxTime, maxDose) live as plain data on
@@ -820,15 +824,30 @@ Done in v0.4:
   rather than being a separate dictionary key, since the only
   consumer of stored trajectories is the VTK writer itself.
 
+- **Per-cloud OMP threading.** `dosePathCloud::moveOmpStep` runs the
+  per-particle iteration in parallel across `OMP_NUM_THREADS`,
+  with each thread getting its own randomGenerator (seeded
+  deterministically from the parent RNG and the thread index)
+  and its own `dosePathParticle::trackingData`. Field
+  interpolators and the dispersion model are shared read-only;
+  per-particle state on each particle is independent. We
+  dispatch into `moveOmpStep` only when `!Pstream::parRun()` —
+  multi-rank MPI runs keep using OF's serial `Cloud::move`
+  because the cross-rank `sendParticles[]` queues that Cloud
+  builds at processor patches are not thread-safe and there is
+  no real-world driver yet for OMP-within-MPI.
+
+  Reproducibility: the result is bit-for-bit reproducible for a
+  fixed (parentSeed, nThreads, particle ordering) — the static
+  schedule maps particle `i` to a deterministic thread, and each
+  thread's RNG sequence is deterministic from the parent.
+  Switching `OMP_NUM_THREADS` reshuffles which particles see
+  which RNG samples, so individual-particle dose values change
+  stochastically; ensemble statistics still converge.
+
 Still on the list:
 
-1. **Per-Cloud OMP threading.** Iterate the cloud's IDLList in
-   parallel (each thread gets a stride; particles' state is
-   independent except for the shared RNG which we'd partition
-   per-thread). Restores the threaded throughput we had before
-   the pivot. Must coexist cleanly with OF's MPI handoff.
-
-2. **Termination model RTS family** (only when a real use case
+1. **Termination model RTS family** (only when a real use case
    demands `terminationByDoseRate` or `terminationByCellZone`).
 
 A future doseSmokeBox variant on a deliberately curved geometry

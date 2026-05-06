@@ -356,11 +356,15 @@ Done in v0.4:
   O(N_particles) instead of O(N_particles × residence_time /
   dtMax) — material for long-trajectory production runs.
 
-Still on the priority list:
-
-- Per-Cloud OMP threading was dropped during the pivot; throughput
-  on a single processor is back to serial. MPI parallelism via
-  `mpirun foamPostProcess` is the supported path for now.
+- Per-cloud OMP threading. Single-rank `foamPostProcess` runs
+  parallelise the per-particle iteration across
+  `OMP_NUM_THREADS`; each thread carries its own randomGenerator
+  and trackingData, with shared read-only field interpolators.
+  Multi-rank MPI runs continue to use the serial-per-rank path
+  (`Cloud::move`'s cross-rank queues aren't thread-safe yet).
+  Result is bit-for-bit reproducible for a fixed
+  (seed, nThreads); changing thread count reshuffles individual
+  particles' RNG draws but not the ensemble statistics.
 
 The developer guide tracks the rest of the v0.x list.
 
