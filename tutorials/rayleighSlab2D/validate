@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""
+Validate the rayleighExtinction + compositeExtinction + rayleighModel
+pipeline against analytical references.
+
+Setup (constant/opticalRadiationProperties + 0.orig/I):
+  geometry      1 m x 0.1 m slab, mirror y-walls (1-D plane-parallel)
+  emitter       Lambertian wall at x=0, emissivePower = 5 W/m^2
+  far wall      black absorber at x=L=1
+  medium        composite of
+                  - constant kappa = 0.5 1/m (no scattering)
+                  - Rayleigh scattering of dry air at 222 nm,
+                    T = 293.15 K, p = 101325 Pa, F_K = 1.05
+  phase         rayleighModel ((1 + cos^2 theta), in-scatter on)
+
+Three checks, in increasing order of looseness:
+
+1. Mean A_Lambda_0 == 0.5 (only the constant child contributes to A).
+   Tolerance 1e-9 -- this is a direct field readout of an
+   analytical-uniform value. Catches compositeExtinction summation
+   regressions in the absorption channel.
+
+2. Mean S_Lambda_0 == sigma_s_Rayleigh from the Bodhaine 1999 /
+   Peck-Reeder 1972 formula, computed independently in this script.
+   Tolerance 1e-6. Catches both the rayleighExtinction cross-section
+   formula and the compositeExtinction sum.
+
+3. G(x) profile against 2*pi*L_w*E_2(kappa*x) at five x-stations.
+   sigma_s_Rayleigh in standard air (~5.5e-4 1/m) gives a perturbation
+   of roughly 0.1 %, well within the 7 % tolerance, so this acts as a
+   regression-grade check that rayleighModel activates and does not
+   destabilise the DOM solve.
+"""
+
+import math
+import re
+import statistics
+import sys
+
+
+PROFILE_TOLERANCE = 0.07
+SLAMBDA_TOLERANCE = 1.0e-6
+ALAMBDA_TOLERANCE = 1.0e-9
+
+
+def E2(t: float) -> float:
+    """E_2(t) = integral_0^1 exp(-t/mu) dmu, midpoint rule."""
+    if t == 0.0:
+        return 1.0
+    n = 10000
+    return sum(math.exp(-t / ((k + 0.5) / n)) for k in range(n)) / n
+
+
+def air_refractive_index(lambda_nm: float) -> float:
+    """Peck & Reeder 1972 fit for dry air at standard conditions."""
+    sigma2 = 1.0e6 / (lambda_nm * lambda_nm)
+    return (
+        1.0
+        + 8060.51e-8
+        + 2480990.0e-8 / (132.274 - sigma2)
+        + 17455.7e-8 / (39.32957 - sigma2)
+    )
+
+
+def rayleigh_sigma_s(lambda_nm: float, T: float, p: float, kingF: float) -> float:
+    """Bodhaine 1999: volumetric Rayleigh scattering coefficient in [1/m]."""
+    kB = 1.380649e-23
+    pi = math.pi
+    n = air_refractive_index(lambda_nm)
+    lam_m = lambda_nm * 1.0e-9
+    N = p / (kB * T)
+    lr = (n * n - 1.0) / (n * n + 2.0)
+    sigma_R = 24.0 * pi**3 / (lam_m**4 * N**2) * lr * lr * kingF
+    return N * sigma_R
+
+
+def read_internal(path: str) -> list:
+    with open(path) as f:
+        txt = f.read()
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt,
+        re.S,
+    )
+    if m:
+        return list(map(float, m.group(2).split()))
+    m = re.search(r"internalField\s+uniform\s+([-+0-9.eE]+)", txt)
+    if m:
+        return [float(m.group(1))]
+    sys.exit(f"validate: could not parse {path}")
+
+
+def main() -> int:
+    KAPPA = 0.5
+    EMISSIVE_PER_BAND = 5.0
+    LAMBDA_NM = 222.0
+    T_K = 293.15
+    P_PA = 101325.0
+    KING_F = 1.05
+    NX, NY = 100, 10
+
+    L_w = EMISSIVE_PER_BAND / math.pi
+
+    sigma_s_ana = rayleigh_sigma_s(LAMBDA_NM, T_K, P_PA, KING_F)
+    print(
+        f"Rayleigh analytical: sigma_s = {sigma_s_ana:.6e} 1/m at "
+        f"lambda = {LAMBDA_NM} nm, T = {T_K} K, p = {P_PA:.0f} Pa"
+    )
+
+    # 1. Absorption channel
+    a_vals = read_internal("1/ALambda_0")
+    if len(a_vals) == 1:
+        a_mean = a_vals[0]
+    else:
+        a_mean = statistics.mean(a_vals)
+    a_err = abs(a_mean - KAPPA)
+    print(
+        f"\n[1] ALambda_0 mean = {a_mean:.10f}, expected = {KAPPA},"
+        f" abs err = {a_err:.2e}, tol = {ALAMBDA_TOLERANCE:.2e}"
+    )
+    a_pass = a_err <= ALAMBDA_TOLERANCE
+
+    # 2. Scattering channel
+    s_vals = read_internal("1/SLambda_0")
+    if len(s_vals) == 1:
+        s_mean = s_vals[0]
+    else:
+        s_mean = statistics.mean(s_vals)
+    s_rel = abs(s_mean - sigma_s_ana) / sigma_s_ana
+    print(
+        f"[2] SLambda_0 mean = {s_mean:.6e}, expected = {sigma_s_ana:.6e},"
+        f" rel err = {s_rel:.2e}, tol = {SLAMBDA_TOLERANCE:.0e}"
+    )
+    s_pass = s_rel <= SLAMBDA_TOLERANCE
+
+    # 3. G profile
+    g_vals = read_internal("1/G")
+    if len(g_vals) != NX * NY:
+        sys.exit(
+            f"validate: expected {NX*NY} G cells, got {len(g_vals)} - "
+            "mesh may have changed"
+        )
+    profile = [
+        statistics.mean(g_vals[ix + iy * NX] for iy in range(NY))
+        for ix in range(NX)
+    ]
+    sample_indices = [0, 10, 20, 50, 99]
+    G_ref_factor = 2.0 * math.pi * L_w
+    rows = []
+    max_g_err = 0.0
+    for ix in sample_indices:
+        x = (ix + 0.5) / NX
+        G_sim = profile[ix]
+        G_ana = G_ref_factor * E2(KAPPA * x)
+        err = abs(G_sim - G_ana) / G_ana
+        rows.append((x, G_sim, G_ana, err))
+        max_g_err = max(max_g_err, err)
+
+    print(f"\n[3] G profile vs 2 pi L_w E_2(kappa x):")
+    print(f"{'x [m]':>6}  {'G_sim':>12}  {'G_analytical':>14}  {'rel_err':>10}")
+    for x, gs, ga, e in rows:
+        print(f"{x:6.4f}  {gs:12.4e}  {ga:14.4e}  {e:10.2%}")
+    print(f"max relative error: {max_g_err:.2%}  tol: {PROFILE_TOLERANCE:.2%}")
+    g_pass = max_g_err <= PROFILE_TOLERANCE
+
+    print()
+    print(
+        f"  ALambda  : {'PASS' if a_pass else 'FAIL'}\n"
+        f"  SLambda  : {'PASS' if s_pass else 'FAIL'}\n"
+        f"  G profile: {'PASS' if g_pass else 'FAIL'}"
+    )
+
+    return 0 if (a_pass and s_pass and g_pass) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

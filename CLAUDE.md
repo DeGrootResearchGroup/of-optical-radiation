@@ -703,7 +703,7 @@ Don't try to `git push` from inside the sandbox; it fails with
 
 ## Tutorials & validation
 
-`tutorials/` ships nine cases — seven for opticalRadiation, two for
+`tutorials/` ships ten cases — eight for opticalRadiation, two for
 radiationDose:
 
 opticalRadiation:
@@ -737,6 +737,15 @@ opticalRadiation:
   guard for the diffuse term of the `reflective` BC — without the
   `1/π` Lambertian normalisation the answer drops to 2.5 (~17% low).
   No other tutorial exercises `diffuseFraction > 0`.
+- **`rayleighSlab2D`** — `diffuseSlab2D` geometry with the medium
+  switched to `composite{constant κ=0.5, rayleigh@222 nm}` and the
+  `rayleighModel` phase function. Three checks: ALambda mean = 0.5
+  exactly (composite absorption channel), SLambda mean = Bodhaine
+  analytical at (222 nm, 293.15 K, 101325 Pa) re-derived in the
+  validate script (Peck & Reeder n_air, agreement to 8 digits), G
+  profile against `2π·L_w·E_2(κx)` within 7 % (the σ_s ~ 5.5e-4 1/m
+  air-Rayleigh perturbation is well below DOM angular tolerance, so
+  the third check is regression-grade for the phase function).
 
 radiationDose:
 
