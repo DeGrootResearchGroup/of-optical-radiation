@@ -1,0 +1,84 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation        on;
+radiationModel          DOM;
+
+DOMCoeffs
+{
+    nPhi          8;
+    nTheta        1;
+    convergence   1e-5;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+
+    // Rayleigh phase function P(cos theta) ~ 1 + cos^2(theta). With the
+    // tiny air-Rayleigh sigma_s at 222 nm in standard conditions
+    // (~5.5e-4 1/m) the in-scatter source perturbation is well below the
+    // analytical tolerance, so the dominant test is that the phase
+    // function activates and integrates without breaking the DOM solve.
+    phaseFunctionModel rayleighModel;
+    rayleighModelCoeffs
+    {
+        inScatter   on;
+        subAngleNum 4;
+    }
+}
+
+// composite of (a) a constant absorber kappa = 0.5 1/m and (b) Rayleigh
+// scattering of standard air at 222 nm. The composite must report
+//   ALambda_0 = 0.5
+//   SLambda_0 = sigma_s_R(222 nm, 293.15 K, 101325 Pa) ~ 5.5e-4 1/m
+// validated against the Bodhaine analytical in ./validate.
+extinctionModel composite;
+compositeCoeffs
+{
+    nBands 1;
+
+    models
+    {
+        absorption
+        {
+            extinctionModel constant;
+            constantCoeffs
+            {
+                nBands           1;
+                absorption       true;
+                absorptionCoeff  (0.5);
+                scattering       false;
+                scatteringCoeff  (0);
+            }
+        }
+
+        airRayleigh
+        {
+            extinctionModel rayleigh;
+            rayleighCoeffs
+            {
+                nBands       1;
+                wavelengths  (222);
+                T            293.15;
+                p            101325;
+                kingFactor   1.05;
+            }
+        }
+    }
+}
+
+// ************************************************************************* //

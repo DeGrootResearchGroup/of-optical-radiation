@@ -125,7 +125,7 @@ Build products:
 
 ## Running a tutorial
 
-Nine tutorial cases ship under `tutorials/`:
+Ten tutorial cases ship under `tutorials/`:
 
 opticalRadiation cases:
 
@@ -143,6 +143,11 @@ opticalRadiation cases:
 - `diffuseReflectionSlab2D` — transparent slab between a Lambertian
   emitter and a pure diffuse reflector, analytical uniform G = 3.0;
   regression guard for the diffuse term of the `reflective` BC.
+- `rayleighSlab2D` — `diffuseSlab2D` geometry with `composite{constant
+  κ=0.5, rayleigh@222 nm}` extinction and the `rayleighModel` phase
+  function. Validates the Bodhaine cross-section formula and the
+  composite per-channel summation to 8 digits; G profile against the
+  absorbing analytical regression-guards the phase-function path.
 
 radiationDose cases:
 
@@ -278,7 +283,7 @@ applications/
     modules/opticalRadiation/        DOM solver module for foamMultiRun
     utilities/setFluenceRate/        analytical radial G writer
 
-tutorials/               nine runnable cases + Alltest validation harness
+tutorials/               ten runnable cases + Alltest validation harness
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)
 Allwclean                clean all build outputs
