@@ -97,6 +97,11 @@ Foam::optical::
     ├── rayleighExtinction           (Rayleigh scattering of an ideal gas;
     │                                 sigma_s ~ N(T,p) / lambda^4 from per-
     │                                 band wavelengths, kappa = 0)
+    ├── molecularAbsorptionExtinction (per-band molecular absorption from a
+    │                                 user-supplied cross-section sigma(lambda);
+    │                                 concentration either ideal-gas
+    │                                 N(T,p)*moleFraction or a species
+    │                                 volScalarField in mol/m^3; sigma_s = 0)
     └── compositeExtinction          (sums an arbitrary set of child
                                       extinction models named under
                                       compositeCoeffs.models; child fields
@@ -702,7 +707,7 @@ Don't try to `git push` from inside the sandbox; it fails with
 
 ## Tutorials & validation
 
-`tutorials/` ships ten cases — eight for opticalRadiation, two for
+`tutorials/` ships eleven cases — nine for opticalRadiation, two for
 radiationDose:
 
 opticalRadiation:
@@ -745,6 +750,20 @@ opticalRadiation:
   profile against `2π·L_w·E_2(κx)` within 7 % (the σ_s ~ 5.5e-4 1/m
   air-Rayleigh perturbation is well below DOM angular tolerance, so
   the third check is regression-grade for the phase function).
+- **`molecularAbsorptionSlab2D`** — `diffuseSlab2D` geometry with the
+  medium switched to a `composite` of two `molecularAbsorption`
+  children: O₂ in `idealGas` mode (χ=0.2095 of dry air at 293.15 K,
+  101325 Pa, σ=6.5e-28 m²/molecule) and O₃ in `field` mode
+  (volScalarField uniform at 0.0188 mol/m³, σ=4.4e-23 m²/molecule).
+  Cross-sections are representative-of-222-nm literature values
+  (Yoshino-style O₂ Herzberg, Daumont/Brion-style O₃ Hartley); the
+  case exercises the mode plumbing, not spectroscopic accuracy.
+  Three checks: ALambda mean = κ_O2 + κ_O3 from the cross-section
+  formula re-derived in the validate script (1e-9 tolerance,
+  regression-grade for both modes through composite); SLambda mean
+  = 0 to 1e-12 (regression guard against accidentally writing into
+  the scattering channel); G profile against `2π·L_w·E_2(κ_tot·x)`
+  within 7 %.
 
 radiationDose:
 

@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""
+Validate the molecularAbsorptionExtinction model in both concentration
+modes, stacked under compositeExtinction.
+
+Setup (constant/opticalRadiationProperties + 0.orig/{I,O3}):
+  geometry      1 m x 0.1 m slab, mirror y-walls (1-D plane-parallel)
+  emitter       Lambertian wall at x=0, emissivePower = 5 W/m^2
+  far wall      black absorber at x=L=1
+  medium        composite of two molecularAbsorption children:
+                  - O2 (idealGas mode):   x_O2 = 0.2095, T = 293.15 K,
+                                          p = 101325 Pa, sigma = 6.5e-28 m^2
+                  - O3 (field mode):      c = 0.0188 mol/m^3 uniform,
+                                          sigma = 4.4e-23 m^2/molecule
+  phase         null (pure absorption case, no in-scatter)
+
+Three checks, in order of looseness:
+
+1. Mean A_Lambda_0 == kappa_O2 + kappa_O3 from the cross-section formula
+   re-derived here. Tolerance 1e-9. Catches both
+   the molecularAbsorption coefficient computation (in both modes) and
+   the compositeExtinction sum.
+
+2. Mean S_Lambda_0 == 0 to floating-point. Tolerance 1e-12.
+   molecularAbsorption is a pure absorber; this is a regression guard
+   against accidentally writing into the scattering channel.
+
+3. G(x) profile against 2*pi*L_w*E_2(kappa_tot * x) at five x-stations.
+   Tolerance 7% (same as the sister diffuseSlab2D / rayleighSlab2D
+   cases -- DOM with nPhi = 8 has inherent O(1/nPhi) error). Confirms
+   the kappa values we read out of the field are the same ones the
+   DOM solve sees.
+"""
+
+import math
+import re
+import statistics
+import sys
+
+
+PROFILE_TOLERANCE = 0.07
+ALAMBDA_TOLERANCE = 1.0e-9
+SLAMBDA_TOLERANCE = 1.0e-12
+
+K_B = 1.380649e-23
+N_A = 6.02214076e23
+
+
+def E2(t: float) -> float:
+    """E_2(t) = integral_0^1 exp(-t/mu) dmu, midpoint rule."""
+    if t == 0.0:
+        return 1.0
+    n = 10000
+    return sum(math.exp(-t / ((k + 0.5) / n)) for k in range(n)) / n
+
+
+def read_internal(path: str) -> list:
+    with open(path) as f:
+        txt = f.read()
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt,
+        re.S,
+    )
+    if m:
+        return list(map(float, m.group(2).split()))
+    m = re.search(r"internalField\s+uniform\s+([-+0-9.eE]+)", txt)
+    if m:
+        return [float(m.group(1))]
+    sys.exit(f"validate: could not parse {path}")
+
+
+def main() -> int:
+    # Match constant/opticalRadiationProperties + 0.orig/O3 + 0.orig/I
+    EMISSIVE_PER_BAND = 5.0
+    NX, NY = 100, 10
+
+    # O2 (idealGas mode)
+    X_O2 = 0.2095
+    T_K = 293.15
+    P_PA = 101325.0
+    SIGMA_O2 = 6.5e-28
+
+    # O3 (field mode)
+    C_O3 = 0.0188
+    SIGMA_O3 = 4.4e-23
+
+    L_w = EMISSIVE_PER_BAND / math.pi
+
+    N_O2 = P_PA*X_O2/(K_B*T_K)
+    kappa_O2 = N_O2*SIGMA_O2
+    kappa_O3 = C_O3*N_A*SIGMA_O3
+    kappa_tot = kappa_O2 + kappa_O3
+
+    print(
+        f"analytical: N_O2 = {N_O2:.4e} 1/m^3,"
+        f" kappa_O2 = {kappa_O2:.6e} 1/m\n"
+        f"            kappa_O3 = {kappa_O3:.6e} 1/m,"
+        f" kappa_tot = {kappa_tot:.6e} 1/m"
+    )
+
+    # 1. Absorption channel
+    a_vals = read_internal("1/ALambda_0")
+    a_mean = a_vals[0] if len(a_vals) == 1 else statistics.mean(a_vals)
+    a_err = abs(a_mean - kappa_tot)
+    print(
+        f"\n[1] ALambda_0 mean = {a_mean:.10e},"
+        f" expected = {kappa_tot:.10e},"
+        f" abs err = {a_err:.2e}, tol = {ALAMBDA_TOLERANCE:.0e}"
+    )
+    a_pass = a_err <= ALAMBDA_TOLERANCE
+
+    # 2. Scattering channel
+    s_vals = read_internal("1/SLambda_0")
+    s_mean = s_vals[0] if len(s_vals) == 1 else statistics.mean(s_vals)
+    s_abs = abs(s_mean)
+    print(
+        f"[2] SLambda_0 mean = {s_mean:.6e}, expected = 0,"
+        f" abs = {s_abs:.2e}, tol = {SLAMBDA_TOLERANCE:.0e}"
+    )
+    s_pass = s_abs <= SLAMBDA_TOLERANCE
+
+    # 3. G profile
+    g_vals = read_internal("1/G")
+    if len(g_vals) != NX*NY:
+        sys.exit(
+            f"validate: expected {NX*NY} G cells, got {len(g_vals)} - "
+            "mesh may have changed"
+        )
+    profile = [
+        statistics.mean(g_vals[ix + iy*NX] for iy in range(NY))
+        for ix in range(NX)
+    ]
+    sample_indices = [0, 10, 20, 50, 99]
+    G_ref_factor = 2.0*math.pi*L_w
+    rows = []
+    max_g_err = 0.0
+    for ix in sample_indices:
+        x = (ix + 0.5)/NX
+        G_sim = profile[ix]
+        G_ana = G_ref_factor*E2(kappa_tot*x)
+        err = abs(G_sim - G_ana)/G_ana
+        rows.append((x, G_sim, G_ana, err))
+        max_g_err = max(max_g_err, err)
+
+    print(f"\n[3] G profile vs 2 pi L_w E_2(kappa_tot x):")
+    print(f"{'x [m]':>6}  {'G_sim':>12}  {'G_analytical':>14}  {'rel_err':>10}")
+    for x, gs, ga, e in rows:
+        print(f"{x:6.4f}  {gs:12.4e}  {ga:14.4e}  {e:10.2%}")
+    print(f"max relative error: {max_g_err:.2%}  tol: {PROFILE_TOLERANCE:.2%}")
+    g_pass = max_g_err <= PROFILE_TOLERANCE
+
+    print()
+    print(
+        f"  ALambda  : {'PASS' if a_pass else 'FAIL'}\n"
+        f"  SLambda  : {'PASS' if s_pass else 'FAIL'}\n"
+        f"  G profile: {'PASS' if g_pass else 'FAIL'}"
+    )
+
+    return 0 if (a_pass and s_pass and g_pass) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

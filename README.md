@@ -125,7 +125,7 @@ Build products:
 
 ## Running a tutorial
 
-Ten tutorial cases ship under `tutorials/`:
+Eleven tutorial cases ship under `tutorials/`:
 
 opticalRadiation cases:
 
@@ -148,6 +148,12 @@ opticalRadiation cases:
   function. Validates the Bodhaine cross-section formula and the
   composite per-channel summation to 8 digits; G profile against the
   absorbing analytical regression-guards the phase-function path.
+- `molecularAbsorptionSlab2D` — `diffuseSlab2D` geometry with a
+  `composite` of two `molecularAbsorption` children: O₂ in `idealGas`
+  mode (atmospheric mole fraction at standard conditions) and O₃ in
+  `field` mode (volScalarField in mol/m³). Beer-Lambert validation at
+  222 nm; exercises the cross-section + concentration plumbing in
+  both modes through composite stacking.
 
 radiationDose cases:
 
@@ -259,6 +265,8 @@ src/opticalRadiationModels/                  (opticalRadiation library)
         ray/                 per-direction radiance ray
     extinctionModels/        absorption + scattering coefficient models
                              (constant, linearSpecies, rayleigh,
+                              molecularAbsorption — generic per-band
+                              molecular absorber, idealGas or field mode;
                               composite — sums multiple models)
     phaseFunctionModels/     Henyey-Greenstein, Schlick, isotropic,
                              rayleigh, null
@@ -283,7 +291,7 @@ applications/
     modules/opticalRadiation/        DOM solver module for foamMultiRun
     utilities/setFluenceRate/        analytical radial G writer
 
-tutorials/               ten runnable cases + Alltest validation harness
+tutorials/               eleven runnable cases + Alltest validation harness
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)
 Allwclean                clean all build outputs
