@@ -510,9 +510,19 @@ For each `execute()` call, `write()` emits:
   `escaped`, `meanDose_mJcm2`, `stdevDose_mJcm2`, `minDose_mJcm2`,
   `maxDose_mJcm2`, plus a `logReduction_k=<k>` line per `kInact`
   value the user supplied.
-
-VTK polyline output (per-vertex dose along each track for ParaView)
-is **deferred to v0.4**.
+- `postProcessing/<name>/<time>/trajectories.vtk` — legacy ASCII
+  VTK PolyData with one polyline per track. Per-vertex point-data:
+  `time_s`, `dose_mJcm2`, `cell`. Per-track cell-data: `trackId`,
+  `endReason` (integer index keyed by `endReasonNames`). ParaView
+  reads this directly; colour by dose for streamline-style plots,
+  threshold on `endReason` to isolate (e.g.) escaped tracks. Tracks
+  with fewer than two vertices (a particle that became `stuck`
+  before its first successful step) are skipped — VTK lines need
+  at least two points and the trajectory carries no information.
+  Toggled by `output.writeVtk` (default `true`); disable for very
+  large runs where the file size is a concern. We use the legacy
+  single-file `.vtk` format rather than XML `.vtp` because it is
+  hand-writable without an XML library and ParaView reads either.
 
 ### Known limitations
 
@@ -525,19 +535,16 @@ is **deferred to v0.4**.
    foamPostProcess`. Per-processor OMP within a Cloud iteration is
    a future optimisation.
 
-2. **No VTK polyline writer.** Per-particle trajectory output (for
-   ParaView ribbons / streamlines coloured by accumulated dose) is
-   the obvious next-most-useful feature. The particle stores every
-   end-of-outer-step vertex in its `points_` member; the writer is
-   the only missing piece.
-
-3. **Trajectory storage is unbounded.** Every vertex along every
+2. **Trajectory storage is unbounded.** Every vertex along every
    track is kept in memory until `write()`; a long-trajectory run
-   can grow into the GB range. Until the VTK writer lands, this is
-   wasted memory and a future `output.storeFullTrack` switch
-   (default false) should drop everything but the final point.
+   can grow into the GB range. The VTK writer needs the full
+   trajectory, so we cannot just drop points unconditionally —
+   a future `output.storeFullTrack` switch (default false) should
+   pair with `output.writeVtk = false` to keep only the final
+   `trackPoint` per particle for runs where the streamline view
+   is not needed.
 
-4. **Termination model is not an RTS family.** The three soft
+3. **Termination model is not an RTS family.** The three soft
    stops (escapePatches, maxTime, maxDose) live as plain data on
    the cloud. Promote to a full RTS family if a real case needs
    `terminationByDoseRate` or `terminationByCellZone`.
@@ -728,13 +735,19 @@ opticalRadiation:
 
 radiationDose:
 
-- **`doseSmokeBox`** — 1 m × 0.1 m × 0.1 m plug-flow box with uniform
-  `U = (1, 0, 0)` m/s and uniform `G = 1` W/m². Analytical dose
-  per particle is exactly `G * t * 0.1 = 0.1` mJ/cm². The case runs
-  the radiationDose function object as a `postProcess` invocation and
-  the test confirms mean dose = 0.1 mJ/cm² (stdev ~ 1e-15) — a sanity
-  check on the unit-conversion factor, the trapezoidal-G accumulation,
-  and patch-hit classification.
+- **`doseSmokeBox`** — 1 m × 0.1 m × 0.1 m box with uniform internal
+  `U = (0.5, 0, 0)` m/s, no-slip walls, uniform `G = 10` W/m². The
+  no-slip walls drag the cell-vertex-interpolated velocity down near
+  the boundary so near-wall particles integrate over a longer
+  residence time than the analytical plug-flow value; the *minimum*
+  escape dose, however, is well-defined: `G * (L/V_x) * 0.1 =
+  10 * 2 * 0.1 = 2.0` mJ/cm² for a particle that flies straight
+  through at full V_x. The validate script asserts that minimum
+  matches to within 1 % and that the VTK trajectory file is
+  well-formed (sections present, `POINT_DATA` count == `POINTS`
+  count, `CELL_DATA` count == `LINES` count). A regression guard
+  for the unit-conversion factor, trapezoidal-G accumulation,
+  patch-hit classification, and the `.vtk` writer.
 - **`uvReactorSozzi2006`** — Sozzi & Taghipour 2006 L-shape annular
   reactor at 25 GPM (water, 70% UV transmissivity per cm, 35 W lamp,
   80 cm arc). Geometry comes from a STEP file processed via gmsh's
@@ -794,27 +807,32 @@ Done in v0.3:
   from ~90 to 67.93 (paper: 68 — within 0.1 %), max dose from 688
   to 232 (paper: ~270).
 
+Done in v0.4:
+
+- **VTK polyline writer.** `radiationDose::write()` emits a legacy
+  ASCII `.vtk` PolyData per `execute()` containing one polyline
+  per track, with `time_s`, `dose_mJcm2`, `cell` as point-data
+  scalars and `trackId`, `endReason` as per-track cell-data
+  scalars. Toggled by `output.writeVtk` (default `true`). The
+  doseSmokeBox tutorial now ships a `validate` script that
+  asserts the file is structurally well-formed alongside the
+  plug-flow analytical-floor dose check.
+
 Still on the list:
 
-1. **VTK polyline writer.** The particle stores every end-of-
-   outer-step vertex in `points_`; emit a `.vtp` per `execute()`
-   with `time`, `dose`, and `cell` as point-data scalars. Killer
-   feature for UV reactor designers — colour streamlines by
-   accumulated dose.
+1. **Trajectory storage opt-out.** When the VTK writer is disabled,
+   keep only the last `trackPoint` to bound memory at
+   O(N_particles). With 100 % escape, Sozzi trajectories are
+   short, but the lever matters for long-trajectory cases. Pair
+   with `output.writeVtk = false`.
 
-2. **Trajectory storage opt-out.** When the VTK writer doesn't run
-   (most cases pre-VTK), keep only the last `trackPoint` to bound
-   memory at O(N_particles). With 100 % escape, Sozzi
-   trajectories are short, but the lever exists for cases that
-   genuinely run long.
-
-3. **Per-Cloud OMP threading.** Iterate the cloud's IDLList in
+2. **Per-Cloud OMP threading.** Iterate the cloud's IDLList in
    parallel (each thread gets a stride; particles' state is
    independent except for the shared RNG which we'd partition
    per-thread). Restores the threaded throughput we had before
    the pivot. Must coexist cleanly with OF's MPI handoff.
 
-4. **Termination model RTS family** (only when a real use case
+3. **Termination model RTS family** (only when a real use case
    demands `terminationByDoseRate` or `terminationByCellZone`).
 
 A future doseSmokeBox variant on a deliberately curved geometry
