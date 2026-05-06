@@ -12,12 +12,15 @@ phaseFunctionModels/HenyeyGreensteinModel/HenyeyGreensteinModel.C
 phaseFunctionModels/schlickModel/schlickModel.C
 phaseFunctionModels/nullModel/nullModel.C
 phaseFunctionModels/isotropicModel/isotropicModel.C
+phaseFunctionModels/rayleighModel/rayleighModel.C
 
 extinctionModels/extinctionModel/extinctionModel.C
 extinctionModels/extinctionModel/newExtinctionModel.C
 extinctionModels/transparent/transparentExtinction.C
 extinctionModels/constant/constantExtinction.C
 extinctionModels/linearSpecies/linearSpeciesExtinction.C
+extinctionModels/rayleigh/rayleighExtinction.C
+extinctionModels/composite/compositeExtinction.C
 
 # inScatterModels sub-models excluded: superseded by phaseFunctionModels, implementations broken
 

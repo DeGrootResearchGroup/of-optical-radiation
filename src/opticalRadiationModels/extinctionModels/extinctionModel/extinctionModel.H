@@ -130,6 +130,12 @@ public:
                 return dict_;
             }
 
+            //- Number of bands
+            inline label nBands() const
+            {
+                return nBands_;
+            }
+
             //- Absorbtion coefficient
             inline const volScalarField& A(const label iLambda) const
             {
