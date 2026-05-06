@@ -1,0 +1,72 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation        on;
+radiationModel          DOM;
+
+// Bohren-Huffman canonical Mie test case: x = 3, m = 1.55 + 0i.
+//
+//   radius      = 3 lambda / (2 pi mMedium) = 2.387324e-7 m
+//   wavelengths = (500)  [nm vacuum]
+//   mMedium     = 1.0
+//   mParticle   = (1.55 0)
+//
+// The Mie kernel reports Q_sca, Q_abs, g, and N_terms once per band on
+// startup; the validate script grep's these and cross-checks against an
+// independent in-script BHMIE implementation. Wiscombe MIEV0 gives, for
+// the same x and m,
+//   Q_ext = Q_sca = 2.882007    (pure scattering, k = 0)
+//   g     = 0.7244287
+//
+// Particle number density is uniform 1e+12 1/m^3 (read from 0.orig/n).
+// That gives sigma_s = pi r^2 N Q_sca ~ 0.516 1/m and slab optical
+// thickness tau_L = sigma_s L ~ 0.516 over the L = 1 m domain.
+DOMCoeffs
+{
+    nPhi          8;
+    nTheta        1;
+    convergence   1e-5;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+
+    phaseFunctionModel mieModel;
+    mieModelCoeffs
+    {
+        inScatter   on;
+        subAngleNum 4;
+
+        radius      2.387324e-07;
+        mParticle   (1.55 0);
+        mMedium     1.0;
+        wavelengths (500);
+    }
+}
+
+extinctionModel mie;
+mieCoeffs
+{
+    nBands              1;
+    radius              2.387324e-07;
+    mParticle           (1.55 0);
+    mMedium             1.0;
+    wavelengths         (500);
+    numberDensityField  n;
+}
+
+// ************************************************************************* //

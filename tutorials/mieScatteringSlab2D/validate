@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""
+Validate the mieScatteringSlab2D tutorial.
+
+Four checks, in increasing order of how tightly they pin the kernel
+implementation:
+
+1. The in-script BHMIE reference itself converges to the analytical
+   Rayleigh-limit Q_sca = (8/3) x^4 |(m^2-1)/(m^2+2)|^2 at small x.
+   This pins the Python reference against a closed form that is
+   independent of any Mie series implementation; the next two checks
+   then ride on the validated reference.
+
+2. The (Q_sca, Q_abs, g) the C++ kernel reports for the case parameters
+   match the in-script BHMIE to better than 1e-4 relative -- the
+   primary regression guard for the C++ kernel.
+
+3. The resolved scattering coefficient field SLambda_0 is uniform and
+   equals pi r^2 N Q_sca to floating-point precision -- regression
+   guard for the mieExtinction prefactor and the field assignment in
+   correct().
+
+4. The computed G profile is finite, non-negative, and decays over
+   the slab (sanity, not a precision check) -- catches NaN / out-of-
+   bounds reads in the phase function table without committing to an
+   analytical reference for an anisotropic phase function.
+"""
+
+import cmath
+import math
+import os
+import re
+import sys
+
+
+REL_TOL_KERNEL   = 1.0e-4   # kernel <-> in-script BHMIE
+REL_TOL_FIELD    = 1.0e-3   # field cell-mean vs. analytic prefactor*N
+REL_TOL_RAYLEIGH = 5.0e-3   # in-script BHMIE vs. Rayleigh closed form
+                            # at x = X_RAYLEIGH (next-order correction
+                            # is O(x^2) ~ 1e-4 -- 5e-3 is comfortably
+                            # above that floor)
+
+# Case parameters (must match constant/opticalRadiationProperties).
+RADIUS_M  = 2.387324e-7
+LAMBDA_NM = 500.0
+M_MEDIUM  = 1.0
+M_PARTICLE_RE = 1.55
+M_PARTICLE_IM = 0.0
+N_DENSITY = 1.0e12   # 1/m^3, uniform
+
+# Tiny size parameter for the Rayleigh-limit sanity check on the
+# in-script BHMIE.
+X_RAYLEIGH = 0.05
+
+
+def bhmie(x, m):
+    """Bohren-Huffman BHMIE: returns (Qext, Qsca, g).
+
+    Self-contained reference implementation; uses the same recurrences
+    as the C++ kernel but is written from scratch so an algorithmic
+    bug in either side will surface as a mismatch.
+    """
+    y = m*x
+    Nstop = int(math.ceil(x + 4.0*x**(1.0/3.0) + 2.0))
+    Nstart = int(max(Nstop, abs(y))) + 15
+
+    # Downward recurrence for D_n(y).
+    D = [0j]*(Nstart + 1)
+    for n in range(Nstart, 0, -1):
+        D[n - 1] = n/y - 1.0/(D[n] + n/y)
+
+    # Upward recurrence for psi_n(x), chi_n(x).
+    psi_nm2 = math.cos(x)
+    psi_nm1 = math.sin(x)
+    chi_nm2 = -math.sin(x)
+    chi_nm1 = math.cos(x)
+
+    a = [0j]*(Nstop + 1)
+    b = [0j]*(Nstop + 1)
+    Qext = 0.0
+    Qsca = 0.0
+    g_intra = 0.0  # sum (2n+1)/(n(n+1)) Re(a_n b_n*)
+
+    for n in range(1, Nstop + 1):
+        psi_n = (2*n - 1)/x*psi_nm1 - psi_nm2
+        chi_n = (2*n - 1)/x*chi_nm1 - chi_nm2
+
+        xi_n   = complex(psi_n,   -chi_n)
+        xi_nm1 = complex(psi_nm1, -chi_nm1)
+
+        Dn = D[n]
+        alpha = Dn/m + n/x
+        beta  = m*Dn + n/x
+
+        a[n] = (alpha*psi_n - psi_nm1)/(alpha*xi_n - xi_nm1)
+        b[n] = (beta*psi_n  - psi_nm1)/(beta*xi_n  - xi_nm1)
+
+        Qext += (2*n + 1)*(a[n].real + b[n].real)
+        Qsca += (2*n + 1)*(abs(a[n])**2 + abs(b[n])**2)
+        g_intra += (2*n + 1)/(n*(n + 1))*(a[n]*b[n].conjugate()).real
+
+        psi_nm2, psi_nm1 = psi_nm1, psi_n
+        chi_nm2, chi_nm1 = chi_nm1, chi_n
+
+    Qext *= 2.0/x**2
+    Qsca *= 2.0/x**2
+
+    g_cross = 0.0
+    for n in range(1, Nstop):
+        g_cross += (n*(n + 2)/(n + 1))*(
+            (a[n]*a[n + 1].conjugate()).real
+            + (b[n]*b[n + 1].conjugate()).real
+        )
+
+    g = 4.0/(x*x*Qsca)*(g_cross + g_intra) if Qsca > 0 else 0.0
+    return Qext, Qsca, g
+
+
+def parse_log_band(path):
+    """Returns (x_reported, Qsca, Qabs, g) from the mieExtinction line."""
+    with open(path) as f:
+        text = f.read()
+    m = re.search(
+        r"mie band 0: lambda = ([0-9.eE+-]+) nm,"
+        r"\s*x = ([0-9.eE+-]+),"
+        r"\s*Q_sca = ([0-9.eE+-]+),"
+        r"\s*Q_abs = ([0-9.eE+-]+),"
+        r"\s*g = ([0-9.eE+-]+),"
+        r"\s*N_terms = (\d+)",
+        text,
+    )
+    if not m:
+        sys.exit(f"validate: could not parse mie band line in {path}")
+    return (
+        float(m.group(2)),
+        float(m.group(3)),
+        float(m.group(4)),
+        float(m.group(5)),
+    )
+
+
+def read_uniform_field(path):
+    """Return (uniform_value, None) if scalar uniform, or (None, list)."""
+    with open(path) as f:
+        text = f.read()
+    m = re.search(r"internalField\s+uniform\s+([0-9.eE+-]+)\s*;", text)
+    if m:
+        return float(m.group(1)), None
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\s*\n\(([^)]+)\)",
+        text,
+        re.S,
+    )
+    if not m:
+        sys.exit(f"validate: could not parse {path}")
+    return None, [float(v) for v in m.group(2).split()]
+
+
+def main():
+    log = "log.opticalRadiationFoam"
+    if not os.path.exists(log):
+        sys.exit(f"validate: {log} not found - did Allrun succeed?")
+
+    def relerr(a, b):
+        return abs(a - b)/max(abs(b), 1e-12)
+
+    # ---- 1. In-script BHMIE matches the Rayleigh closed form at small x ----
+    m_rel = complex(M_PARTICLE_RE, M_PARTICLE_IM)/M_MEDIUM
+    msq = m_rel*m_rel
+    yfactor = (msq - 1.0)/(msq + 2.0)
+    Qsca_rayleigh = (8.0/3.0)*X_RAYLEIGH**4*abs(yfactor)**2
+    _, Qsca_ray_bhmie, _ = bhmie(X_RAYLEIGH, m_rel)
+    err_rayleigh = relerr(Qsca_ray_bhmie, Qsca_rayleigh)
+    print(
+        f"Rayleigh limit (x = {X_RAYLEIGH}): "
+        f"BHMIE Q_sca = {Qsca_ray_bhmie:.6e}, "
+        f"closed form = {Qsca_rayleigh:.6e}, "
+        f"rel err = {err_rayleigh:.2e}"
+    )
+    if err_rayleigh > REL_TOL_RAYLEIGH:
+        sys.exit(
+            f"FAIL: in-script BHMIE deviates from Rayleigh limit "
+            f"({err_rayleigh:.2e} > {REL_TOL_RAYLEIGH:.2e}) - "
+            "the Python reference itself is suspect"
+        )
+
+    # ---- 2. C++ kernel matches the (now validated) in-script BHMIE ----
+    x_log, Qsca_log, Qabs_log, g_log = parse_log_band(log)
+    Qext_ref, Qsca_ref, g_ref = bhmie(x_log, m_rel)
+    Qabs_ref = Qext_ref - Qsca_ref
+
+    print(f"x (case)       = {x_log:.6f}")
+    print(f"Q_sca: log = {Qsca_log:.6f}, BHMIE = {Qsca_ref:.6f}")
+    print(f"Q_abs: log = {Qabs_log:.3e}, BHMIE = {Qabs_ref:.3e}")
+    print(f"g    : log = {g_log:.6f}, BHMIE = {g_ref:.6f}")
+
+    err_qsca_self = relerr(Qsca_log, Qsca_ref)
+    err_g_self    = relerr(g_log,    g_ref)
+    abs_qabs_log  = abs(Qabs_log)
+
+    print(f"Q_sca rel err vs BHMIE: {err_qsca_self:.2e}")
+    print(f"g     rel err vs BHMIE: {err_g_self:.2e}")
+    print(f"|Q_abs| (expect 0):     {abs_qabs_log:.2e}")
+
+    if err_qsca_self > REL_TOL_KERNEL:
+        sys.exit(
+            f"FAIL: C++ Q_sca disagrees with in-script BHMIE "
+            f"({err_qsca_self:.2e} > {REL_TOL_KERNEL:.2e})"
+        )
+    if err_g_self > REL_TOL_KERNEL:
+        sys.exit(
+            f"FAIL: C++ g disagrees with in-script BHMIE "
+            f"({err_g_self:.2e} > {REL_TOL_KERNEL:.2e})"
+        )
+    if abs_qabs_log > 1e-6:
+        sys.exit(
+            f"FAIL: pure-real m should give Q_abs = 0; got {abs_qabs_log:.2e}"
+        )
+
+    # ---- 3. SLambda_0 prefactor cross-check ----
+    s_path = "1/SLambda_0"
+    if not os.path.exists(s_path):
+        sys.exit(f"validate: {s_path} not found")
+    s_uni, s_list = read_uniform_field(s_path)
+    sigma_s_expected = math.pi*RADIUS_M*RADIUS_M*N_DENSITY*Qsca_log
+    if s_uni is not None:
+        s_val = s_uni
+    else:
+        s_val = sum(s_list)/len(s_list)
+    err_field = relerr(s_val, sigma_s_expected)
+    print(
+        f"sigma_s field  = {s_val:.6e}, "
+        f"pi r^2 N Q_sca = {sigma_s_expected:.6e}, "
+        f"rel err = {err_field:.2e}"
+    )
+    if err_field > REL_TOL_FIELD:
+        sys.exit(
+            f"FAIL: SLambda_0 != pi r^2 N Q_sca "
+            f"({err_field:.2e} > {REL_TOL_FIELD:.2e})"
+        )
+
+    # ---- 4. G profile sanity ----
+    g_path = "1/G"
+    if not os.path.exists(g_path):
+        sys.exit(f"validate: {g_path} not found")
+    _, vals = read_uniform_field(g_path)
+    if vals is None:
+        sys.exit("validate: G is uniform - solver did not run")
+    nx, ny = 100, 10
+    if len(vals) != nx*ny:
+        sys.exit(f"validate: expected {nx*ny} cells, got {len(vals)}")
+    profile = [
+        sum(vals[ix + iy*nx] for iy in range(ny))/ny for ix in range(nx)
+    ]
+    if not all(math.isfinite(v) for v in profile):
+        sys.exit("FAIL: G profile contains non-finite values")
+    if not all(v >= 0 for v in profile):
+        sys.exit("FAIL: G profile has negative values")
+    # Allow small non-monotonicities from DOM angular discretisation,
+    # but the trend over the whole slab must be a decay.
+    if profile[-1] >= profile[0]:
+        sys.exit("FAIL: G profile is not decaying across the slab")
+    print(f"G(x=0) = {profile[0]:.4e}, G(x=L) = {profile[-1]:.4e}")
+
+    print("PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
