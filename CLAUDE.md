@@ -91,14 +91,24 @@ Foam::optical::
   extinctionModel                 (absorption & scattering coefficients)
     ├── transparentExtinction       (kappa = sigma_s = 0)
     ├── constantExtinction           (per-band uniform coefficients)
-    └── linearSpeciesExtinction      (per-band, linear in named species
-                                      concentration fields; auto-loads
-                                      species fields if not registered)
+    ├── linearSpeciesExtinction      (per-band, linear in named species
+    │                                 concentration fields; auto-loads
+    │                                 species fields if not registered)
+    ├── rayleighExtinction           (Rayleigh scattering of an ideal gas;
+    │                                 sigma_s ~ N(T,p) / lambda^4 from per-
+    │                                 band wavelengths, kappa = 0)
+    └── compositeExtinction          (sums an arbitrary set of child
+                                      extinction models named under
+                                      compositeCoeffs.models; child fields
+                                      are unregistered/unwritten so the
+                                      composite owns the canonical output)
 
   phaseFunctionModel              (phase function P(θ) between ray pairs)
     ├── HenyeyGreensteinModel
     ├── schlickModel
     ├── isotropicModel              (uniform P = 1)
+    ├── rayleighModel               ((1 + cos^2 theta), wavelength-/band-
+    │                                independent)
     └── nullModel
 
   mixedFvPatchScalarField         (boundary conditions; active set)

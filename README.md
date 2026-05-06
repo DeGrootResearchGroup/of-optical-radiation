@@ -253,7 +253,10 @@ src/opticalRadiationModels/                  (opticalRadiation library)
         DOM/                 discrete-ordinates solver
         ray/                 per-direction radiance ray
     extinctionModels/        absorption + scattering coefficient models
-    phaseFunctionModels/     Henyey-Greenstein, Schlick, null
+                             (constant, linearSpecies, rayleigh,
+                              composite — sums multiple models)
+    phaseFunctionModels/     Henyey-Greenstein, Schlick, isotropic,
+                             rayleigh, null
     inScatterModels/         legacy scatter tree (excluded from build)
     derivedFvPatchFields/    boundary conditions
     fvModels/opticalRadiation/   fvModel wrapper (radiation as side-physics in host)

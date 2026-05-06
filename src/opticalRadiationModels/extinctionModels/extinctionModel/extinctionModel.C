@@ -64,6 +64,16 @@ void Foam::optical::extinctionModel::init(const label nBands)
   ALambda_.setSize(nBands_);
   SLambda_.setSize(nBands_);
 
+  // When constructed as a child of compositeExtinction, the per-band fields
+  // are intermediate: registering them would collide with sibling and
+  // composite ALambda_<i> / SLambda_<i> names, and writing them would clutter
+  // time directories with quantities the composite already exposes.
+  const bool isChild =
+      dict_.lookupOrDefault<bool>("_compositeChild", false);
+  const IOobject::writeOption wOpt =
+      isChild ? IOobject::NO_WRITE : IOobject::AUTO_WRITE;
+  const bool registerField = !isChild;
+
   // Create absorption coefficient fields
   forAll(ALambda_, iBand)
   {
@@ -78,7 +88,8 @@ void Foam::optical::extinctionModel::init(const label nBands)
                   mesh_.time().name(),
                   mesh_,
                   IOobject::NO_READ,
-                  IOobject::AUTO_WRITE
+                  wOpt,
+                  registerField
               ),
               mesh_,
               dimless/dimLength
@@ -100,7 +111,8 @@ void Foam::optical::extinctionModel::init(const label nBands)
                   mesh_.time().name(),
                   mesh_,
                   IOobject::NO_READ,
-                  IOobject::AUTO_WRITE
+                  wOpt,
+                  registerField
               ),
               mesh_,
               dimless/dimLength
