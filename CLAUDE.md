@@ -33,11 +33,10 @@ extensions:
    model, or from any user-supplied volScalarField). Targeted at UV
    reactor modelling: stochastic turbulent dispersion (DRW), wall
    reflection, escape classification, dose CDF + RED + log-reduction
-   reporting. **v0.3** uses OpenFOAM's barycentric-tet particle
-   tracker (a `Foam::particle` subclass in a
-   `lagrangian::Cloud<...>`); drift-free by construction and gets
-   parallel particle handoff for free. See "radiationDose Library"
-   below.
+   reporting. Built on OpenFOAM's barycentric-tet particle tracker
+   (a `Foam::particle` subclass in a `lagrangian::Cloud<...>`):
+   drift-free by construction and gets parallel particle handoff
+   for free. See "radiationDose Library" below.
 
 The two libraries can be used together (DOM-computed `G` driving the
 dose tracker) or independently (analytical `G` for the tracker; DOM
@@ -421,8 +420,8 @@ dispersionModel
                               Cl       0.15;       // optional, default 0.15
 ```
 
-`terminationModel` is intentionally **not** an RTS family in v0.1;
-the three escape conditions are simple state and live as plain data
+`terminationModel` is intentionally **not** an RTS family; the
+three escape conditions are simple state and live as plain data
 on the function object:
 
 ```
@@ -439,7 +438,7 @@ If a future case needs `terminationByDoseRate`, `terminationByCellZone`,
 etc., it's straightforward to promote this block to an RTS family
 later.
 
-### Integration kernel — barycentric tet tracking (v0.3)
+### Integration kernel — barycentric tet tracking
 
 Particles are subclasses of `Foam::particle` (`dosePathParticle`,
 held in a `dosePathCloud` derived from `lagrangian::Cloud<...>`).
@@ -754,9 +753,9 @@ radiationDose:
   watertight). Steady RANS solve with realizable k-ε via foamRun's
   `incompressibleFluid` solver. Analytical `G` set by setFluenceRate.
   radiationDose post-process with DRW dispersion (`Cl = 0.15`),
-  `wallReflection = true`. v0.3 result on the iter-1000 flow snapshot
-  (10000 particles, matching the paper's sample size, barycentric
-  tracker): **10008/10008 escaped**, mean dose
+  `wallReflection = true`. Result on the iter-1000 flow snapshot
+  (10000 particles, matching the paper's sample size):
+  **10008/10008 escaped**, mean dose
   **67.93 mJ/cm²** (paper: 68 — within 0.1 %), min dose 30.6,
   max dose 232 (paper: ~270), log reduction at
   `kInact = 0.1 cm²/mJ` = **2.08** (paper: 1.87). Runtime ~90 s
@@ -790,73 +789,25 @@ Remove it to opt the case back into the default suite.
 
 ---
 
-## Planned: radiationDose next steps
+## Open items — radiationDose
 
-Done in v0.3:
+The pipeline is functionally complete: particle tracking, dose
+integration, dispersion, output (CSV + summary + VTK), and
+single-rank OMP threading all land. Architecture, output, and
+parallelism are documented inline in the sections above; the
+short list below is what's left to look at if a real driver case
+ever calls for it.
 
-- **Pivot to OpenFOAM's `Foam::particle` infrastructure.** The
-  in-house plane-equation tracker had a fundamental drift problem
-  on snapped polyhedral cells (~46 % of Sozzi particles drifted
-  outside the mesh in v0.2.x even with snap-to-plane and tangent-
-  face skipping). Subclassing `Foam::particle` switches us to
-  barycentric tet tracking, which is drift-free by construction
-  and brings parallel particle handoff for free. Sozzi 10000-
-  particle escape fraction went from ~12 % to **100 %**, mean dose
-  from ~90 to 67.93 (paper: 68 — within 0.1 %), max dose from 688
-  to 232 (paper: ~270).
+1. **Termination model RTS family.** The three soft stops
+   (escapePatches, maxTime, maxDose) are plain data on the cloud
+   today. Promote to a full RTS family the day a case needs
+   `terminationByDoseRate`, `terminationByCellZone`, or similar.
 
-Done in v0.4:
-
-- **VTK polyline writer.** `radiationDose::write()` emits a legacy
-  ASCII `.vtk` PolyData per `execute()` containing one polyline
-  per track, with `time_s`, `dose_mJcm2`, `cell` as point-data
-  scalars and `trackId`, `endReason` as per-track cell-data
-  scalars. Toggled by `output.writeVtk` (default `true`). The
-  doseSmokeBox tutorial now ships a `validate` script that
-  asserts the file is structurally well-formed alongside the
-  plug-flow analytical-floor dose check.
-
-- **Trajectory-storage opt-out.** The same `output.writeVtk`
-  switch now also controls whether `dosePathParticle::move()`
-  appends a vertex to its `points_` list at the end of every
-  outer step. With `writeVtk=false`, no per-step storage happens
-  and memory stays O(N_particles) instead of O(N_particles ×
-  residence_time / dtMax) — material for long-trajectory
-  production runs that don't need the streamline view. The
-  storage flag is plumbed through `dosePathCloud::storeTrack()`
-  rather than being a separate dictionary key, since the only
-  consumer of stored trajectories is the VTK writer itself.
-
-- **Per-cloud OMP threading.** `dosePathCloud::moveOmpStep` runs the
-  per-particle iteration in parallel across `OMP_NUM_THREADS`,
-  with each thread getting its own randomGenerator (seeded
-  deterministically from the parent RNG and the thread index)
-  and its own `dosePathParticle::trackingData`. Field
-  interpolators and the dispersion model are shared read-only;
-  per-particle state on each particle is independent. We
-  dispatch into `moveOmpStep` only when `!Pstream::parRun()` —
-  multi-rank MPI runs keep using OF's serial `Cloud::move`
-  because the cross-rank `sendParticles[]` queues that Cloud
-  builds at processor patches are not thread-safe and there is
-  no real-world driver yet for OMP-within-MPI.
-
-  Reproducibility: the result is bit-for-bit reproducible for a
-  fixed (parentSeed, nThreads, particle ordering) — the static
-  schedule maps particle `i` to a deterministic thread, and each
-  thread's RNG sequence is deterministic from the parent.
-  Switching `OMP_NUM_THREADS` reshuffles which particles see
-  which RNG samples, so individual-particle dose values change
-  stochastically; ensemble statistics still converge.
-
-Still on the list:
-
-1. **Termination model RTS family** (only when a real use case
-   demands `terminationByDoseRate` or `terminationByCellZone`).
-
-A future doseSmokeBox variant on a deliberately curved geometry
-(annular slip-wall channel) would tighten coverage for the
-barycentric tracker against curved boundaries — though the Sozzi
-case effectively does this already.
+2. **Curved-geometry smoke variant.** A doseSmokeBox variant on a
+   deliberately curved geometry (annular slip-wall channel) would
+   tighten coverage for the barycentric tracker against curved
+   boundaries. The Sozzi case effectively exercises this already,
+   so this is not blocking anything.
 
 ---
 
