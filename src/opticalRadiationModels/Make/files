@@ -6,6 +6,8 @@ radiationModel/radiationModelNew.C
 DOM/DOM/DOM.C
 DOM/ray/ray.C
 
+mieKernel/mieKernel.C
+
 phaseFunctionModels/phaseFunctionModel/phaseFunctionModel.C
 phaseFunctionModels/phaseFunctionModel/newPhaseFunctionModel.C
 phaseFunctionModels/HenyeyGreensteinModel/HenyeyGreensteinModel.C
@@ -13,6 +15,7 @@ phaseFunctionModels/schlickModel/schlickModel.C
 phaseFunctionModels/nullModel/nullModel.C
 phaseFunctionModels/isotropicModel/isotropicModel.C
 phaseFunctionModels/rayleighModel/rayleighModel.C
+phaseFunctionModels/mieModel/mieModel.C
 
 extinctionModels/extinctionModel/extinctionModel.C
 extinctionModels/extinctionModel/newExtinctionModel.C
@@ -21,6 +24,7 @@ extinctionModels/constant/constantExtinction.C
 extinctionModels/linearSpecies/linearSpeciesExtinction.C
 extinctionModels/rayleigh/rayleighExtinction.C
 extinctionModels/molecularAbsorption/molecularAbsorptionExtinction.C
+extinctionModels/mie/mieExtinction.C
 extinctionModels/composite/compositeExtinction.C
 
 # inScatterModels sub-models excluded: superseded by phaseFunctionModels, implementations broken

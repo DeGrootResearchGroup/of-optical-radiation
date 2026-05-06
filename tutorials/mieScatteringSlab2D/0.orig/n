@@ -1,0 +1,45 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      n;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Particle number density [1/m^3]. Uniform at 1e+12 gives an optical
+// thickness tau_L ~ 0.52 over the 1 m slab for the canonical x = 3
+// scatterer (Q_sca ~ 2.88).
+dimensions      [0 -3 0 0 0 0 0];
+
+internalField   uniform 1e+12;
+
+boundaryField
+{
+    radSource
+    {
+        type            zeroGradient;
+    }
+    radOut
+    {
+        type            zeroGradient;
+    }
+    sides
+    {
+        type            zeroGradient;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

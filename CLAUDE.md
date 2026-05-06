@@ -102,6 +102,12 @@ Foam::optical::
     │                                 concentration either ideal-gas
     │                                 N(T,p)*moleFraction or a species
     │                                 volScalarField in mol/m^3; sigma_s = 0)
+    ├── mieExtinction                (monodisperse Mie spheres of a given
+    │                                 radius and complex refractive index;
+    │                                 kappa, sigma_s ~ pi r^2 N(x) Q from
+    │                                 Bohren-Huffman BHMIE evaluated once
+    │                                 per band; N(x) read from a registered
+    │                                 number-density volScalarField)
     └── compositeExtinction          (sums an arbitrary set of child
                                       extinction models named under
                                       compositeCoeffs.models; child fields
@@ -114,6 +120,11 @@ Foam::optical::
     ├── isotropicModel              (uniform P = 1)
     ├── rayleighModel               ((1 + cos^2 theta), wavelength-/band-
     │                                independent)
+    ├── mieModel                    (full Mie phase function from the same
+    │                                BHMIE kernel as mieExtinction; reads
+    │                                its own copy of radius / mParticle /
+    │                                mMedium / wavelengths to stay
+    │                                independently selectable)
     └── nullModel
 
   mixedFvPatchScalarField         (boundary conditions; active set)
@@ -173,6 +184,7 @@ and étendue-n² methodology fixes.
 | `src/opticalRadiationModels/radiationModel/radiationModelNew.C` | Factory (runtime selection) |
 | `src/opticalRadiationModels/DOM/DOM/DOM.{H,C,I.H}` | DOM solver core |
 | `src/opticalRadiationModels/DOM/ray/ray.{H,C,rayI.H}` | Single ray/band RTE solve, with pixelated `Ji0_`/`Ji1_` flux split |
+| `src/opticalRadiationModels/mieKernel/mieKernel.{H,C}` | Bohren-Huffman BHMIE: a_n, b_n, Q_ext, Q_sca, g, S_1/S_2 phase function. Shared by mieExtinction and mieModel |
 | `src/opticalRadiationModels/extinctionModels/` | Absorption & scattering coefficient providers |
 | `src/opticalRadiationModels/phaseFunctionModels/` | Phase function P(θ) implementations |
 | `src/opticalRadiationModels/derivedFvPatchFields/` | Custom optical boundary conditions |
@@ -186,7 +198,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/track/track.{H,C}` | Per-particle trajectory storage (vertices + endReason) |
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (currently: patchInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
-| `tutorials/` | Six runnable cases plus `Alltest` validation harness |
+| `tutorials/` | Eleven runnable cases plus `Alltest` validation harness |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
 | `Allwmake` | Builds both libraries + standalone solver + module + setFluenceRate in one shot |
@@ -320,6 +332,31 @@ re-litigate them.
   not a bug. Generalising would require axis-aware ray placement (or
   an internal mesh rotation); the workaround (re-orient the mesh) is
   trivial. `checkDim_` rejects 2-D meshes in x-z or y-z.
+
+- **Mie scattering: monodisperse only, dictionary keys duplicated
+  between extinction and phase function.** `mieKernel` runs the
+  Bohren-Huffman BHMIE recurrence (downward `D_n(mx)`, upward
+  Riccati-Bessel `psi_n, chi_n`, Wiscombe truncation
+  `N_max = ceil(x + 4 x^(1/3) + 2)`). Both `mieExtinction` and
+  `mieModel` instantiate their own kernel from the same `radius`,
+  `mParticle`, `mMedium`, `wavelengths` keys; this redundancy
+  matches every other (extinction, phaseFunction) pairing in the
+  code -- the two objects remain independently RTS-selectable, and
+  the redundant computation is negligible compared to the DOM
+  solve. Currently monodisperse only: a single radius is used at
+  every cell. Polydisperse support would integrate `Q_sca, Q_abs,
+  g, S_1, S_2` over a size distribution at construction; not
+  implemented because no driver case has needed it. Number density
+  `N(x)` is read from a registered `volScalarField` named via
+  `numberDensityField` (default `n`, units `1/m^3`); converting
+  mass concentration `c [kg/m^3]` to `N` (via particle density and
+  shape) is left to the user. Phase function table construction
+  re-uses the same row-normalised pixel-averaged scheme as
+  `HenyeyGreensteinModel` / `rayleighModel`, so absolute scaling
+  of `phaseIntensity(mu) = |S_1|^2 + |S_2|^2` does not matter.
+  Validated by `mieScatteringSlab2D` against an in-script BHMIE
+  reference (1e-4 rel) and the Rayleigh closed form at small `x`
+  (5e-3 rel anchor for the Python reference itself).
 
 ### fvModel Wrapper (`src/opticalRadiationModels/fvModels/opticalRadiation/`)
 
@@ -764,6 +801,19 @@ opticalRadiation:
   = 0 to 1e-12 (regression guard against accidentally writing into
   the scattering channel); G profile against `2π·L_w·E_2(κ_tot·x)`
   within 7 %.
+- **`mieScatteringSlab2D`** — `scatteringSlab2D` geometry switched
+  to `mieExtinction` + `mieModel` at the Bohren-Huffman canonical
+  case (`x = 3, m_rel = 1.55 + 0i`, pure scatterer, monodisperse
+  spheres, uniform `n = 1e+12 1/m^3` -> `tau_L ~ 0.52`). Four
+  checks: in-script BHMIE matches the Rayleigh closed form at
+  `x = 0.05` (5e-3 rel; pins the Python reference); the C++
+  kernel's reported `Q_sca` and `g` match in-script BHMIE (1e-4
+  rel; primary regression guard); cell-mean `SLambda_0` equals
+  `pi r^2 N Q_sca` (1e-3 rel; field-arithmetic regression);
+  `G` profile is finite, non-negative, and decays across the
+  slab (qualitative; the Mie phase function is anisotropic and
+  the in-tree analytical references all assume isotropic
+  scattering, so a strict G-profile comparison is out of scope).
 
 radiationDose:
 
@@ -846,6 +896,32 @@ ever calls for it.
    tighten coverage for the barycentric tracker against curved
    boundaries. The Sozzi case effectively exercises this already,
    so this is not blocking anything.
+
+---
+
+## Open items — Mie scattering
+
+The `mieKernel` + `mieExtinction` + `mieModel` triple covers the
+single-radius case end-to-end. Two extensions are sketched but not
+built; pick them up when a driver case actually needs them.
+
+1. **Polydisperse particles.** Currently a single radius is used
+   field-wide. A polydisperse extension would integrate
+   `Q_sca, Q_abs, g` and the angular `phaseIntensity(mu)` over a
+   size distribution at construction (log-normal parametrised by
+   `r_g, sigma_g`, or tabulated `r -> n(r)`). The kernel itself is
+   already the only Mie-aware piece, so the lift is one
+   `sizeDistribution` sub-dict and a quadrature loop in each of
+   the two consumers.
+
+2. **Particle-cloud-coupled number density.** `mieExtinction`
+   reads `N(x)` from a registered Eulerian field. With the
+   `radiationDose` Lagrangian tracker already in the codebase, a
+   natural follow-on is to project a settling / suspended particle
+   cloud onto a number-density field (cell-averaged with kernel
+   smoothing). Needs gravity in `dispersionModel` and a particle
+   ->Eulerian projection step; today's tracker is passive
+   (drift-only). No code yet.
 
 ---
 

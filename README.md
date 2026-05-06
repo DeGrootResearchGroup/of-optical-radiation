@@ -33,10 +33,15 @@ in absorbing/scattering participating media:
   pixelation for control-angle overhang at boundaries.
 - Multi-band spectral solve (one transport equation per direction per
   band).
-- Constant or species-driven (variable) extinction coefficients.
-- Anisotropic Henyey-Greenstein and Schlick phase functions, plus an
-  isotropic option (uniform P = 1) for cleaner dictionary intent than
-  Henyey-Greenstein with `g = 0`; in-scatter source term.
+- Constant, species-driven (variable), Rayleigh, or Mie extinction
+  coefficients (the latter from a Bohren-Huffman BHMIE kernel for
+  monodisperse spherical particles, driven by a number-density
+  field). Multiple models can be summed via `composite` extinction.
+- Anisotropic Henyey-Greenstein and Schlick phase functions, plus a
+  full Mie phase function (same BHMIE kernel as `mieExtinction`),
+  Rayleigh `(1 + cos^2 theta)`, and an isotropic option (uniform
+  P = 1) for cleaner dictionary intent than Henyey-Greenstein with
+  `g = 0`; in-scatter source term.
 - Boundary conditions: Lambertian diffuse emitter, specular/diffuse
   reflective surface, collimated beam (delta-direction, all flux
   assigned to the single ray bin containing the beam direction —
@@ -154,6 +159,12 @@ opticalRadiation cases:
   `field` mode (volScalarField in mol/m³). Beer-Lambert validation at
   222 nm; exercises the cross-section + concentration plumbing in
   both modes through composite stacking.
+- `mieScatteringSlab2D` — Bohren-Huffman canonical Mie test case
+  (`x = 3, m_rel = 1.55 + 0i`, monodisperse spheres) with both
+  `mieExtinction` and the full `mieModel` phase function. Four-stage
+  validate: BHMIE Rayleigh limit at small `x` (anchors the Python
+  reference), C++ kernel cross-check vs. the validated reference,
+  `pi r^2 N Q_sca` field cross-check, and a G-profile sanity decay.
 
 radiationDose cases:
 
@@ -263,13 +274,16 @@ src/opticalRadiationModels/                  (opticalRadiation library)
     DOM/
         DOM/                 discrete-ordinates solver
         ray/                 per-direction radiance ray
+    mieKernel/               Bohren-Huffman BHMIE: a_n, b_n,
+                             Q_ext / Q_sca / g, |S_1|^2 + |S_2|^2.
+                             Shared by mieExtinction and mieModel.
     extinctionModels/        absorption + scattering coefficient models
-                             (constant, linearSpecies, rayleigh,
+                             (constant, linearSpecies, rayleigh, mie,
                               molecularAbsorption — generic per-band
                               molecular absorber, idealGas or field mode;
                               composite — sums multiple models)
     phaseFunctionModels/     Henyey-Greenstein, Schlick, isotropic,
-                             rayleigh, null
+                             rayleigh, mie, null
     inScatterModels/         legacy scatter tree (excluded from build)
     derivedFvPatchFields/    boundary conditions
     fvModels/opticalRadiation/   fvModel wrapper (radiation as side-physics in host)
@@ -311,6 +325,13 @@ opticalRadiation:
   Radiative Heat Transfer Using Unstructured Meshes.* J. Thermophys.
   Heat Transfer **12**(3), 313–321.
 - ANSYS Fluent Theory Guide, §"Discrete Ordinates (DO) Radiation Model".
+- Bohren, C. F. & Huffman, D. R. (1983). *Absorption and Scattering
+  of Light by Small Particles.* Wiley. — BHMIE algorithm (Appendix A)
+  used by `mieKernel` for `Q_ext / Q_sca / g` and the unpolarised
+  `S_1 / S_2` Mie phase function.
+- Wiscombe, W. J. (1980). *Improved Mie scattering algorithms.*
+  Appl. Opt. **19**(9), 1505–1509. — Series-truncation rule
+  `N_max = ceil(x + 4 x^(1/3) + 2)` used by `mieKernel`.
 
 radiationDose:
 
