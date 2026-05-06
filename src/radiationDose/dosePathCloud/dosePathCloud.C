@@ -31,6 +31,7 @@ Foam::dose::dosePathCloud::dosePathCloud
     const scalar maxTime,
     const scalar maxDose,
     const Switch wallReflection,
+    const Switch storeTrack,
     autoPtr<dispersionModel> dispersion
 )
 :
@@ -42,6 +43,7 @@ Foam::dose::dosePathCloud::dosePathCloud
     maxTime_(maxTime),
     maxDose_(maxDose),
     wallReflection_(wallReflection),
+    storeTrack_(storeTrack),
     dispersion_(std::move(dispersion))
 {}
 

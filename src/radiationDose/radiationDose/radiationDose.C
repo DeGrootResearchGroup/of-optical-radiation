@@ -153,6 +153,7 @@ bool Foam::functionObjects::radiationDose::execute()
             maxTime_,
             maxDose_,
             wallReflection_,
+            writeVtk_,
             std::move(dispersion)
         )
     );
@@ -180,8 +181,13 @@ bool Foam::functionObjects::radiationDose::execute()
         // cloud's dispersion model is the factory.
         p->setDispState(cloud_->dispersion().newState());
         // Initial trajectory vertex (so the writer reports the seed
-        // position even if the particle never advances).
-        p->appendPoint(seeds[i]);
+        // position even if the particle never advances). Skipped
+        // when storeTrack is off — see dosePathParticle::move() for
+        // the per-step variant of this same guard.
+        if (writeVtk_)
+        {
+            p->appendPoint(seeds[i]);
+        }
         cloud_->addParticle(p);
     }
 

@@ -63,6 +63,13 @@ class dosePathCloud
         scalar maxDose_;
         Switch wallReflection_;
 
+        //- Whether dosePathParticle::move() should append a vertex to
+        //  its `points_` list at the end of every outer step. Off
+        //  for runs that disable VTK output (the only consumer of
+        //  the stored trajectory) — bounds memory at O(N_particles)
+        //  instead of O(N_particles × residence_time / dtMax).
+        Switch storeTrack_;
+
         //- Dispersion model (RTS-selected). Lives here so the per-
         //  particle move() can sample fluctuations without needing a
         //  separate handle.
@@ -91,6 +98,7 @@ public:
             const scalar maxTime,
             const scalar maxDose,
             const Switch wallReflection,
+            const Switch storeTrack,
             autoPtr<dispersionModel> dispersion
         );
 
@@ -112,6 +120,7 @@ public:
             inline scalar maxTime() const { return maxTime_; }
             inline scalar maxDose() const { return maxDose_; }
             inline Switch wallReflection() const { return wallReflection_; }
+            inline Switch storeTrack() const { return storeTrack_; }
             inline dispersionModel& dispersion() { return *dispersion_; }
             inline const dispersionModel& dispersion() const
             {

@@ -350,11 +350,14 @@ Done in v0.4:
   dose. The doseSmokeBox tutorial ships a `validate` script that
   guards the writer's structural correctness on every CI run.
 
+- Trajectory-storage opt-out. The same `output.writeVtk` switch
+  now governs whether per-step trajectory points are stored at
+  all. With `writeVtk=false` the cloud bounds memory at
+  O(N_particles) instead of O(N_particles × residence_time /
+  dtMax) — material for long-trajectory production runs.
+
 Still on the priority list:
 
-- Trajectory storage opt-out for runs with `writeVtk=false`
-  (currently every per-step vertex is held in memory until
-  `write()`, regardless of whether VTK output is enabled).
 - Per-Cloud OMP threading was dropped during the pivot; throughput
   on a single processor is back to serial. MPI parallelism via
   `mpirun foamPostProcess` is the supported path for now.

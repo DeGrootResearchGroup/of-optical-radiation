@@ -535,16 +535,7 @@ For each `execute()` call, `write()` emits:
    foamPostProcess`. Per-processor OMP within a Cloud iteration is
    a future optimisation.
 
-2. **Trajectory storage is unbounded.** Every vertex along every
-   track is kept in memory until `write()`; a long-trajectory run
-   can grow into the GB range. The VTK writer needs the full
-   trajectory, so we cannot just drop points unconditionally —
-   a future `output.storeFullTrack` switch (default false) should
-   pair with `output.writeVtk = false` to keep only the final
-   `trackPoint` per particle for runs where the streamline view
-   is not needed.
-
-3. **Termination model is not an RTS family.** The three soft
+2. **Termination model is not an RTS family.** The three soft
    stops (escapePatches, maxTime, maxDose) live as plain data on
    the cloud. Promote to a full RTS family if a real case needs
    `terminationByDoseRate` or `terminationByCellZone`.
@@ -818,21 +809,26 @@ Done in v0.4:
   asserts the file is structurally well-formed alongside the
   plug-flow analytical-floor dose check.
 
+- **Trajectory-storage opt-out.** The same `output.writeVtk`
+  switch now also controls whether `dosePathParticle::move()`
+  appends a vertex to its `points_` list at the end of every
+  outer step. With `writeVtk=false`, no per-step storage happens
+  and memory stays O(N_particles) instead of O(N_particles ×
+  residence_time / dtMax) — material for long-trajectory
+  production runs that don't need the streamline view. The
+  storage flag is plumbed through `dosePathCloud::storeTrack()`
+  rather than being a separate dictionary key, since the only
+  consumer of stored trajectories is the VTK writer itself.
+
 Still on the list:
 
-1. **Trajectory storage opt-out.** When the VTK writer is disabled,
-   keep only the last `trackPoint` to bound memory at
-   O(N_particles). With 100 % escape, Sozzi trajectories are
-   short, but the lever matters for long-trajectory cases. Pair
-   with `output.writeVtk = false`.
-
-2. **Per-Cloud OMP threading.** Iterate the cloud's IDLList in
+1. **Per-Cloud OMP threading.** Iterate the cloud's IDLList in
    parallel (each thread gets a stride; particles' state is
    independent except for the shared RNG which we'd partition
    per-thread). Restores the threaded throughput we had before
    the pivot. Must coexist cleanly with OF's MPI handoff.
 
-3. **Termination model RTS family** (only when a real use case
+2. **Termination model RTS family** (only when a real use case
    demands `terminationByDoseRate` or `terminationByCellZone`).
 
 A future doseSmokeBox variant on a deliberately curved geometry
