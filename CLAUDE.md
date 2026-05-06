@@ -730,19 +730,22 @@ opticalRadiation:
 
 radiationDose:
 
-- **`doseSmokeBox`** — 1 m × 0.1 m × 0.1 m box with uniform internal
-  `U = (0.5, 0, 0)` m/s, no-slip walls, uniform `G = 10` W/m². The
-  no-slip walls drag the cell-vertex-interpolated velocity down near
-  the boundary so near-wall particles integrate over a longer
-  residence time than the analytical plug-flow value; the *minimum*
-  escape dose, however, is well-defined: `G * (L/V_x) * 0.1 =
-  10 * 2 * 0.1 = 2.0` mJ/cm² for a particle that flies straight
-  through at full V_x. The validate script asserts that minimum
-  matches to within 1 % and that the VTK trajectory file is
-  well-formed (sections present, `POINT_DATA` count == `POINTS`
-  count, `CELL_DATA` count == `LINES` count). A regression guard
-  for the unit-conversion factor, trapezoidal-G accumulation,
-  patch-hit classification, and the `.vtk` writer.
+- **`doseSmokeBox`** — 1 m × 0.1 m × 0.1 m box with uniform
+  `U = (0.5, 0, 0)` m/s, slip walls, uniform `G = 10` W/m². Slip
+  walls keep the cell-vertex-interpolated velocity equal to the
+  bulk value everywhere — a self-consistent plug-flow field with
+  the prescribed uniform U as initial condition. Every escaping
+  particle therefore sees the same residence time
+  `L/V_x = 2` s and the same accumulated dose
+  `G·t·0.1 = 2.0` mJ/cm², deterministic to floating-point
+  precision. The validate script asserts that all seeded particles
+  escape, mean dose = 2.0 within 1 part in 1000, stdev is below
+  1e-6 (≈ floating-point noise; we observe 1e-15 in practice),
+  and the VTK trajectory file is structurally well-formed
+  (sections present, `POINT_DATA` count == `POINTS` count,
+  `CELL_DATA` count == `LINES` count). A regression guard for the
+  unit-conversion factor, trapezoidal-G accumulation, patch-hit
+  classification, and the `.vtk` writer.
 - **`uvReactorSozzi2006`** — Sozzi & Taghipour 2006 L-shape annular
   reactor at 25 GPM (water, 70% UV transmissivity per cm, 35 W lamp,
   80 cm arc). Geometry comes from a STEP file processed via gmsh's
