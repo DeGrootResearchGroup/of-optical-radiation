@@ -1,0 +1,32 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | radiationDose pointInjection sanity case        |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volVectorField;
+    object      U;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 1 -1 0 0 0 0];
+
+// Zero velocity. With no flow and no dispersion every particle is
+// marked `stuck` immediately at its seed position; xEnd in the CSV
+// then reports the seed position for the validate script to check.
+internalField   uniform (0 0 0);
+
+boundaryField
+{
+    walls
+    {
+        type            slip;
+    }
+}
+
+// ************************************************************************* //
