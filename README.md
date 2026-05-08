@@ -61,8 +61,10 @@ in absorbing/scattering participating media:
   and `G` are read once and held constant for the entire particle-run
   loop — unsteady ambient flow (transient HVAC, dynamic occupancy,
   time-varying lamp output) is not currently supported.
-- Configurable particle seeding (RTS-selectable `seedingModel`,
-  currently `patchInjection` with face-area-weighted distribution).
+- Configurable particle seeding (RTS-selectable `seedingModel`:
+  `patchInjection` for face-area-weighted seeding across boundary
+  patches, `pointInjection` for uniform sampling inside a sphere or
+  axis-aligned box centred at an interior point).
 - Configurable turbulent dispersion (RTS-selectable `dispersionModel`:
   `none` for deterministic streamlines, `discreteRandomWalk` for
   Gosman-Ioannides DRW).
@@ -193,6 +195,11 @@ radiationDose cases:
   water with uniform `G`; analytical mean dose `G·L/V_s·0.1` matched
   to ~1e-5 relative. Regression guard for the `inertial` motion
   model, the OU exact integrator, and the Stokes drag path.
+- `pointInjectionBox` — `U = 0` cube with sphere and box `pointInjection`
+  seeding regions; particles are stuck at their seed positions, so the
+  validate script can read end-positions from `doseDistribution.csv`
+  and check that the sample mean and per-axis stddev match the
+  analytical uniform-in-region values within ~6 σ.
 - `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
   at 25 GPM with realizable k-ε flow + analytical radial `G`. On a
   10000-particle run (matching the paper): 100 % escape, mean dose
@@ -318,6 +325,7 @@ src/radiationDose/                           (radiationDose library)
     seedingModels/           seedingModel RTS family
         seedingModel/        abstract base + factory
         patchInjection/      face-area-weighted patch seeding
+        pointInjection/      sphere / box rejection sampling
     dispersionModels/        dispersionModel RTS family
         dispersionModel/     abstract base + factory
         noDispersion/        deterministic streamlines

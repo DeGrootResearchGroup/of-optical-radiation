@@ -1,0 +1,132 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose pointInjection sanity case
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     postProcess;
+
+startTime       0;
+endTime         0;
+deltaT          1;
+
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+
+writeFormat     ascii;
+writePrecision  8;
+
+functions
+{
+    radiationDoseSphere
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+
+        U               U;
+        fluenceRate     G;
+        seed            42;
+
+        // Sphere region centred at the box centre. With U = 0 every
+        // seeded particle is immediately marked `stuck` at its seed
+        // position; the validate script then reads xEnd from the CSV
+        // (== seed position) and checks the spatial distribution.
+        seeding
+        {
+            type        pointInjection;
+            nParticles  10000;
+            region
+            {
+                type    sphere;
+                centre  (0.5 0.5 0.5);
+                radius  0.2;
+            }
+        }
+
+        dispersion
+        {
+            type        none;
+        }
+
+        termination
+        {
+            escapePatches   ();
+            maxTime         1;
+            maxDose         0;
+            wallReflection  false;
+        }
+
+        integration
+        {
+            dtMax           0.1;
+            cflMax          0.5;
+        }
+
+        output
+        {
+            kInact          ();
+            writeVtk        false;
+        }
+    }
+
+    radiationDoseBox
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+
+        U               U;
+        fluenceRate     G;
+        seed            43;
+
+        // Box region (anisotropic on purpose so each axis is verified
+        // against a different expected stddev).
+        seeding
+        {
+            type        pointInjection;
+            nParticles  10000;
+            region
+            {
+                type    box;
+                centre  (0.5 0.5 0.5);
+                size    (0.4 0.2 0.1);
+            }
+        }
+
+        dispersion
+        {
+            type        none;
+        }
+
+        termination
+        {
+            escapePatches   ();
+            maxTime         1;
+            maxDose         0;
+            wallReflection  false;
+        }
+
+        integration
+        {
+            dtMax           0.1;
+            cflMax          0.5;
+        }
+
+        output
+        {
+            kInact          ();
+            writeVtk        false;
+        }
+    }
+}
+
+// ************************************************************************* //

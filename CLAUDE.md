@@ -177,7 +177,9 @@ Foam::dose::
                                     model, motion model)
 
   seedingModel                     (RTS family — initial particle distribution)
-    └── patchInjection             (face-area-weighted on listed patches)
+    ├── patchInjection             (face-area-weighted on listed patches)
+    └── pointInjection             (rejection-sampled inside an interior
+                                    region; sphere or axis-aligned box)
 
   dispersionModel                  (RTS family — turbulent fluctuation u')
     ├── noDispersion               (deterministic streamlines)
@@ -228,7 +230,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/dosePathParticle/dosePathParticle.{H,C}` | Foam::particle subclass; barycentric-tet tracker with dose accumulation, wall reflection, escape-patch dispatch |
 | `src/radiationDose/dosePathCloud/dosePathCloud.{H,C}` | Foam::lagrangian::Cloud<dosePathParticle> subclass; case config + runToCompletion driver |
 | `src/radiationDose/track/track.{H,C}` | Per-particle trajectory storage (vertices + endReason) |
-| `src/radiationDose/seedingModels/` | seedingModel RTS family (currently: patchInjection) |
+| `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
 | `tutorials/` | Fourteen runnable cases plus `Alltest` validation harness |
@@ -592,12 +594,45 @@ implemented today because no driver case has called for it.
 
 ```
 seedingModel
-└── patchInjection         seed N particles uniformly across listed patches,
-                           weighted by face area (stochastic-rounded);
-                           seed config:
-                              type        patchInjection;
-                              patches     (inlet);
+├── patchInjection         seed N particles uniformly across listed patches,
+│                          weighted by face area (stochastic-rounded);
+│                          seed config:
+│                             type        patchInjection;
+│                             patches     (inlet);
+│                             nParticles  10000;
+└── pointInjection         seed N particles uniformly inside an interior
+                           region (sphere or axis-aligned box) by
+                           rejection sampling in the region's bounding
+                           cube. Acceptance: 100 % for box, pi/6 ~ 52 %
+                           for sphere (so ~1.9 candidate draws per
+                           accepted particle). Each rank does the same
+                           RNG draws and only accepts the candidates
+                           whose meshSearch::findCell returns >= 0
+                           locally, so the global total is bounded by
+                           nParticles even in parallel. Particles
+                           landing outside the global mesh are silently
+                           dropped (the count comes in below nParticles).
+                           Config -- sphere variant:
+                              type        pointInjection;
                               nParticles  10000;
+                              region
+                              {
+                                  type    sphere;
+                                  centre  (0.5 0.5 0.5);
+                                  radius  0.2;
+                              }
+                           Config -- box variant (size = full edge
+                           lengths, centred at `centre`):
+                              region
+                              {
+                                  type    box;
+                                  centre  (0.5 0.5 0.5);
+                                  size    (0.4 0.2 0.1);
+                              }
+                           Optional `maxAttempts` (default 1000)
+                           caps the per-particle inner shape-acceptance
+                           loop -- a safety belt against degenerate
+                           regions, never reached for valid input.
 
 dispersionModel
 ├── none                   deterministic streamlines (default in smoke test)
@@ -915,7 +950,7 @@ Don't try to `git push` from inside the sandbox; it fails with
 
 ## Tutorials & validation
 
-`tutorials/` ships fourteen cases — eleven for opticalRadiation, three
+`tutorials/` ships fifteen cases — eleven for opticalRadiation, four
 for radiationDose:
 
 opticalRadiation:
@@ -1032,6 +1067,21 @@ radiationDose:
   relative), stdev below 1e-3 (observed ~1e-14, floating-point
   noise). Regression guard for the inertial motion path, the OU
   exact update, the Stokes drag formula, and the gravity composition.
+- **`pointInjectionBox`** — 1 m³ cube with `U = 0` and 10 cells per
+  side, no flow and no dispersion so every seeded particle is
+  immediately marked `stuck` at its seed position. Two function-object
+  invocations seed in turn from the same case: a sphere region
+  (centre = (0.5, 0.5, 0.5), radius 0.2, 10000 particles) and an
+  axis-aligned box region (centre = (0.5, 0.5, 0.5), size = (0.4,
+  0.2, 0.1), 10000 particles). The validate script reads the end
+  positions from `doseDistribution.csv` (== seed positions because
+  the particles never moved) and asserts: every position is inside
+  the requested region; sample mean is within 6 σ_mean of the centre;
+  sample stddev along each axis matches the analytical
+  uniform-in-region value (`R/√5` for the sphere, `L_axis / (2√3)`
+  for the box) within 6 σ_stddev. Regression guard for the
+  rejection-sampling kernel, the bounding-box / shape-test geometry,
+  and the dictionary parser.
 - **`uvReactorSozzi2006`** — Sozzi & Taghipour 2006 L-shape annular
   reactor at 25 GPM (water, 70% UV transmissivity per cm, 35 W lamp,
   80 cm arc). Geometry comes from a STEP file processed via gmsh's

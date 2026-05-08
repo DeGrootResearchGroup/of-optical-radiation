@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Validate radiationDose pointInjection seeding model.
+
+Two function-object invocations run in the same case:
+
+  - radiationDoseSphere:  pointInjection / sphere / centre (0.5,0.5,0.5)
+                          radius 0.2, 10000 particles.
+  - radiationDoseBox:     pointInjection / box / centre (0.5,0.5,0.5)
+                          size (0.4 0.2 0.1), 10000 particles.
+
+With U = 0 every seeded particle is marked `stuck` immediately at
+its seed position; xEnd in the doseDistribution.csv equals the seed
+position. The script reads the CSV, then checks:
+
+  - Total seeded count matches the dictionary.
+  - Every position lies inside the requested region (sphere: |x-c|
+    <= R + tol; box: |x_i - c_i| <= L_i/2 + tol).
+  - Sample mean is within statistical tolerance of the centre.
+  - Sample stddev along each axis matches the analytical expectation
+    for a uniform distribution in the region:
+        sphere : sigma_axis = R / sqrt(5)
+        box    : sigma_axis = L_axis / (2 sqrt(3))
+
+Statistical tolerances are sized at ~6x the analytical sigma_mean
+(R/sqrt(5N) for sphere, L/(2*sqrt(3N)) for box), giving > 5-sigma
+headroom -- the test is a regression guard, not a tight goodness-
+of-fit check.
+"""
+
+import csv
+import math
+import os
+import sys
+
+
+CASE = os.path.dirname(os.path.abspath(__file__))
+
+
+def find_csv(fo_name):
+    base = os.path.join(CASE, "postProcessing", fo_name)
+    if not os.path.isdir(base):
+        return None
+    times = sorted(
+        ((float(t), t) for t in os.listdir(base) if t.replace(".", "", 1).isdigit())
+    )
+    if not times:
+        return None
+    p = os.path.join(base, times[-1][1], "doseDistribution.csv")
+    return p if os.path.isfile(p) else None
+
+
+def read_positions(path):
+    out = []
+    with open(path) as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if not row or row[0].lstrip().startswith("#"):
+                continue
+            # trackId, endReason, time_s, dose_mJ_cm2, xEnd, yEnd, zEnd
+            out.append((float(row[4]), float(row[5]), float(row[6])))
+    return out
+
+
+def stats(positions, centre):
+    n = len(positions)
+    cx, cy, cz = centre
+    sumx = sumy = sumz = 0.0
+    for x, y, z in positions:
+        sumx += x; sumy += y; sumz += z
+    mx, my, mz = sumx/n, sumy/n, sumz/n
+    sx2 = sy2 = sz2 = 0.0
+    for x, y, z in positions:
+        sx2 += (x - mx)**2
+        sy2 += (y - my)**2
+        sz2 += (z - mz)**2
+    sx, sy, sz = math.sqrt(sx2/n), math.sqrt(sy2/n), math.sqrt(sz2/n)
+    return (mx, my, mz), (sx, sy, sz)
+
+
+def check_sphere(positions, centre, radius):
+    fails = []
+    n = len(positions)
+    if n == 0:
+        return ["sphere: no particles seeded"]
+    if n != 10000:
+        fails.append(f"sphere: nSeeded {n} != 10000")
+    cx, cy, cz = centre
+    # Every point must be inside the sphere; tol absorbs the cell-tet
+    # interpolation overshoot that's possible when a candidate sits
+    # right on the boundary in floating point.
+    tol = 1e-12
+    for i, (x, y, z) in enumerate(positions):
+        r2 = (x - cx)**2 + (y - cy)**2 + (z - cz)**2
+        if r2 > (radius + tol)**2:
+            fails.append(
+                f"sphere: particle {i} at ({x:.4f},{y:.4f},{z:.4f}) "
+                f"is outside radius {radius}"
+            )
+            if len(fails) > 5:
+                fails.append("  (...truncated)")
+                break
+
+    (mx, my, mz), (sx, sy, sz) = stats(positions, centre)
+    sigma_axis = radius / math.sqrt(5.0)        # uniform-in-sphere
+    sigma_mean = sigma_axis / math.sqrt(n)
+    mean_tol = 6.0 * sigma_mean
+    # Stddev sampling distribution: stdev(stdev) = sigma_axis/sqrt(2N).
+    # 6x that gives plenty of headroom.
+    sd_tol = 6.0 * sigma_axis / math.sqrt(2*n)
+
+    print(f"sphere: n            = {n}")
+    print(f"sphere: mean         = ({mx:.5f}, {my:.5f}, {mz:.5f})  "
+          f"(centre = {centre}, +/- {mean_tol:.5f})")
+    print(f"sphere: stddev       = ({sx:.5f}, {sy:.5f}, {sz:.5f})  "
+          f"(analytical = {sigma_axis:.5f}, +/- {sd_tol:.5f})")
+
+    if abs(mx - cx) > mean_tol:
+        fails.append(f"sphere: meanX {mx} too far from {cx} (tol {mean_tol})")
+    if abs(my - cy) > mean_tol:
+        fails.append(f"sphere: meanY {my} too far from {cy} (tol {mean_tol})")
+    if abs(mz - cz) > mean_tol:
+        fails.append(f"sphere: meanZ {mz} too far from {cz} (tol {mean_tol})")
+    for label, s in (("X", sx), ("Y", sy), ("Z", sz)):
+        if abs(s - sigma_axis) > sd_tol:
+            fails.append(
+                f"sphere: stddev{label} {s} != {sigma_axis} (tol {sd_tol})"
+            )
+    return fails
+
+
+def check_box(positions, centre, size):
+    fails = []
+    n = len(positions)
+    if n == 0:
+        return ["box: no particles seeded"]
+    if n != 10000:
+        fails.append(f"box: nSeeded {n} != 10000")
+    cx, cy, cz = centre
+    Lx, Ly, Lz = size
+    tol = 1e-12
+    for i, (x, y, z) in enumerate(positions):
+        if (
+            abs(x - cx) > Lx/2 + tol
+            or abs(y - cy) > Ly/2 + tol
+            or abs(z - cz) > Lz/2 + tol
+        ):
+            fails.append(
+                f"box: particle {i} at ({x:.4f},{y:.4f},{z:.4f}) "
+                f"is outside box size {size}"
+            )
+            if len(fails) > 5:
+                fails.append("  (...truncated)")
+                break
+
+    (mx, my, mz), (sx, sy, sz) = stats(positions, centre)
+    sig_x = Lx / (2.0*math.sqrt(3.0))
+    sig_y = Ly / (2.0*math.sqrt(3.0))
+    sig_z = Lz / (2.0*math.sqrt(3.0))
+    sigmean_x = sig_x / math.sqrt(n)
+    sigmean_y = sig_y / math.sqrt(n)
+    sigmean_z = sig_z / math.sqrt(n)
+    sd_tol_x = 6.0 * sig_x / math.sqrt(2*n)
+    sd_tol_y = 6.0 * sig_y / math.sqrt(2*n)
+    sd_tol_z = 6.0 * sig_z / math.sqrt(2*n)
+
+    print(f"box:    n            = {n}")
+    print(f"box:    mean         = ({mx:.5f}, {my:.5f}, {mz:.5f})  "
+          f"(centre = {centre})")
+    print(f"box:    stddev       = ({sx:.5f}, {sy:.5f}, {sz:.5f})  "
+          f"(analytical = ({sig_x:.5f}, {sig_y:.5f}, {sig_z:.5f}))")
+
+    if abs(mx - cx) > 6*sigmean_x:
+        fails.append(f"box: meanX {mx} too far from {cx}")
+    if abs(my - cy) > 6*sigmean_y:
+        fails.append(f"box: meanY {my} too far from {cy}")
+    if abs(mz - cz) > 6*sigmean_z:
+        fails.append(f"box: meanZ {mz} too far from {cz}")
+    if abs(sx - sig_x) > sd_tol_x:
+        fails.append(f"box: stddevX {sx} != {sig_x} (tol {sd_tol_x})")
+    if abs(sy - sig_y) > sd_tol_y:
+        fails.append(f"box: stddevY {sy} != {sig_y} (tol {sd_tol_y})")
+    if abs(sz - sig_z) > sd_tol_z:
+        fails.append(f"box: stddevZ {sz} != {sig_z} (tol {sd_tol_z})")
+
+    return fails
+
+
+def main():
+    failures = []
+
+    sphere_csv = find_csv("radiationDoseSphere")
+    if sphere_csv is None:
+        failures.append("sphere: doseDistribution.csv not found")
+    else:
+        positions = read_positions(sphere_csv)
+        failures.extend(check_sphere(positions, (0.5, 0.5, 0.5), 0.2))
+
+    box_csv = find_csv("radiationDoseBox")
+    if box_csv is None:
+        failures.append("box: doseDistribution.csv not found")
+    else:
+        positions = read_positions(box_csv)
+        failures.extend(check_box(positions, (0.5, 0.5, 0.5), (0.4, 0.2, 0.1)))
+
+    if failures:
+        print("\nFAIL:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+    print("\nPASS: pointInjection sphere + box seeding both healthy")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
