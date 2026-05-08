@@ -70,9 +70,6 @@ class linearSpeciesExtinction
         //- Names of absorbing species
         DynamicList<word, 1, 0> aSpecies_;
 
-        //- List of pointers to absorbing species fields
-        PtrList<volScalarField> aFields_;
-
         //- Species fields the model loaded from disk (those not already
         //  registered with the mesh by an external solver). Held here for
         //  lifetime; access is via the mesh registry in correct().
@@ -86,12 +83,9 @@ class linearSpeciesExtinction
 
         //- Number of scattering species
         label nScattering_;
-        
+
         //- Names of scattering species
         DynamicList<word, 1, 0> sSpecies_;
-
-        //- List of pointers to scattering species fields
-        PtrList<volScalarField> sFields_;
 
         //- Scattering coefficients (one per species per band)
         DynamicList<DynamicList<scalar, 1, 0> > sCoeffs_;

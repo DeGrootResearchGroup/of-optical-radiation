@@ -58,12 +58,10 @@ Foam::optical::linearSpeciesExtinction::linearSpeciesExtinction
     absorption_(readBool(coeffsDict_.lookup("absorption"))),
     nAbsorbing_(readLabel(coeffsDict_.lookup("nAbsorbing"))),
     aSpecies_(nAbsorbing_),
-    aFields_(nAbsorbing_),
     aCoeffs_(nAbsorbing_),
     scattering_(readBool(coeffsDict_.lookup("scattering"))),
     nScattering_(readLabel(coeffsDict_.lookup("nScattering"))),
     sSpecies_(nScattering_),
-    sFields_(nScattering_),
     sCoeffs_(nScattering_)
 {
     // Initialize the extinction model
@@ -162,48 +160,35 @@ Foam::optical::linearSpeciesExtinction::~linearSpeciesExtinction()
 
 void Foam::optical::linearSpeciesExtinction::correct()
 {
-    
-    forAll(aFields_, i)
-    {
-        aFields_.set
-        (
-           i,
-           this->mesh().lookupObject<volScalarField>(aSpecies_[i])
-        );
-    }
-
-    // Read the scattering species fields
-    forAll(sFields_, i)
-    {
-        sFields_.set
-        (
-            i,
-            this->mesh().lookupObject<volScalarField>(sSpecies_[i])
-        );
-    }
-
-
     // Set the absorption coefficient field
-  forAll(ALambda_, iBand)
-  {
-      ALambda_[iBand] = dimensionedScalar("A", dimless/dimLength, 0.0);
-      for (label i = 0; i < nAbsorbing_; i++)
-      {
-          dimensionedScalar a("a", dimLength*dimLength/dimMass, aCoeffs_[i][iBand]);
-          ALambda_[iBand] += a*aFields_[i];
-      }
-  }
+    forAll(ALambda_, iBand)
+    {
+        ALambda_[iBand] = dimensionedScalar("A", dimless/dimLength, 0.0);
+        for (label i = 0; i < nAbsorbing_; i++)
+        {
+            const dimensionedScalar a
+            (
+                "a", dimLength*dimLength/dimMass, aCoeffs_[i][iBand]
+            );
+            ALambda_[iBand] +=
+                a*mesh().lookupObject<volScalarField>(aSpecies_[i]);
+        }
+    }
 
-  // Set the scattering coefficient field
-  forAll(SLambda_, iBand)
-  {
-      SLambda_[iBand] = dimensionedScalar("S", dimless/dimLength, 0.0);
-      for (label i = 0; i < nScattering_; i++)
-      {
-          dimensionedScalar s("s", dimLength*dimLength/dimMass, sCoeffs_[i][iBand]);
-          SLambda_[iBand] += s*sFields_[i];
-      }
-  }
+    // Set the scattering coefficient field
+    forAll(SLambda_, iBand)
+    {
+        SLambda_[iBand] = dimensionedScalar("S", dimless/dimLength, 0.0);
+        for (label i = 0; i < nScattering_; i++)
+        {
+            const dimensionedScalar s
+            (
+                "s", dimLength*dimLength/dimMass, sCoeffs_[i][iBand]
+            );
+            SLambda_[iBand] +=
+                s*mesh().lookupObject<volScalarField>(sSpecies_[i]);
+        }
+    }
 }
 
 
