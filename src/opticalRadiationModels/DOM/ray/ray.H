@@ -102,11 +102,21 @@ private:
         ray(const ray&) = delete;
         void operator=(const ray&) = delete;
 
-        //- Return the upwind Ji field
-        const surfaceScalarField Ji0_() const;
-
-        //- Return the downwind Ji field
-        const surfaceScalarField Ji1_() const;
+        //- Fill the upwind (Ji0) and downwind (Ji1) face-flux fields
+        //  by summing contributions from each pixel of the ray's
+        //  solid angle. Ji0 collects pixels with positive face-normal
+        //  component (face is "in" for the pixel direction) and Ji1
+        //  the negative ones; faces exactly tangent to the pixel
+        //  direction (dot product zero) are dropped from both -- the
+        //  Murthy-Mathur tangent-pixel choice, second-order accurate
+        //  in the pixel discretisation. Both fields are filled in a
+        //  single pixel-loop pass with no intermediate
+        //  surfaceScalarField allocations.
+        void computeFluxCoeffs_
+        (
+            surfaceScalarField& Ji0,
+            surfaceScalarField& Ji1
+        ) const;
 
 public:
 
