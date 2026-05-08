@@ -58,6 +58,21 @@ Foam::optical::mieKernel::mieKernel
             << "relative refractive index m must be non-zero"
             << exit(FatalError);
     }
+    if (m_.imag() < 0)
+    {
+        // The header documents the exp(-i omega t) time convention,
+        // under which absorbing materials have imag(m) >= 0. A user
+        // who copies a refractive index from a source that uses the
+        // exp(+i omega t) convention (imag < 0 there) gets wrong but
+        // plausible-looking results; reject up front so the
+        // convention mismatch surfaces at construction.
+        FatalErrorIn("mieKernel::mieKernel(scalar, complex)")
+            << "imag(m) = " << m_.imag() << " < 0; expected >= 0 under"
+            << " the exp(-i omega t) time convention. If your source"
+            << " uses the opposite sign, conjugate m before passing"
+            << " it in."
+            << exit(FatalError);
+    }
 
     // Wiscombe (1980) truncation: N_max = ceil(x + 4 x^(1/3) + 2). At
     // small x this is dominated by the +2 term; for x = 0.1 it gives

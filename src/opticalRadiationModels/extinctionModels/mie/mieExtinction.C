@@ -129,10 +129,14 @@ Foam::optical::mieExtinction::mieExtinction
         mieKernel mie(x, mRel);
 
         QscaPerBand_[b] = mie.Qsca();
-        QabsPerBand_[b] = mie.Qabs();
+        // Q_abs = Q_ext - Q_sca can pick up a small negative roundoff
+        // for purely scattering particles; clip at zero so a non-
+        // physical negative absorption coefficient never enters the
+        // RTE. Floating-point noise is the only thing affected.
+        QabsPerBand_[b] = max(scalar(0), mie.Qabs());
 
-        sigmaScaPrefactorPerBand_[b] = piR2*mie.Qsca();
-        sigmaAbsPrefactorPerBand_[b] = piR2*mie.Qabs();
+        sigmaScaPrefactorPerBand_[b] = piR2*QscaPerBand_[b];
+        sigmaAbsPrefactorPerBand_[b] = piR2*QabsPerBand_[b];
 
         Info<< "    mie band " << b
             << ": lambda = " << wavelengths_[b] << " nm, "

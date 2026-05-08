@@ -79,7 +79,25 @@ reflectiveMixedFvPatchScalarField
     diffuseFraction_(readScalar(dict.lookup("diffuseFraction"))),
     reflectionCoef_(readScalar(dict.lookup("reflectionCoef")))
 {
-
+    // Both coefficients are physical fractions in [0, 1]: reflectionCoef is
+    // the surface's total reflectivity (rest is absorbed) and
+    // diffuseFraction is the share of the reflected portion that goes to
+    // Lambertian (rest is specular). Out-of-range values produce
+    // unphysical radiances (negative absorption or overshooting albedos).
+    if (reflectionCoef_ < 0 || reflectionCoef_ > 1)
+    {
+        FatalErrorInFunction
+            << "reflectionCoef = " << reflectionCoef_
+            << " is out of range; require reflectionCoef in [0, 1]"
+            << exit(FatalError);
+    }
+    if (diffuseFraction_ < 0 || diffuseFraction_ > 1)
+    {
+        FatalErrorInFunction
+            << "diffuseFraction = " << diffuseFraction_
+            << " is out of range; require diffuseFraction in [0, 1]"
+            << exit(FatalError);
+    }
 
     if (dict.found("refValue"))
     {

@@ -55,11 +55,11 @@ Foam::optical::linearSpeciesExtinction::linearSpeciesExtinction
     extinctionModel(dict, mesh),
     coeffsDict_((dict.subDict(typeName + "Coeffs"))),
     nBands_(readLabel(coeffsDict_.lookup("nBands"))),
-    absorption_(readBool(coeffsDict_.lookup("absorption"))),
+    absorption_(coeffsDict_.lookup("absorption")),
     nAbsorbing_(readLabel(coeffsDict_.lookup("nAbsorbing"))),
     aSpecies_(nAbsorbing_),
     aCoeffs_(nAbsorbing_),
-    scattering_(readBool(coeffsDict_.lookup("scattering"))),
+    scattering_(coeffsDict_.lookup("scattering")),
     nScattering_(readLabel(coeffsDict_.lookup("nScattering"))),
     sSpecies_(nScattering_),
     sCoeffs_(nScattering_)

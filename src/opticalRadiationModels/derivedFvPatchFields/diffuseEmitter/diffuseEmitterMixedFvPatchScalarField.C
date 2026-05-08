@@ -121,6 +121,14 @@ updateCoeffs()
             << " absorption model" << nl << exit(FatalError);
     }
 
+    if (dom.nBand() != nBands_)
+    {
+        FatalErrorInFunction
+            << "nBands in BC (" << nBands_ << ") does not match the"
+            << " model's nBand (" << dom.nBand() << ")"
+            << exit(FatalError);
+    }
+
     // Get the surface normals for the boundary patch
     const vectorField n = patch().Sf()/patch().magSf();
 

@@ -67,7 +67,22 @@ Foam::optical::HenyeyGreensteinModel::HenyeyGreensteinModel
         functionDicts.lookup("subAngleNum") >> subAngleNum_;
         g_.setSize(nBand_);
         functionDicts.lookup("asymmetryFactor") >> g_;
-        const label nPhi = dom_.nPhi();  
+        forAll(g_, b)
+        {
+            // |g| = 1 makes the denominator (1 + g^2 - 2 g cos theta)^1.5
+            // singular at cos theta = 1 (forward) or -1 (backward); |g| > 1
+            // is non-physical (g is the mean cosine of the scattering
+            // angle). Reject both at the dictionary boundary so users find
+            // out at startup rather than via NaNs in the table.
+            if (mag(g_[b]) >= 1.0)
+            {
+                FatalErrorInFunction
+                    << "asymmetryFactor[" << b << "] = " << g_[b]
+                    << " is out of range; HG requires |g| < 1"
+                    << exit(FatalError);
+            }
+        }
+        const label nPhi = dom_.nPhi();
         const label nTheta = dom_.nTheta();   
         const scalar deltaPhi   =  pi / (2.0*nPhi);
         const scalar deltaTheta =  pi / nTheta;
