@@ -32,8 +32,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationWideBandExtinction_H
-#define opticalRadiationWideBandExtinction_H
+#ifndef opticalRadiationConstantExtinction_H
+#define opticalRadiationConstantExtinction_H
 
 #include "extinctionModel.H"
 
