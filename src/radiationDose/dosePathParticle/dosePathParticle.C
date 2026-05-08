@@ -232,8 +232,9 @@ bool Foam::dose::dosePathParticle::move
     // any number of cell faces / wall reflections along the way.
     // Termination of the loop happens when (a) stepFraction reaches 1
     // (the dt budget is consumed), (b) endReason_ becomes non-active
-    // (escape patch, stuck, etc.), (c) the cloud asks us to stop
-    // (keepParticle=false), or (d) a processor transfer is queued.
+    // (escape patch, soft-termination via maxTime / maxDose, stuck,
+    // etc.), (c) the cloud asks us to stop (keepParticle=false), or
+    // (d) a processor transfer is queued.
     while
     (
         stepFraction() < 1
@@ -256,18 +257,48 @@ bool Foam::dose::dosePathParticle::move
             max(scalar(0), td.GInterp().interpolate(coordinates(), tetIs_post));
 
         const scalar actualDt = (stepFraction() - sfrac)*dt;
-        D_ += 0.5*(G_pre + G_post)*actualDt*Wm2_s_to_mJcm2;
-        t_ += actualDt;
-    }
+        const scalar Gavg = 0.5*(G_pre + G_post);
+        const scalar dosePerSec = Gavg*Wm2_s_to_mJcm2;
 
-    // Soft termination checks. maxTime / maxDose of 0 disable.
-    if (cloud.maxTime() > 0 && t_ >= cloud.maxTime())
-    {
-        endReason_ = endReason::timedOut;
-    }
-    else if (cloud.maxDose() > 0 && D_ >= cloud.maxDose())
-    {
-        endReason_ = endReason::terminated;
+        // Distance-to-threshold in time units. With maxTime / maxDose
+        // disabled (== 0) the corresponding dt is great so the
+        // threshold never fires. Trapezoidal dose is linear in dt
+        // over an inner step, so the dose threshold inverts cleanly.
+        const scalar dtToMaxTime =
+            (cloud.maxTime() > 0)
+          ? cloud.maxTime() - t_
+          : great;
+        const scalar dtToMaxDose =
+            (cloud.maxDose() > 0 && dosePerSec > small)
+          ? (cloud.maxDose() - D_)/dosePerSec
+          : great;
+        const scalar dtToTerm = min(dtToMaxTime, dtToMaxDose);
+
+        if (actualDt >= dtToTerm)
+        {
+            // Cap the accumulator exactly at the threshold rather
+            // than overshooting by up to one inner step. The
+            // particle's spatial position is left at its post-
+            // trackToAndHitFace value (an O(actualDt - dtToTerm)
+            // overshoot in xEnd); only t_ and D_ are pinned.
+            if (dtToMaxTime <= dtToMaxDose)
+            {
+                t_ = cloud.maxTime();
+                D_ += dosePerSec*dtToMaxTime;
+                endReason_ = endReason::timedOut;
+            }
+            else
+            {
+                t_ += dtToMaxDose;
+                D_ = cloud.maxDose();
+                endReason_ = endReason::terminated;
+            }
+        }
+        else
+        {
+            t_ += actualDt;
+            D_ += dosePerSec*actualDt;
+        }
     }
 
     // Record the end-of-outer-step position. Skipped when the cloud
