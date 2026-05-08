@@ -451,10 +451,7 @@ Implementation choices:
   other lifecycle hooks (`momentumPredictor`, `pressureCorrector`,
   `thermophysicalPredictor`, etc.) are no-ops — radiation has no
   contributions to those equations.
-- Caveat: `preSolve()` runs before `moveMesh()`. For static meshes
-  (the only case currently used) this is correct. For moving meshes
-  the solve should move to `prePredictor()` (post-motion, inside the
-  PIMPLE loop).
+- Static meshes only — see "Mesh-motion limitations" below.
 
 End-to-end runtime tests of both forms ship as tutorials:
 - `tutorials/fvModelChannel2D` exercises the fvModel inside
@@ -463,6 +460,37 @@ End-to-end runtime tests of both forms ship as tutorials:
   answer.
 - `tutorials/refractiveInterface2D` exercises the solver-module form
   via `foamMultiRun` with two regions both running `opticalRadiation`.
+
+### Mesh-motion limitations
+
+opticalRadiation is intentionally **static-mesh-only** today. Two
+shortcuts in the code rely on that assumption, and both forms
+fail loudly rather than silently when a moving-mesh event is
+attempted, so users find out at the first time step instead of
+discovering it via a wrong answer.
+
+1. **Solver module: `preSolve()` runs before `moveMesh()`.** The
+   radiation solve uses face areas (`mesh_.Sf()`) when computing
+   the per-ray Ji0 / Ji1 face-flux fields. With a static mesh
+   `Sf()` is constant for the entire run so the ordering is
+   harmless. With a moving mesh the radiation solve at the start
+   of a step would use last-step's face areas, off by one step.
+   `preSolve()` now `FatalErrorInFunction`s if `mesh().changing()`
+   is true. Fix when needed: relocate the solve to `prePredictor()`
+   (post-motion, inside the PIMPLE loop), at which point the check
+   can be lifted.
+
+2. **fvModel `movePoints()` / `topoChange()` / `mapMesh()`** all
+   `FatalErrorInFunction` when invoked by the framework — they
+   only fire for dynamic meshes, so on a static mesh they're never
+   called. `distribute()` is intentionally still a no-op: parallel
+   redistribution (e.g. dynamic load balancing across a static
+   decomposition) is not mesh motion and opticalRadiation handles
+   it correctly. If a future change adds ray-level caching that
+   depends on `mesh_.Sf()`, the moving-mesh hooks need to
+   invalidate it as well as supporting motion in the first place.
+
+Both items are out of scope until a moving-mesh driver case lands.
 
 ### Multi-region cases — no dedicated binary
 

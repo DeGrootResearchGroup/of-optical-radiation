@@ -78,6 +78,15 @@ Foam::scalar Foam::solvers::opticalRadiation::maxDeltaT() const
 
 void Foam::solvers::opticalRadiation::preSolve()
 {
+    if (mesh().changing())
+    {
+        FatalErrorInFunction
+            << "opticalRadiation solver module does not support "
+            << "dynamic meshes (mesh motion or topology change). "
+            << "See the 'Mesh-motion limitations' section in "
+            << "CLAUDE.md for details and the planned fix path."
+            << exit(FatalError);
+    }
     radiationModel_->correct();
 }
 
