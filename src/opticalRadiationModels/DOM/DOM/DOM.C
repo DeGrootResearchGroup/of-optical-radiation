@@ -328,8 +328,8 @@ Foam::label Foam::optical::DOM::nameToRayId(const word& name) const
     size_type i1 = name.find_first_of("_");
     size_type i2 = name.find_last_of("_");
 
-    label ib = readLabel(IStringStream(name.substr(i1+1, i2-1))());
-    label ia = readLabel(IStringStream(name.substr(i2+1, name.size()-1))());
+    label ib = readLabel(IStringStream(name.substr(i1+1, i2-i1-1))());
+    label ia = readLabel(IStringStream(name.substr(i2+1))());
 
     return nAngle_*ib + ia;
 }
