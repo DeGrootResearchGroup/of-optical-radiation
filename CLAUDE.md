@@ -135,7 +135,28 @@ Foam::optical::
     │                                                single ray bin containing
     │                                                beamDirection; no spreading
     │                                                across neighbours)
+    ├── iesEmitterMixedFvPatchScalarField           (real-luminaire emitter
+    │                                                from an IES Type C
+    │                                                photometric file; the
+    │                                                table sets only the
+    │                                                angular shape and the
+    │                                                BC renormalises against
+    │                                                a user-supplied per-band
+    │                                                total radiant flux P,
+    │                                                so the file's absolute
+    │                                                units (cd vs W/sr)
+    │                                                don't matter; uses the
+    │                                                iesPhotometry parser)
     └── refractiveCoupledMixedFvPatchScalarField
+
+  iesPhotometry                   (IES LM-63 Type C parser + bilinear
+                                   interpolator; loads the candela table
+                                   from a file path and serves
+                                   I_table(gamma_deg, h_deg) on demand;
+                                   horizontal symmetry — rotational /
+                                   quadrant / bilateral / full — is
+                                   inferred from the table's horizontal
+                                   range)
 
 Foam::fv::
 
@@ -188,6 +209,8 @@ and étendue-n² methodology fixes.
 | `src/opticalRadiationModels/extinctionModels/` | Absorption & scattering coefficient providers |
 | `src/opticalRadiationModels/phaseFunctionModels/` | Phase function P(θ) implementations |
 | `src/opticalRadiationModels/derivedFvPatchFields/` | Custom optical boundary conditions |
+| `src/opticalRadiationModels/derivedFvPatchFields/iesEmitter/iesPhotometry.{H,C}` | IES LM-63 Type C parser + interpolator |
+| `src/opticalRadiationModels/derivedFvPatchFields/iesEmitter/iesEmitterMixedFvPatchScalarField.{H,C}` | iesEmitter BC (uses iesPhotometry) |
 | `src/opticalRadiationModels/fvModels/opticalRadiation/opticalRadiation.{H,C}` | fvModel wrapper for embedding in host solvers |
 | `applications/solvers/opticalRadiationFoam/opticalRadiationFoam.C` | Standalone DOM solver entry point |
 | `applications/modules/opticalRadiation/opticalRadiation.{H,C}` | Solver-module form for `foamMultiRun` |
@@ -357,6 +380,34 @@ re-litigate them.
   Validated by `mieScatteringSlab2D` against an in-script BHMIE
   reference (1e-4 rel) and the Rayleigh closed form at small `x`
   (5e-3 rel anchor for the Python reference itself).
+
+- **iesEmitter: IES table sets only the angular shape; magnitude
+  comes from a per-band `power` [W].** The BC parses the candela
+  table (LM-63 Type C only) via `iesPhotometry`, but every emitting
+  ray `d` going INTO the domain through the patch gets
+  `L_d = (P_band / (A_patch * Phi_table)) * I_table(d) / max(d.n_avg, eps)`,
+  where `Phi_table = sum over outgoing rays of I_table(d)*Omega_d`
+  (no cosine weight) and `n_avg` is the patch-averaged inward normal
+  computed globally (reduced across processors). With this
+  normalisation the patch's far-field emitted intensity is exactly
+  proportional to `I_table(d)` and the total emitted radiometric
+  flux is exactly `P_band` -- the candela vs W/sr question on the
+  IES file becomes irrelevant. The cos-floor `eps = 1e-3` drops
+  rays within ~3 deg of grazing to bound the divergent `I/cos`
+  ratio; below the angular resolution of any DOM grid we run
+  (`nPhi >= 4` -> 22.5 deg per cell) so the dropped flux is
+  negligible for well-behaved IES distributions. `fixtureAxis`
+  defines the global-frame direction of IES gamma=0 (the fixture's
+  nominal beam axis); `fixtureUp` defines IES h=0 in the plane
+  perpendicular to it (orthogonalised at construction). For
+  axisymmetric IES tables (single horizontal angle) `fixtureUp`
+  doesn't matter -- supply any vector not collinear with
+  `fixtureAxis`. Validated by `iesEmitter2D` against the
+  plane-parallel `2*pi*L_w*E_2(kappa*x)` analytical with a
+  Lambertian-shape IES, where the cos-shape exactly cancels the
+  per-ray `I/cos` and the BC reduces to a constant Lambertian
+  radiance whose `L_w` is recomputed in the validate script from
+  `power / (A_patch * Phi_table_discrete)`.
 
 ### fvModel Wrapper (`src/opticalRadiationModels/fvModels/opticalRadiation/`)
 
@@ -744,7 +795,7 @@ Don't try to `git push` from inside the sandbox; it fails with
 
 ## Tutorials & validation
 
-`tutorials/` ships eleven cases — nine for opticalRadiation, two for
+`tutorials/` ships twelve cases — ten for opticalRadiation, two for
 radiationDose:
 
 opticalRadiation:
@@ -814,6 +865,20 @@ opticalRadiation:
   slab (qualitative; the Mie phase function is anisotropic and
   the in-tree analytical references all assume isotropic
   scattering, so a strict G-profile comparison is out of scope).
+- **`iesEmitter2D`** — `diffuseSlab2D` geometry with the radiating
+  wall switched to `iesEmitter` and a synthetic Lambertian-shape
+  IES file (`I(gamma) = cos(gamma)` for gamma <= 90, zero above;
+  axisymmetric, single horizontal angle). With `fixtureAxis =
+  (1 0 0)` aligned to the patch's inward normal, the cos shape
+  exactly cancels the per-ray `I/cos` factor and the BC reduces
+  to a constant Lambertian radiance. The validate script
+  recomputes the discrete `Phi_table` for the 16-ray 2-D grid
+  and predicts `L_w = power / (A_patch * Phi_table)` from the
+  case parameters; observed peak error vs `2*pi*L_w*E_2(kappa*x)`
+  is 5.4% against the same 7% DOM angular tolerance the other
+  E_2 cases use. Regression guard for the IES Type C parser, the
+  fixture-frame angle conversion, the bilinear table interpolation,
+  and the per-band radiometric renormalisation.
 
 radiationDose:
 

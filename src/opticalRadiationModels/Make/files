@@ -31,6 +31,8 @@ extinctionModels/composite/compositeExtinction.C
 
 derivedFvPatchFields/diffuseEmitter/diffuseEmitterMixedFvPatchScalarField.C
 derivedFvPatchFields/collimatedBeam/collimatedBeamMixedFvPatchScalarField.C
+derivedFvPatchFields/iesEmitter/iesPhotometry.C
+derivedFvPatchFields/iesEmitter/iesEmitterMixedFvPatchScalarField.C
 derivedFvPatchFields/reflective/reflectiveMixedFvPatchScalarField.C
 derivedFvPatchFields/refractiveCoupled/refractiveCoupledMixedFvPatchScalarField.C
 

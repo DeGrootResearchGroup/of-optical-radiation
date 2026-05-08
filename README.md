@@ -45,9 +45,11 @@ in absorbing/scattering participating media:
 - Boundary conditions: Lambertian diffuse emitter, specular/diffuse
   reflective surface, collimated beam (delta-direction, all flux
   assigned to the single ray bin containing the beam direction —
-  no spreading across neighbouring bins), refractive transmissive
-  interface (with the étendue-correct n² factor and full Fresnel
-  reflectivity).
+  no spreading across neighbouring bins), IES Type C luminaire
+  emitter (parses LM-63 photometric files and renormalises against
+  a user-supplied total radiant flux per band), refractive
+  transmissive interface (with the étendue-correct n² factor and
+  full Fresnel reflectivity).
 - Standalone solver `opticalRadiationFoam`.
 - `fvModel` wrapper for embedding into any host solver via the
   `fvModels` dictionary, without modifying the host's source.
@@ -130,7 +132,7 @@ Build products:
 
 ## Running a tutorial
 
-Eleven tutorial cases ship under `tutorials/`:
+Twelve tutorial cases ship under `tutorials/`:
 
 opticalRadiation cases:
 
@@ -165,6 +167,15 @@ opticalRadiation cases:
   validate: BHMIE Rayleigh limit at small `x` (anchors the Python
   reference), C++ kernel cross-check vs. the validated reference,
   `pi r^2 N Q_sca` field cross-check, and a G-profile sanity decay.
+- `iesEmitter2D` — `diffuseSlab2D` geometry with the radiating wall
+  switched to `iesEmitter` and a synthetic Lambertian-shape IES file
+  (`I(gamma) = cos(gamma)`). With `fixtureAxis` aligned to the inward
+  normal the BC reduces to a constant Lambertian radiance whose
+  effective `L_w` follows from `power / (A_patch * Phi_table)`; the
+  validate script recomputes that `L_w` from case parameters and
+  checks `G(x)` against `2*pi*L_w*E_2(kappa*x)` summed over bands
+  (~5.4 % peak error vs 7 % tol — same DOM angular discretisation
+  budget as `diffuseSlab2D`).
 
 radiationDose cases:
 
