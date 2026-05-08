@@ -222,9 +222,23 @@ bool Foam::optical::DOM::read()
 {
     if (radiationModel::read())
     {
-        // Only reading solution parameters - not changing ray geometry
+        // Solution parameters. Ray geometry (nTheta, nPhi, nBand,
+        // pixelation) is held constant -- changing it would require
+        // tearing down and rebuilding the per-ray storage, which is
+        // out of scope for a runtime-modifiable read.
         coeffs_.readIfPresent("convergence", convergence_);
         coeffs_.readIfPresent("maxIter", maxIter_);
+
+        // Refresh the phase function model the same way the base
+        // class refreshes the extinction model: concrete phase-
+        // function models bake their dictionary into per-band
+        // tables at construction and don't expose a read(), so a
+        // factory rebuild is the way to pick up coefficient edits
+        // (e.g. asymmetry parameter g for HG / Schlick).
+        phaseFunctionModel_.clear();
+        phaseFunctionModel_ =
+            phaseFunctionModel::New(*this, coeffs_, mesh_.nSolutionD());
+
         return true;
     }
     else

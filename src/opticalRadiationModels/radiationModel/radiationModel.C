@@ -102,6 +102,19 @@ bool Foam::optical::radiationModel::read()
         lookup("opticalRadiation") >> opticalRadiation_;
         coeffs_ = subDict(type() + "Coeffs");
 
+        // The extinction model holds its own per-band ALambda / SLambda
+        // fields driven by the dictionary's coefficients. Concrete
+        // models do not expose a read() method, so the only way to
+        // pick up edits to the dictionary entries (or a switch in
+        // model type) is to re-instantiate via the factory. Keeps
+        // runTimeModifiable workflows in sync.
+        //
+        // Clear before assign so the old model's registered fields
+        // (ALambda_<i>, SLambda_<i>) are unregistered before the
+        // new model's init() registers the same names.
+        extinction_.clear();
+        extinction_ = extinctionModel::New(*this, mesh_);
+
         return true;
     }
     else
