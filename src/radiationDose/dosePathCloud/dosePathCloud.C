@@ -152,7 +152,17 @@ Foam::label Foam::dose::dosePathCloud::runToCompletion
     label step = 0;
     while (step < maxOuterSteps)
     {
-        const label active = nActive();
+        // Global active-particle count: in MPI mode, ranks must enter
+        // and exit the move() collective in lockstep. If only the
+        // local count were checked, a rank that finished its particles
+        // first would break out while peers still have live particles
+        // to track, and the next move() collective on the lagging
+        // ranks would hang.
+        label active = nActive();
+        if (Pstream::parRun())
+        {
+            reduce(active, sumOp<label>());
+        }
         if (active == 0)
         {
             break;

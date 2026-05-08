@@ -810,6 +810,21 @@ For each `execute()` call, `write()` emits:
    CSV per `execute()` vs. one continuous integration) would need
    to be re-thought first.
 
+4. **VTK trajectory truncated across MPI processor handoff.**
+   In parallel runs, the per-particle trajectory point list
+   (`points_`) is not transmitted across processor patches —
+   only the scalar end-state (V, V_disp, D, t, endReason, plus
+   the OpenFOAM particle base data) is serialised. A particle
+   that crosses one or more processor patches will appear in
+   the VTK file with only its post-handoff vertices. The CSV
+   and summary statistics are unaffected — the dose accumulator
+   and end position are correct because the receiving rank
+   continues integrating from where the sending rank left off.
+   Fixing this needs trackPoint to gain Ostream/Istream
+   operators and the dosePathParticle (de)serialisation to
+   include the full DynamicList; not done because no driver
+   case has needed parallel trajectory continuity.
+
 ### `setFluenceRate` utility
 
 A small standalone OpenFOAM utility that writes a `volScalarField G`

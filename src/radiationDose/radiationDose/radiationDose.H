@@ -105,6 +105,12 @@ class radiationDose
 :
     public fvMeshFunctionObject
 {
+    // Forward declaration of the per-rank gathered track payload.
+    // Defined fully in the .C since it's an implementation detail of
+    // the writer pipeline.
+    struct GatheredTracks;
+
+
     // Private Data — configuration
 
         word UName_;
@@ -147,9 +153,29 @@ class radiationDose
 
     // Private Member Functions
 
-        void writeDoseCsv() const;
-        void writeSummary() const;
-        void writeVtkTrajectories() const;
+        //- Gather the local cloud's per-track and per-vertex data
+        //  onto rank 0. In serial this is effectively a fill-and-
+        //  return; in parallel, only the master rank's struct holds
+        //  all ranks' data after the call. Vertex arrays are
+        //  flattened across tracks (per rank) and the per-track
+        //  nVerts list lets the consumer slice them.
+        GatheredTracks gatherTracks() const;
+
+        void writeDoseCsv
+        (
+            const GatheredTracks& g,
+            const fileName& outDir
+        ) const;
+        void writeSummary
+        (
+            const GatheredTracks& g,
+            const fileName& outDir
+        ) const;
+        void writeVtkTrajectories
+        (
+            const GatheredTracks& g,
+            const fileName& outDir
+        ) const;
 
 
 public:

@@ -9,6 +9,7 @@
 #include "radiationDose.H"
 #include "OFstream.H"
 #include "OSspecific.H"
+#include "Pstream.H"
 #include "addToRunTimeSelectionTable.H"
 #include "interpolationCellPoint.H"
 #include "meshSearch.H"
@@ -256,30 +257,96 @@ bool Foam::functionObjects::radiationDose::execute()
 }
 
 
+// Per-rank gather payload. Per-track scalars are kept as a List per
+// rank; per-vertex data is flattened (concatenated across tracks) and
+// sliced via the matching nVerts list. nVerts[r][i] is 0 for tracks
+// that should not appear in the VTK file (writeVtk_ off, or fewer
+// than 2 vertices); the CSV/summary writers ignore it.
+struct Foam::functionObjects::radiationDose::GatheredTracks
+{
+    // Per-track summary, indexed [proc][trackOnProc]
+    List<List<label>>  origId;
+    List<List<label>>  origProc;
+    List<List<label>>  endReason;
+    List<List<scalar>> tEnd;
+    List<List<scalar>> dose;
+    List<List<vector>> xEnd;
+
+    // Per-track vertex count (0 if the track is excluded from VTK)
+    List<List<label>>  nVerts;
+
+    // Per-vertex data, concatenated across tracks within each rank
+    List<List<vector>> vertX;
+    List<List<scalar>> vertT;
+    List<List<scalar>> vertD;
+    List<List<label>>  vertC;
+};
+
+
 bool Foam::functionObjects::radiationDose::write()
 {
     if (!cloud_.valid())
     {
         return true;
     }
-    writeDoseCsv();
-    writeSummary();
-    if (writeVtk_)
+
+    const GatheredTracks g = gatherTracks();
+
+    if (Pstream::master())
     {
-        writeVtkTrajectories();
+        // globalPath() strips the processorN suffix in parallel runs;
+        // in serial it's identical to path(). The summary / CSV / VTK
+        // are already global (rank 0 holds all ranks' data after the
+        // gather), so they belong in the case-root postProcessing
+        // tree, not under any processor directory.
+        const fileName outDir =
+            time_.globalPath()/"postProcessing"/name()/time_.name();
+        mkDir(outDir);
+
+        writeDoseCsv(g, outDir);
+        writeSummary(g, outDir);
+        if (writeVtk_)
+        {
+            writeVtkTrajectories(g, outDir);
+        }
     }
     return true;
 }
 
 
-void Foam::functionObjects::radiationDose::writeDoseCsv() const
+Foam::functionObjects::radiationDose::GatheredTracks
+Foam::functionObjects::radiationDose::gatherTracks() const
 {
-    const fileName outDir =
-        time_.path()/"postProcessing"/name()/time_.name();
-    mkDir(outDir);
+    GatheredTracks g;
+    const label nProcs = Pstream::nProcs();
+    g.origId.setSize(nProcs);
+    g.origProc.setSize(nProcs);
+    g.endReason.setSize(nProcs);
+    g.tEnd.setSize(nProcs);
+    g.dose.setSize(nProcs);
+    g.xEnd.setSize(nProcs);
+    g.nVerts.setSize(nProcs);
+    g.vertX.setSize(nProcs);
+    g.vertT.setSize(nProcs);
+    g.vertD.setSize(nProcs);
+    g.vertC.setSize(nProcs);
 
-    OFstream os(outDir/"doseDistribution.csv");
-    os  << "# trackId,endReason,time_s,dose_mJ_cm2,xEnd,yEnd,zEnd" << nl;
+    const label me = Pstream::myProcNo();
+    const label nLocal = cloud_->size();
+    g.origId[me].setSize(nLocal);
+    g.origProc[me].setSize(nLocal);
+    g.endReason[me].setSize(nLocal);
+    g.tEnd[me].setSize(nLocal);
+    g.dose[me].setSize(nLocal);
+    g.xEnd[me].setSize(nLocal);
+    g.nVerts[me].setSize(nLocal);
+
+    DynamicList<vector> vx;
+    DynamicList<scalar> vt;
+    DynamicList<scalar> vd;
+    DynamicList<label>  vc;
+
+    label k = 0;
     forAllConstIter
     (
         typename lagrangian::Cloud<dose::dosePathParticle>,
@@ -288,33 +355,95 @@ void Foam::functionObjects::radiationDose::writeDoseCsv() const
     )
     {
         const dose::dosePathParticle& p = iter();
-        const vector x = p.position(mesh_);
-        os  << p.origId() << ','
-            << dose::dosePathParticle::endReasonNames[p.end()] << ','
-            << p.t() << ','
-            << p.D() << ','
-            << x.x() << ',' << x.y() << ',' << x.z() << nl;
+        g.origId[me][k]    = p.origId();
+        g.origProc[me][k]  = p.origProc();
+        g.endReason[me][k] = label(p.end());
+        g.tEnd[me][k]      = p.t();
+        g.dose[me][k]      = p.D();
+        g.xEnd[me][k]      = p.position(mesh_);
+
+        const DynamicList<dose::trackPoint>& pts = p.points();
+        const label nv =
+            (writeVtk_ && pts.size() >= 2) ? pts.size() : 0;
+        g.nVerts[me][k] = nv;
+        for (label j = 0; j < nv; ++j)
+        {
+            vx.append(pts[j].x);
+            vt.append(pts[j].t);
+            vd.append(pts[j].D);
+            vc.append(pts[j].celli);
+        }
+        ++k;
+    }
+
+    g.vertX[me] = vx;
+    g.vertT[me] = vt;
+    g.vertD[me] = vd;
+    g.vertC[me] = vc;
+
+    Pstream::gatherList(g.origId);
+    Pstream::gatherList(g.origProc);
+    Pstream::gatherList(g.endReason);
+    Pstream::gatherList(g.tEnd);
+    Pstream::gatherList(g.dose);
+    Pstream::gatherList(g.xEnd);
+    Pstream::gatherList(g.nVerts);
+    Pstream::gatherList(g.vertX);
+    Pstream::gatherList(g.vertT);
+    Pstream::gatherList(g.vertD);
+    Pstream::gatherList(g.vertC);
+
+    return g;
+}
+
+
+void Foam::functionObjects::radiationDose::writeDoseCsv
+(
+    const GatheredTracks& g,
+    const fileName& outDir
+) const
+{
+    OFstream os(outDir/"doseDistribution.csv");
+    os  << "# trackId,endReason,time_s,dose_mJ_cm2,xEnd,yEnd,zEnd" << nl;
+    forAll(g.origId, r)
+    {
+        forAll(g.origId[r], i)
+        {
+            const auto er = static_cast<dose::dosePathParticle::endReason>
+                (g.endReason[r][i]);
+            const vector& x = g.xEnd[r][i];
+            os  << g.origProc[r][i] << '.' << g.origId[r][i] << ','
+                << dose::dosePathParticle::endReasonNames[er] << ','
+                << g.tEnd[r][i] << ','
+                << g.dose[r][i] << ','
+                << x.x() << ',' << x.y() << ',' << x.z() << nl;
+        }
     }
 }
 
 
-void Foam::functionObjects::radiationDose::writeSummary() const
+void Foam::functionObjects::radiationDose::writeSummary
+(
+    const GatheredTracks& g,
+    const fileName& outDir
+) const
 {
-    const fileName outDir =
-        time_.path()/"postProcessing"/name()/time_.name();
-    mkDir(outDir);
-
-    DynamicList<scalar> doses(cloud_->size());
-    forAllConstIter
-    (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
+    DynamicList<scalar> doses;
+    label totalSeeded = 0;
+    forAll(g.origId, r)
     {
-        if (iter().end() == dose::dosePathParticle::endReason::escaped)
+        totalSeeded += g.origId[r].size();
+        forAll(g.origId[r], i)
         {
-            doses.append(iter().D());
+            if
+            (
+                static_cast<dose::dosePathParticle::endReason>
+                    (g.endReason[r][i])
+             == dose::dosePathParticle::endReason::escaped
+            )
+            {
+                doses.append(g.dose[r][i]);
+            }
         }
     }
 
@@ -338,7 +467,7 @@ void Foam::functionObjects::radiationDose::writeSummary() const
 
     OFstream os(outDir/"summary.dat");
     os  << "# radiationDose summary" << nl
-        << "totalSeeded     " << cloud_->size() << nl
+        << "totalSeeded     " << totalSeeded << nl
         << "escaped         " << N << nl
         << "meanDose_mJcm2  " << mean << nl
         << "stdevDose_mJcm2 " << stdev << nl
@@ -365,37 +494,37 @@ void Foam::functionObjects::radiationDose::writeSummary() const
 }
 
 
-void Foam::functionObjects::radiationDose::writeVtkTrajectories() const
+void Foam::functionObjects::radiationDose::writeVtkTrajectories
+(
+    const GatheredTracks& g,
+    const fileName& outDir
+) const
 {
     // Legacy ASCII VTK PolyData. ParaView reads this directly as
     // streamlines coloured by per-vertex time / dose / cell, with
     // per-track (cell-data) trackId / endReason for filtering.
     //
-    // We deliberately use the legacy single-file format rather than
-    // XML .vtp: it is hand-writable without an XML library, opens in
-    // ParaView identically, and the size penalty is negligible
-    // compared to the dataset itself.
+    // The legacy single-file format is hand-writable without an XML
+    // library and opens in ParaView identically to .vtp.
     //
-    // Tracks shorter than 2 vertices (a particle that became `stuck`
-    // before any successful step) are skipped — VTK lines require
-    // at least two points and the trajectory carries no information.
-    const fileName outDir =
-        time_.path()/"postProcessing"/name()/time_.name();
-    mkDir(outDir);
+    // Tracks excluded from VTK have nVerts == 0 (already filtered in
+    // gatherTracks): a particle that became `stuck` before any
+    // successful step has only its seed point and would form a
+    // zero-length line.
 
+    // Total counts across all ranks (already filtered: nVerts==0 for
+    // skipped tracks).
     label nPoints = 0, nLines = 0, nLineConn = 0;
-    forAllConstIter
-    (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
+    forAll(g.nVerts, r)
     {
-        const label n = iter().points().size();
-        if (n < 2) continue;
-        nPoints += n;
-        nLines  += 1;
-        nLineConn += n + 1;             // [count, idx0, idx1, ...]
+        forAll(g.nVerts[r], i)
+        {
+            const label nv = g.nVerts[r][i];
+            if (nv == 0) continue;
+            nPoints   += nv;
+            nLines    += 1;
+            nLineConn += nv + 1;        // [count, idx0, idx1, ...]
+        }
     }
 
     OFstream os(outDir/"trajectories.vtk");
@@ -407,97 +536,88 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories() const
         << "DATASET POLYDATA" << nl
         << "POINTS " << nPoints << " float" << nl;
 
-    forAllConstIter
-    (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
-    {
-        const DynamicList<dose::trackPoint>& pts = iter().points();
-        if (pts.size() < 2) continue;
-        forAll(pts, j)
+    // Walk each rank's flattened vertex arrays in lockstep with its
+    // nVerts list. The vertex offset within rank r increments by
+    // nVerts[r][i] for each emitted track.
+    auto walkVerts =
+        [&](auto&& emit)
         {
-            const vector& x = pts[j].x;
+            forAll(g.nVerts, r)
+            {
+                label vOff = 0;
+                forAll(g.nVerts[r], i)
+                {
+                    const label nv = g.nVerts[r][i];
+                    for (label j = 0; j < nv; ++j)
+                    {
+                        emit(r, vOff + j);
+                    }
+                    vOff += nv;
+                }
+            }
+        };
+
+    walkVerts
+    (
+        [&](label r, label v)
+        {
+            const vector& x = g.vertX[r][v];
             os << x.x() << ' ' << x.y() << ' ' << x.z() << nl;
         }
-    }
+    );
 
     os  << "LINES " << nLines << ' ' << nLineConn << nl;
-    label idx = 0;
-    forAllConstIter
-    (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
     {
-        const label n = iter().points().size();
-        if (n < 2) continue;
-        os << n;
-        for (label j = 0; j < n; ++j)
+        label idx = 0;
+        forAll(g.nVerts, r)
         {
-            os << ' ' << (idx + j);
+            forAll(g.nVerts[r], i)
+            {
+                const label nv = g.nVerts[r][i];
+                if (nv == 0) continue;
+                os << nv;
+                for (label j = 0; j < nv; ++j)
+                {
+                    os << ' ' << (idx + j);
+                }
+                os << nl;
+                idx += nv;
+            }
         }
-        os << nl;
-        idx += n;
     }
 
     os  << "POINT_DATA " << nPoints << nl
         << "SCALARS time_s float 1" << nl
         << "LOOKUP_TABLE default" << nl;
-    forAllConstIter
+    walkVerts
     (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
-    {
-        const DynamicList<dose::trackPoint>& pts = iter().points();
-        if (pts.size() < 2) continue;
-        forAll(pts, j) { os << pts[j].t << nl; }
-    }
+        [&](label r, label v) { os << g.vertT[r][v] << nl; }
+    );
 
     os  << "SCALARS dose_mJcm2 float 1" << nl
         << "LOOKUP_TABLE default" << nl;
-    forAllConstIter
+    walkVerts
     (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
-    {
-        const DynamicList<dose::trackPoint>& pts = iter().points();
-        if (pts.size() < 2) continue;
-        forAll(pts, j) { os << pts[j].D << nl; }
-    }
+        [&](label r, label v) { os << g.vertD[r][v] << nl; }
+    );
 
     os  << "SCALARS cell int 1" << nl
         << "LOOKUP_TABLE default" << nl;
-    forAllConstIter
+    walkVerts
     (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
-    {
-        const DynamicList<dose::trackPoint>& pts = iter().points();
-        if (pts.size() < 2) continue;
-        forAll(pts, j) { os << pts[j].celli << nl; }
-    }
+        [&](label r, label v) { os << g.vertC[r][v] << nl; }
+    );
 
     os  << "CELL_DATA " << nLines << nl
         << "SCALARS trackId int 1" << nl
         << "LOOKUP_TABLE default" << nl;
-    forAllConstIter
-    (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
+    forAll(g.nVerts, r)
     {
-        if (iter().points().size() < 2) continue;
-        os << iter().origId() << nl;
+        forAll(g.nVerts[r], i)
+        {
+            if (g.nVerts[r][i] == 0) continue;
+            os << g.origId[r][i] << nl;
+        }
     }
 
     // endReason as integer enum index, keyed by endReasonNames in the
@@ -505,15 +625,13 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories() const
     // is the cleanest way to isolate (e.g.) only escaped tracks.
     os  << "SCALARS endReason int 1" << nl
         << "LOOKUP_TABLE default" << nl;
-    forAllConstIter
-    (
-        typename lagrangian::Cloud<dose::dosePathParticle>,
-        *cloud_,
-        iter
-    )
+    forAll(g.nVerts, r)
     {
-        if (iter().points().size() < 2) continue;
-        os << label(iter().end()) << nl;
+        forAll(g.nVerts[r], i)
+        {
+            if (g.nVerts[r][i] == 0) continue;
+            os << g.endReason[r][i] << nl;
+        }
     }
 }
 
