@@ -145,10 +145,14 @@ Foam::scalar Foam::optical::ray::correct()
 
     const volScalarField& ds = dom_.diffusionScatter();
 
+    surfaceScalarField Ji0(vector(0,0,0) & mesh_.Sf());
+    surfaceScalarField Ji1(vector(0,0,0) & mesh_.Sf());
+    computeFluxCoeffs_(Ji0, Ji1);
+
     fvScalarMatrix IiEq
     (
-          fvm::div(Ji0_(), I_(), "div(Ji,Ii_h)")
-        + fvm::div(Ji1_(), I_(), "div(Ji,Ii_h)")
+          fvm::div(Ji0, I_(), "div(Ji,Ii_h)")
+        + fvm::div(Ji1, I_(), "div(Ji,Ii_h)")
         + fvm::Sp(K*omega_, I_())
        == S*ds*omega_
     );
@@ -161,55 +165,79 @@ Foam::scalar Foam::optical::ray::correct()
 }
 
 
-const Foam::surfaceScalarField Foam::optical::ray::Ji0_() const
+void Foam::optical::ray::computeFluxCoeffs_
+(
+    surfaceScalarField& Ji0,
+    surfaceScalarField& Ji1
+) const
 {
     const label npTheta = dom_.nPixelTheta();
-    const label npPhi = dom_.nPixelPhi();
+    const label npPhi   = dom_.nPixelPhi();
+    const scalar deltaTheta  = dom_.deltaTheta();
+    const scalar deltaPhi    = dom_.deltaPhi();
+    const scalar pixelDTheta = deltaTheta/npTheta;
+    const scalar pixelDPhi   = deltaPhi  /npPhi;
 
-    surfaceScalarField Ji0(vector(0,0,0) & mesh_.Sf());
+    const surfaceVectorField& Sf = mesh_.Sf();
+    const vectorField& Sf_int = Sf.primitiveField();
+    scalarField& Ji0_int = Ji0.primitiveFieldRef();
+    scalarField& Ji1_int = Ji1.primitiveFieldRef();
 
-    const scalar deltaTheta = dom_.deltaTheta();
-    const scalar deltaPhi = dom_.deltaPhi();
+    const surfaceVectorField::Boundary& Sf_bf = Sf.boundaryField();
+    surfaceScalarField::Boundary& Ji0_bf = Ji0.boundaryFieldRef();
+    surfaceScalarField::Boundary& Ji1_bf = Ji1.boundaryFieldRef();
 
     for (label i = 0; i < npTheta; i++)
     {
         for (label j = 0; j < npPhi; j++)
         {
-            scalar pixelTheta = theta_ - 0.5*deltaTheta + (i + 0.5)*deltaTheta/npTheta;
-            scalar pixelPhi = phi_ - 0.5*deltaPhi + (j + 0.5)*deltaPhi/npPhi;
-            vector intDirOmega = dom_.intDirOmega(pixelTheta, pixelPhi, deltaTheta/npTheta, deltaPhi/npPhi);
-            surfaceScalarField alpha = pos(dom_.anglesToDir(pixelTheta, pixelPhi) & mesh_.Sf());
-            Ji0 = Ji0 + alpha*(intDirOmega & mesh_.Sf());
+            const scalar pixelTheta =
+                theta_ - 0.5*deltaTheta + (i + 0.5)*pixelDTheta;
+            const scalar pixelPhi =
+                phi_   - 0.5*deltaPhi   + (j + 0.5)*pixelDPhi;
+
+            const vector pixelDir =
+                dom_.anglesToDir(pixelTheta, pixelPhi);
+            const vector pixelFlux =
+                dom_.intDirOmega
+                (
+                    pixelTheta, pixelPhi, pixelDTheta, pixelDPhi
+                );
+
+            forAll(Sf_int, fi)
+            {
+                const scalar dpd = pixelDir & Sf_int[fi];
+                if (dpd > 0)
+                {
+                    Ji0_int[fi] += pixelFlux & Sf_int[fi];
+                }
+                else if (dpd < 0)
+                {
+                    Ji1_int[fi] += pixelFlux & Sf_int[fi];
+                }
+            }
+
+            forAll(Sf_bf, patchi)
+            {
+                const fvsPatchField<vector>& Sfp  = Sf_bf[patchi];
+                fvsPatchField<scalar>&       Ji0p = Ji0_bf[patchi];
+                fvsPatchField<scalar>&       Ji1p = Ji1_bf[patchi];
+
+                forAll(Sfp, fi)
+                {
+                    const scalar dpd = pixelDir & Sfp[fi];
+                    if (dpd > 0)
+                    {
+                        Ji0p[fi] += pixelFlux & Sfp[fi];
+                    }
+                    else if (dpd < 0)
+                    {
+                        Ji1p[fi] += pixelFlux & Sfp[fi];
+                    }
+                }
+            }
         }
     }
-
-    return Ji0;
-}
-
-
-const Foam::surfaceScalarField Foam::optical::ray::Ji1_() const
-{
-    const label npTheta = dom_.nPixelTheta();
-    const label npPhi = dom_.nPixelPhi();
-
-    surfaceScalarField Ji1(vector(0,0,0) & mesh_.Sf());
-
-    const scalar deltaTheta = dom_.deltaTheta();
-    const scalar deltaPhi = dom_.deltaPhi();
-
-    for (label i = 0; i < npTheta; i++)
-    {
-        for (label j = 0; j < npPhi; j++)
-        {
-            scalar pixelTheta = theta_ - 0.5*deltaTheta + (i + 0.5)*deltaTheta/npTheta;
-            scalar pixelPhi = phi_ - 0.5*deltaPhi + (j + 0.5)*deltaPhi/npPhi;
-            vector intDirOmega = dom_.intDirOmega(pixelTheta, pixelPhi, deltaTheta/npTheta, deltaPhi/npPhi);
-            surfaceScalarField alpha = neg(dom_.anglesToDir(pixelTheta, pixelPhi) & mesh_.Sf());
-            Ji1 = Ji1 + alpha*(intDirOmega & mesh_.Sf());
-        }
-    }
-
-    return Ji1;
 }
 
 
