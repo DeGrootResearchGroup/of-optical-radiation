@@ -9,6 +9,15 @@
 > touched. Quick check before committing: `grep` for any name or
 > path you renamed in the other file.
 
+> **Code comments:** don't leave behind comments that only make sense
+> if the reader saw the previous version. Notes like "// substr's
+> second arg is length, not end index" right above corrected code,
+> or "// fixed sign error" above a now-correct formula, read as
+> nonsense to anyone arriving fresh — the broken code they reference
+> is gone. The "why" of a fix belongs in the commit message, not the
+> source. In-code comments should explain non-obvious invariants that
+> hold *now*, not the bug that motivated the change.
+
 ## Project Overview
 
 This repository hosts two related but **independent** OpenFOAM
