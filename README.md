@@ -57,7 +57,10 @@ in absorbing/scattering participating media:
 ### radiationDose (Lagrangian dose tracker)
 
 - Function object `radiationDose` that integrates `D = ∫ G·dt` along
-  particle trajectories through any frozen flow.
+  particle trajectories through a frozen steady-state flow. Both `U`
+  and `G` are read once and held constant for the entire particle-run
+  loop — unsteady ambient flow (transient HVAC, dynamic occupancy,
+  time-varying lamp output) is not currently supported.
 - Configurable particle seeding (RTS-selectable `seedingModel`,
   currently `patchInjection` with face-area-weighted distribution).
 - Configurable turbulent dispersion (RTS-selectable `dispersionModel`:
@@ -388,7 +391,10 @@ radiationDose:
 opticalRadiation: active. Library and solver are working and
 validated; tutorials run on every PR via GitHub Actions. Deferred
 items (end-to-end fvModel runtime test in a real multi-region host
-case, exterior-refraction BC) are documented in the developer guide.
+case, exterior-refraction BC, plus two indoor / far-UV-222
+gaps — photochemistry coupling for in-situ O₃/HONO/OH generation,
+and a surface-dose / TLV function object) are documented in the
+developer guide.
 
 radiationDose: functionally complete. Built on OpenFOAM's
 `Foam::particle` infrastructure (barycentric-tet tracking,
@@ -401,8 +407,15 @@ storage switch — disable to bound memory for long-trajectory
 runs). Single-rank `foamPostProcess` runs OMP-parallelise the
 per-particle iteration across `OMP_NUM_THREADS`; multi-rank MPI
 runs use OF's serial-per-rank path. The developer guide tracks
-remaining open items (one: a termination-model RTS family, gated
-on a real driver case).
+the remaining open items, all gated on a real driver case: a
+termination-model RTS family, follow-on extensions to the
+`inertial` motion model (position-noise term, polydisperse /
+per-particle properties, restitution-coefficient wall reflection,
+Maxey-Riley extras), and a coupled unsteady-flow mode that
+re-reads `U`/`G` between host-solver time steps (the integrator
+currently assumes both fields are frozen snapshots for the
+duration of the run, which rules out indoor / HVAC cases with
+transient ventilation or dynamic occupancy).
 
 ---
 

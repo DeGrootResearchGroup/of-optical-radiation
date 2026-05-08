@@ -752,6 +752,20 @@ For each `execute()` call, `write()` emits:
    the cloud. Promote to a full RTS family if a real case needs
    `terminationByDoseRate` or `terminationByCellZone`.
 
+3. **Steady-state flow only — `U` and `G` are frozen snapshots.**
+   The integrator reads a single `U` and `G` when it is invoked
+   and holds both constant for the entire particle-run loop,
+   regardless of how long any particle spends in flight. Use
+   cases where the ambient flow varies on a timescale comparable
+   to particle residence (transient HVAC, dynamic occupancy,
+   time-varying lamp output, moving sources) are out of scope
+   today. The clean fix is a coupled mode that advances the cloud
+   one host-solver time step at a time and re-reads `U`/`G`
+   between steps -- straightforward in principle, but gated on a
+   real driver case because the seeding and output semantics (one
+   CSV per `execute()` vs. one continuous integration) would need
+   to be re-thought first.
+
 ### `setFluenceRate` utility
 
 A small standalone OpenFOAM utility that writes a `volScalarField G`
@@ -1103,6 +1117,17 @@ real driver case ever calls for it.
      cases (settling and DRW-driven inertial in water/air); add
      when the carrier-phase regime warrants it.
 
+4. **Unsteady-flow / coupled-tracking mode.** Today's integrator
+   freezes `U` and `G` for the duration of a single `execute()`
+   (see "Known limitations" #3). Indoor / HVAC cases with
+   transient ventilation, dynamic occupancy, or time-varying
+   lamp output need a coupled mode that advances the cloud one
+   host-solver time step at a time and re-reads `U`/`G` between
+   steps. The mechanics are clear; the design question (how to
+   reconcile per-step seeding and output with a single
+   continuous integration spanning many host steps) is what's
+   gating it -- pick this up against a real driver case.
+
 ---
 
 ## Open items — Mie scattering
@@ -1128,6 +1153,51 @@ built; pick them up when a driver case actually needs them.
    smoothing). Needs gravity in `dispersionModel` and a particle
    ->Eulerian projection step; today's tracker is passive
    (drift-only). No code yet.
+
+---
+
+## Open items — indoor / far-UV applications
+
+Two extensions would unlock indoor far-UV-222 modelling (KrCl
+excimer luminaires for upper-room or whole-room disinfection,
+where the air-side optics already work but the application-layer
+bookkeeping doesn't). Both are gated on a real driver case so
+the API can be designed against actual requirements rather than
+guessed.
+
+1. **Photochemistry coupling -- O3 / HONO / OH generation from
+   absorbed UV.** The composite extinction model consumes species
+   fields but nothing writes back: there is no source term that
+   converts the per-band absorbed photon rate
+   `kappa(lambda) * G(lambda)` in each cell into species
+   production. For 222 nm in occupied rooms the in-situ O3
+   build-up is the main air-quality concern alongside the
+   disinfection benefit, and it also feeds back optically
+   (`kappa_O3` dominates `kappa_O2` at 222 nm at typical chamber
+   concentrations). Cleanest path is a new fvModel that reads
+   `G` per band, computes the photolysis rate from each
+   `molecularAbsorption` child's `sigma(lambda)` and `N(x)`, and
+   pushes a source into a host-solver species transport
+   equation. The optical-side plumbing is already half-there
+   (the absorber's `sigma` and `N` are already known per band);
+   the new piece is the photolysis product mapping (O2 ->
+   O(3P) + O(3P), then O + O2 + M -> O3; O3 photolysis
+   branching to O(1D) / O(3P) + O2, etc.) and the
+   absorber-to-product wiring on a per-band basis.
+
+2. **Surface dose / irradiance function object.** `radiationDose`
+   handles Lagrangian air-side dose; there is no surface
+   analogue. Occupant skin/eye TLV bookkeeping (ACGIH 8-h limits
+   for 222 nm) and surface disinfection both want time-integrated
+   `q_in` [mJ/cm^2] on a wall-patch field. The DOM already
+   computes `q_in` internally for the `reflective` /
+   `refractiveCoupled` BCs; exposing it as a writable
+   `surfaceScalarField` (or per-patch `Field<scalar>`) and adding
+   a function object that integrates it over time is the main
+   work. Output should mirror `radiationDose`: per-face dose +
+   summary stats over listed patches + log-reduction at
+   user-supplied `kInact`. A per-material spectral reflectance
+   database is a convenience layer that can land later.
 
 ---
 
