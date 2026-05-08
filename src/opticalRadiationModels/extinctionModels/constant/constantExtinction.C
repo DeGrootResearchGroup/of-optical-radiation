@@ -54,8 +54,8 @@ Foam::optical::constantExtinction::constantExtinction
 :
     extinctionModel(dict, mesh),
     coeffsDict_((dict.subDict(typeName + "Coeffs"))),
-    absorption_(readBool(coeffsDict_.lookup("absorption"))),
-    scattering_(readBool(coeffsDict_.lookup("scattering"))),
+    absorption_(coeffsDict_.lookup("absorption")),
+    scattering_(coeffsDict_.lookup("scattering")),
     nBands_(readLabel(coeffsDict_.lookup("nBands"))),
     ABand_(nBands_),
     SBand_(nBands_)

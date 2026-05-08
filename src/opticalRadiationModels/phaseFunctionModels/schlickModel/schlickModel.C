@@ -67,7 +67,22 @@ Foam::optical::schlickModel::schlickModel
         functionDicts.lookup("subAngleNum") >> subAngleNum_;
         k_.setSize(nBand_);
         functionDicts.lookup("asymmetryFactor") >> k_;
-        const label nPhi = dom_.nPhi();  
+        forAll(k_, b)
+        {
+            // Schlick (1+k^2)/(4 pi (1+k cosV)^2) goes singular at
+            // 1 + k cosV = 0; for cosV in [-1, 1] this is reached at
+            // |k| = 1 (k = -1 with forward cosV = 1, or k = +1 with
+            // backward cosV = -1). |k| > 1 is non-physical anyway
+            // (Schlick's k plays the same mean-cosine role as HG's g).
+            if (mag(k_[b]) >= 1.0)
+            {
+                FatalErrorInFunction
+                    << "asymmetryFactor[" << b << "] = " << k_[b]
+                    << " is out of range; Schlick requires |k| < 1"
+                    << exit(FatalError);
+            }
+        }
+        const label nPhi = dom_.nPhi();
         const label nTheta = dom_.nTheta();   
         const scalar deltaPhi   =  pi / (2.0*nPhi);
         const scalar deltaTheta =  pi / nTheta;
