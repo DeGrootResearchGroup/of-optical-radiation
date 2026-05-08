@@ -47,6 +47,7 @@ Description
 #include "contiguous.H"
 #include "dispersionModel.H"
 #include "interpolationCellPoint.H"
+#include "motionModel.H"
 #include "particle.H"
 #include "trackPoint.H"
 
@@ -96,11 +97,18 @@ private:
     // Private Data — bytewise-trivial members must come first for
     // contiguous-IO support (see contiguous<dosePathParticle> below).
 
-        //- Velocity used for the current outer step [m/s]. Includes the
-        //  dispersion fluctuation. Updated at the start of each move()
-        //  call from U + uPrime, and again by hitWallPatch() on
-        //  reflection.
+        //- Particle velocity [m/s] at the END of the most recent outer
+        //  step (the OU-update result for inertial; equal to U + u'
+        //  for tracer). Carried across outer steps as V_old for the
+        //  next motion-model advance() call.
         vector V_;
+
+        //- Mean velocity [m/s] over the current outer step (Δx/Δt).
+        //  This is the vector used by the inner loop for
+        //  trackToAndHitFace, and the one reflected by hitWallPatch
+        //  during inner-step wall interactions. For tracer V_disp_ ==
+        //  V_; for inertial they differ by the OU phi factor.
+        vector V_disp_;
 
         //- Accumulated dose [mJ/cm^2]
         scalar D_;
@@ -119,6 +127,11 @@ private:
         //  thread / processor can mutate its own particles' state
         //  without coordination.
         autoPtr<dispersionModel::State> dispState_;
+
+        //- Per-particle motion-model state (mirrors dispState_).
+        //  Empty for tracer / drag-only inertial; reserved for
+        //  motion models that need lagged per-particle quantities.
+        autoPtr<motionModel::State> motionState_;
 
         //- Trajectory: every position the particle has visited at the
         //  end of an outer step. Optional; controlled by the cloud's
@@ -229,6 +242,13 @@ public:
             inline void setDispState(autoPtr<dispersionModel::State> s)
             {
                 dispState_ = std::move(s);
+            }
+
+            //- Install a per-particle motion-model state (called once
+            //  at seed time).
+            inline void setMotionState(autoPtr<motionModel::State> s)
+            {
+                motionState_ = std::move(s);
             }
 
             //- Append a track point. Called by the cloud at seed time

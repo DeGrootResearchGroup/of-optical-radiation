@@ -37,6 +37,7 @@ Description
 #include "dosePathParticle.H"
 #include "fvMesh.H"
 #include "interpolationCellPoint.H"
+#include "motionModel.H"
 #include "randomGenerator.H"
 
 #include <vector>
@@ -77,6 +78,11 @@ class dosePathCloud
         //  separate handle.
         autoPtr<dispersionModel> dispersion_;
 
+        //- Motion model (RTS-selected). Lives here for the same
+        //  reason as dispersion_; the per-particle move() invokes
+        //  advance() on it once per outer step.
+        autoPtr<motionModel> motion_;
+
 
 public:
 
@@ -101,7 +107,8 @@ public:
             const scalar maxDose,
             const Switch wallReflection,
             const Switch storeTrack,
-            autoPtr<dispersionModel> dispersion
+            autoPtr<dispersionModel> dispersion,
+            autoPtr<motionModel> motion
         );
 
         //- Disallow default bitwise copy construction
@@ -127,6 +134,11 @@ public:
             inline const dispersionModel& dispersion() const
             {
                 return *dispersion_;
+            }
+            inline motionModel& motion() { return *motion_; }
+            inline const motionModel& motion() const
+            {
+                return *motion_;
             }
 
 

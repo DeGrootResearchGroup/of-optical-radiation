@@ -13,6 +13,15 @@ dispersionModels/dispersionModel/newDispersionModel.C
 dispersionModels/noDispersion/noDispersion.C
 dispersionModels/discreteRandomWalk/discreteRandomWalk.C
 
+motionModels/motionModel/motionModel.C
+motionModels/motionModel/newMotionModel.C
+motionModels/tracer/tracer.C
+motionModels/inertial/inertial.C
+motionModels/dragModels/dragModel/dragModel.C
+motionModels/dragModels/dragModel/newDragModel.C
+motionModels/dragModels/stokesDrag/stokesDrag.C
+motionModels/dragModels/schillerNaumann/schillerNaumann.C
+
 radiationDose/radiationDose.C
 
 LIB = $(FOAM_USER_LIBBIN)/libradiationDose

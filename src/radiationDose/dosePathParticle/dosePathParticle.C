@@ -8,6 +8,7 @@
 
 #include "dosePathParticle.H"
 #include "dosePathCloud.H"
+#include "constants.H"
 #include "polyBoundaryMesh.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
@@ -44,10 +45,12 @@ Foam::dose::dosePathParticle::dosePathParticle
 :
     particle(searchEngine, position, celli, nLocateBoundaryHits),
     V_(Zero),
+    V_disp_(Zero),
     D_(0),
     t_(0),
     endReason_(endReason::active),
     dispState_(),
+    motionState_(),
     points_()
 {}
 
@@ -60,10 +63,12 @@ Foam::dose::dosePathParticle::dosePathParticle
 :
     particle(is, readFields),
     V_(Zero),
+    V_disp_(Zero),
     D_(0),
     t_(0),
     endReason_(endReason::active),
     dispState_(),
+    motionState_(),
     points_()
 {}
 
@@ -72,10 +77,12 @@ Foam::dose::dosePathParticle::dosePathParticle(const dosePathParticle& p)
 :
     particle(p),
     V_(p.V_),
+    V_disp_(p.V_disp_),
     D_(p.D_),
     t_(p.t_),
     endReason_(p.endReason_),
     dispState_(),
+    motionState_(),
     points_(p.points_)
 {}
 
@@ -115,19 +122,70 @@ bool Foam::dose::dosePathParticle::move
             cloud.dtMax(),
             td.rng()
         );
-    V_ = Umean + uPrime;
 
-    if (mag(V_) < small)
+    // Pre-draw a unit-Gaussian Brownian sample if the motion model
+    // wants one. The single draw is reused across the (potentially
+    // CFL-shortened) re-advance below so Brownian remains a
+    // single, well-defined random kick per outer step.
+    vector xi(Zero);
+    if (cloud.motion().needsBrownianSample())
     {
-        endReason_ = endReason::stuck;
-        return true;
+        const scalar twoPi = constant::mathematical::twoPi;
+        const scalar r1 = max(td.rng().scalar01(), small);
+        const scalar r2 = td.rng().scalar01();
+        const scalar r3 = max(td.rng().scalar01(), small);
+        const scalar r4 = td.rng().scalar01();
+        const scalar mag1 = sqrt(-2.0*log(r1));
+        const scalar mag3 = sqrt(-2.0*log(r3));
+        xi = vector
+        (
+            mag1*cos(twoPi*r2),
+            mag1*sin(twoPi*r2),
+            mag3*cos(twoPi*r4)
+        );
     }
+
+    // Provisional advance over the full outer step to discover the
+    // displacement velocity for the CFL bound. For tracer this is
+    // exactly equivalent to the previous V_ = U + u' assignment.
+    motionModel::stepResult r =
+        cloud.motion().advance
+        (
+            *motionState_,
+            V_,
+            Umean,
+            uPrime,
+            cloud.dtMax(),
+            xi
+        );
 
     // CFL-bounded outer-step duration. cbrt(V[celli]) is a coarse
     // characteristic cell size; for the Sozzi case (mostly hex cells
     // ~1 mm) it correlates well with the actual face-to-face span.
     const scalar cellSize = cbrt(td.mesh.cellVolumes()[cell()]);
-    const scalar dt = min(cloud.dtMax(), cloud.cflMax()*cellSize/mag(V_));
+    const scalar VdispMag = mag(r.Vdisp);
+
+    if (VdispMag < small)
+    {
+        endReason_ = endReason::stuck;
+        return true;
+    }
+
+    const scalar dt =
+        min(cloud.dtMax(), cloud.cflMax()*cellSize/VdispMag);
+
+    // If CFL tightened the step, redo with the smaller dt so V (for
+    // the next step) and V_disp (used right below) reflect the
+    // shorter integration window. xi is intentionally re-used so the
+    // Brownian draw maps to a single physical kick per outer step.
+    if (dt < cloud.dtMax() - small)
+    {
+        r = cloud.motion().advance
+            (*motionState_, V_, Umean, uPrime, dt, xi);
+    }
+
+    V_      = r.V;
+    V_disp_ = r.Vdisp;
 
     // Reset stepFraction so the inner loop spans 0->1 of THIS outer
     // step (rather than the OF time step, which is irrelevant in the
@@ -155,7 +213,7 @@ bool Foam::dose::dosePathParticle::move
         const scalar G_pre =
             max(scalar(0), td.GInterp().interpolate(coordinates(), tetIs_pre));
 
-        trackToAndHitFace(f*dt*V_, f, cloud, td);
+        trackToAndHitFace(f*dt*V_disp_, f, cloud, td);
 
         const tetIndices tetIs_post = currentTetIndices(td.mesh);
         const scalar G_post =
@@ -217,11 +275,18 @@ void Foam::dose::dosePathParticle::hitWallPatch
     }
 
     // Specular reflection: V - 2*(V.n)*n. The barycentric coordinates
-    // are unchanged (the particle stays exactly on the boundary face)
-    // and the inner loop continues with the new V_ for the remainder
-    // of the dt budget.
+    // are unchanged (the particle stays exactly on the boundary face).
+    // Reflect both V_disp_ (the inner-loop transport velocity, so the
+    // remaining dt budget is consumed in the reflected direction) and
+    // V_ (the true particle velocity, so the next outer step's
+    // motion-model update starts from the post-reflection state).
+    // For inertial particles the moment-of-hit V on the OU trajectory
+    // is between V_old and V_; reflecting V_ is the tractable
+    // approximation — within the same O(dt) family as the rest of
+    // the inner-step truncation.
     const vector nw = normal(td.mesh);
-    V_ -= 2.0*(V_ & nw)*nw;
+    V_      -= 2.0*(V_      & nw)*nw;
+    V_disp_ -= 2.0*(V_disp_ & nw)*nw;
 }
 
 
@@ -277,6 +342,7 @@ Foam::Ostream& Foam::dose::operator<<
 {
     os  << static_cast<const particle&>(p) << token::SPACE
         << p.V_ << token::SPACE
+        << p.V_disp_ << token::SPACE
         << p.D_ << token::SPACE
         << p.t_;
     return os;

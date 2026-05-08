@@ -88,6 +88,7 @@ SourceFiles
 #include "dosePathCloud.H"
 #include "fvMeshFunctionObject.H"
 #include "HashSet.H"
+#include "motionModel.H"
 #include "randomGenerator.H"
 #include "seedingModel.H"
 
@@ -117,6 +118,11 @@ class radiationDose
         //  state needs to start clean every run, but the
         //  configuration is read once).
         dictionary dispersionDict_;
+
+        //- Motion model dictionary (same lifecycle as dispersionDict_).
+        //  Absent in the user dict ⇒ default to `{ type tracer; }` so
+        //  cases that don't care about particle inertia stay minimal.
+        dictionary motionDict_;
 
         labelHashSet escapePatchIDs_;
         scalar maxTime_;

@@ -63,6 +63,11 @@ in absorbing/scattering participating media:
 - Configurable turbulent dispersion (RTS-selectable `dispersionModel`:
   `none` for deterministic streamlines, `discreteRandomWalk` for
   Gosman-Ioannides DRW).
+- Configurable equation of motion (RTS-selectable `motionModel`:
+  `tracer` for fluid-following particles, `inertial` for finite-Stokes
+  point particles with Stokes or Schiller-Naumann drag, optional
+  gravity / buoyancy, and optional Brownian motion via the OU exact
+  Langevin update).
 - Specular wall reflection on non-escape patches, escape classification
   via configurable `escapePatches`.
 - Output: per-particle dose CSV, summary stats (mean / stdev / min /
@@ -132,7 +137,7 @@ Build products:
 
 ## Running a tutorial
 
-Twelve tutorial cases ship under `tutorials/`:
+Fourteen tutorial cases ship under `tutorials/`:
 
 opticalRadiation cases:
 
@@ -181,6 +186,10 @@ radiationDose cases:
 
 - `doseSmokeBox` — uniform plug-flow box with analytical `G·t` dose;
   unit-conversion + integrator sanity check.
+- `inertialSettlingBox` — gravity-driven Stokes settling in still
+  water with uniform `G`; analytical mean dose `G·L/V_s·0.1` matched
+  to ~1e-5 relative. Regression guard for the `inertial` motion
+  model, the OU exact integrator, and the Stokes drag path.
 - `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
   at 25 GPM with realizable k-ε flow + analytical radial `G`. On a
   10000-particle run (matching the paper): 100 % escape, mean dose
@@ -310,6 +319,14 @@ src/radiationDose/                           (radiationDose library)
         dispersionModel/     abstract base + factory
         noDispersion/        deterministic streamlines
         discreteRandomWalk/  Gosman-Ioannides DRW (needs k, epsilon)
+    motionModels/            motionModel RTS family
+        motionModel/         abstract base + factory
+        tracer/              V = U + u' (fluid tracer)
+        inertial/            OU exact integrator: drag + gravity + Brownian
+        dragModels/          dragModel sub-RTS used by inertial
+            dragModel/       abstract base + factory
+            stokesDrag/      tau_p = rho_p d_p^2 / (18 mu_f)
+            schillerNaumann/ Re_p-corrected (1 + 0.15 Re_p^0.687)
 
 applications/
     solvers/opticalRadiationFoam/    single-region standalone DOM solver
@@ -355,6 +372,14 @@ radiationDose:
 - Gosman, A. D. & Ioannides, E. (1981). *Aspects of computer
   simulation of liquid-fuelled combustors.* AIAA-81-0323. — DRW
   dispersion model.
+- Schiller, L. & Naumann, A. (1933). *Über die grundlegenden
+  Berechnungen bei der Schwerkraftaufbereitung.* Z. Ver. Deutsch.
+  Ing. **77**, 318–320. — Re_p-corrected drag.
+- Maxey, M. R. & Riley, J. J. (1983). *Equation of motion for a
+  small rigid sphere in a nonuniform flow.* Phys. Fluids **26**(4),
+  883. — Reference for the inertial point-particle equation of
+  motion (we keep drag + gravity + Brownian; defer added-mass /
+  Basset / pressure-gradient until a driver case needs them).
 
 ---
 

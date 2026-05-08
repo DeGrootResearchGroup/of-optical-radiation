@@ -68,6 +68,18 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
     seeding_ = dose::seedingModel::New(dict.subDict("seeding"), mesh_);
     dispersionDict_ = dict.subDict("dispersion");
 
+    if (dict.found("motion"))
+    {
+        motionDict_ = dict.subDict("motion");
+    }
+    else
+    {
+        // Default: fluid-tracer motion (V = U + u'). Matches the v0.3
+        // behaviour and keeps existing tutorials minimal.
+        motionDict_.clear();
+        motionDict_.add("type", word("tracer"));
+    }
+
     const dictionary& termDict = dict.subDict("termination");
     const wordList escapePatches(termDict.lookup("escapePatches"));
     escapePatchIDs_.clear();
@@ -115,12 +127,19 @@ Foam::wordList Foam::functionObjects::radiationDose::fields() const
     DynamicList<word> f;
     f.append(UName_);
     f.append(GName_);
-    // The dispersion model may need additional fields (e.g. k, epsilon
-    // for DRW). Probe its requiredFields() with a temporary instance.
-    autoPtr<dose::dispersionModel> probe =
+    // Probe the dispersion and motion models for any extra fields they
+    // need (e.g. k, epsilon for DRW). Done with throw-away instances —
+    // the models themselves are rebuilt fresh in execute().
+    autoPtr<dose::dispersionModel> dispProbe =
         dose::dispersionModel::New(dispersionDict_, mesh_);
-    const wordList extra = probe->requiredFields();
-    forAll(extra, i) { f.append(extra[i]); }
+    const wordList dispExtra = dispProbe->requiredFields();
+    forAll(dispExtra, i) { f.append(dispExtra[i]); }
+
+    autoPtr<dose::motionModel> motProbe =
+        dose::motionModel::New(motionDict_, mesh_);
+    const wordList motExtra = motProbe->requiredFields();
+    forAll(motExtra, i) { f.append(motExtra[i]); }
+
     return wordList(f);
 }
 
@@ -134,13 +153,15 @@ bool Foam::functionObjects::radiationDose::execute()
 
     randomGenerator rng{randomGenerator::seed(randomSeed_)};
 
-    // Build the dispersion model fresh per execute() so its internal
-    // counter / RNG state is reproducible.
+    // Build the dispersion and motion models fresh per execute() so
+    // any internal counters / RNG state are reproducible.
     autoPtr<dose::dispersionModel> dispersion =
         dose::dispersionModel::New(dispersionDict_, mesh_);
+    autoPtr<dose::motionModel> motion =
+        dose::motionModel::New(motionDict_, mesh_);
 
     // Construct the cloud (or rebuild if execute() is called twice in
-    // one run). The cloud takes ownership of the dispersion model.
+    // one run). The cloud takes ownership of both models.
     cloud_.reset
     (
         new dose::dosePathCloud
@@ -154,7 +175,8 @@ bool Foam::functionObjects::radiationDose::execute()
             maxDose_,
             wallReflection_,
             writeVtk_,
-            std::move(dispersion)
+            std::move(dispersion),
+            std::move(motion)
         )
     );
 
@@ -177,9 +199,10 @@ bool Foam::functionObjects::radiationDose::execute()
                 seeds[i].celli,
                 nLocateBoundaryHits
             );
-        // Per-track dispersion state is owned by the particle; the
-        // cloud's dispersion model is the factory.
+        // Per-track dispersion and motion states are owned by the
+        // particle; the cloud's models are the factories.
         p->setDispState(cloud_->dispersion().newState());
+        p->setMotionState(cloud_->motion().newState());
         // Initial trajectory vertex (so the writer reports the seed
         // position even if the particle never advances). Skipped
         // when storeTrack is off — see dosePathParticle::move() for
