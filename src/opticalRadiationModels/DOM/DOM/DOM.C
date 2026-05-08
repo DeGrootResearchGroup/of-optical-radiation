@@ -88,7 +88,7 @@ Foam::optical::DOM::DOM(const volScalarField& I)
     GLambda_(nBand_),
     IRay_(0),
     ISnapshot_(0),
-    convergence_(coeffs_.lookupOrDefault<scalar>("convergence", 0.0)),
+    convergence_(readScalar(coeffs_.lookup("convergence"))),
     maxIter_(coeffs_.lookupOrDefault<label>("maxIter", 50))
 {
     Info<< "Creating DOM model with " << nBand_ << " bands" << endl;
@@ -193,18 +193,6 @@ Foam::optical::DOM::DOM(const volScalarField& I)
     }
 
     phaseFunctionModel_ = phaseFunctionModel::New(*this,coeffs_, mesh_.nSolutionD());
-
-    if (phaseFunctionModel_->inScatter())
-    {
-        pf0_.setSize(nBand_ * nAngle_);
-        for (label iBand = 0 ; iBand < nBand_; iBand++)
-	{
-            for (label iAngle = 0 ; iAngle < nAngle_; iAngle++)
-            {
-                pf0_[iAngle+iBand*nAngle_] = phaseFunctionModel_->correct(iAngle,iAngle,iBand);
-            }
-        }
-    }
 
     Info<< endl;
 }

@@ -94,9 +94,6 @@ private:
         //- Angle index
         label iAngle_;
 
-        //- Global ray id - incremented in constructor
-        static label rayId;
-
     // Private member functions
 
         ray(const ray&) = delete;
@@ -148,16 +145,6 @@ public:
 
             //- Update boundaries
             void updateBoundary();
-
-            //- Initialise the ray in i direction
-            void init
-            (
-                const scalar phi,
-                const scalar theta,
-                const scalar deltaPhi,
-                const scalar deltaTheta,
-                const scalar lambda
-            );
 
         // Access
 

@@ -96,12 +96,6 @@ inline const Foam::volScalarField& Foam::optical::DOM::S(const label iLambda) co
 }
 
 
-inline Foam::scalar Foam::optical::DOM::pf0(const label iLambda) const
-{
-    return pf0_[iLambda];
-}
-
-
 inline const Foam::volScalarField& Foam::optical::DOM::G() const
 {
     return G_;
