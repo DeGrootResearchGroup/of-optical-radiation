@@ -1114,13 +1114,18 @@ radiationDose:
   watertight). Steady RANS solve with realizable k-ε via foamRun's
   `incompressibleFluid` solver. Analytical `G` set by setFluenceRate.
   radiationDose post-process with DRW dispersion (`Cl = 0.15`),
-  `wallReflection = true`. Result on the iter-1000 flow snapshot
-  (10000 particles, matching the paper's sample size):
-  **10008/10008 escaped**, mean dose
-  **67.93 mJ/cm²** (paper: 68 — within 0.1 %), min dose 30.6,
-  max dose 232 (paper: ~270), log reduction at
-  `kInact = 0.1 cm²/mJ` = **2.08** (paper: 1.87). Runtime ~90 s
-  serial.
+  `wallReflection = true`. Flow converges at iter ~516 via the
+  fvSolution `residualControl` thresholds; 10008 particles are
+  injected on that snapshot (matching the paper's sample size).
+  Result: **10008/10008 escaped**, mean dose
+  **70.28 mJ/cm²** (paper: 68 — within 3.4 %), min dose 28.7,
+  max dose 397 (paper: ~270), log reduction at
+  `kInact = 0.1 cm²/mJ` = **2.05** (paper: 1.87). The
+  near-lamp particles dominate `maxDose` and are sensitive to
+  the boundary-face values of G; the mean dose and log reduction
+  are dominated by bulk particles and reproduce the paper to
+  within a few percent. Runtime: ~43 min for foamRun on a
+  workstation, ~90 s for the radiationDose post-process.
 
 `tutorials/Alltest` is the orchestrator: builds (cheap if up-to-date),
 runs every case's `Allrun`, runs each case's `validate` script if
@@ -1143,7 +1148,8 @@ RUN_LONG_TESTS=1 ./Alltest   # everything, long cases included
 Currently marked long-running:
 
 - `uvReactorSozzi2006` — full Sozzi 2006 pipeline (snappyHexMesh +
-  RANS solve + radiationDose post-process). ~10–30 min wall-clock.
+  RANS solve + radiationDose post-process). ~45 min wall-clock,
+  dominated by the RANS solve to convergence.
 
 The marker file's content doesn't matter; presence is what counts.
 Remove it to opt the case back into the default suite.

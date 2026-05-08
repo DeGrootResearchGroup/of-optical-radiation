@@ -95,15 +95,33 @@ int main(int argc, char *argv[])
             )
         );
 
+        auto Gat = [&](const scalar y, const scalar z) -> scalar
+        {
+            const scalar r = std::max(std::sqrt(y*y + z*z), rL);
+            return P/(twoPi*Larc*r)*std::exp(-sigmaW*(r - rL));
+        };
+
         const volVectorField& C = mesh.C();
         forAll(G, i)
         {
-            const scalar y = C[i].y();
-            const scalar z = C[i].z();
-            const scalar r = std::max(std::sqrt(y*y + z*z), rL);
-            G[i] = P/(twoPi*Larc*r)*std::exp(-sigmaW*(r - rL));
+            G[i] = Gat(C[i].y(), C[i].z());
         }
-        G.correctBoundaryConditions();
+
+        // The default 'calculated' BC has no evaluate() that fills from
+        // the internal field, so face values stay at 0 unless we set
+        // them explicitly. Vertex-averaged interpolators (e.g. the
+        // radiationDose tracker) read these face values, so leaving
+        // them at 0 biases interpolation low near every boundary.
+        volScalarField::Boundary& Gb = G.boundaryFieldRef();
+        forAll(Gb, patchi)
+        {
+            fvPatchScalarField& gp = Gb[patchi];
+            const vectorField& cfp = mesh.boundary()[patchi].Cf();
+            forAll(gp, facei)
+            {
+                gp[facei] = Gat(cfp[facei].y(), cfp[facei].z());
+            }
+        }
 
         Info<< "  G range: min = " << min(G).value()
             << " W/m^2, max = " << max(G).value() << " W/m^2" << nl

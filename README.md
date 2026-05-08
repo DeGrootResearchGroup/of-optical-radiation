@@ -203,7 +203,7 @@ radiationDose cases:
 - `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
   at 25 GPM with realizable k-ε flow + analytical radial `G`. On a
   10000-particle run (matching the paper): 100 % escape, mean dose
-  67.93 mJ/cm² (paper: 68 — within 0.1 %), log reduction 2.08
+  70.28 mJ/cm² (paper: 68 — within 3.4 %), log reduction 2.05
   (paper: 1.87).
 
 Run an individual case:
@@ -228,7 +228,7 @@ Or run every case and validate end-to-end:
 ```sh
 cd tutorials
 ./Alltest                    # short cases only (the CI default)
-RUN_LONG_TESTS=1 ./Alltest   # also include long cases (Sozzi, ~30 min)
+RUN_LONG_TESTS=1 ./Alltest   # also include long cases (Sozzi, ~45 min)
 ```
 
 Cases marked with a `LONG_RUNNING` marker file (currently just
