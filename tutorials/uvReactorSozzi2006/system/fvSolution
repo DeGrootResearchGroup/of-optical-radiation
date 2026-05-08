@@ -51,11 +51,17 @@ PIMPLE
     // these thresholds aren't directly comparable to Fluent's 1e-5.
     // The pressure-drop monitor in controlDict.functions provides an
     // independent integral check on convergence.
+    //
+    // Thresholds chosen against the observed residual plateau on this
+    // mesh (Uy and k plateau near 6e-4, p near 2e-3, eps near 2e-4).
+    // Tighter values won't actually fire early-stop because the
+    // residuals oscillate above them indefinitely; the integral
+    // pressure-drop monitor confirms convergence by then.
     residualControl
     {
-        U               1e-4;
-        p               1e-3;
-        "(k|epsilon)"   1e-4;
+        U               1e-3;
+        p               5e-3;
+        "(k|epsilon)"   1e-3;
     }
 }
 

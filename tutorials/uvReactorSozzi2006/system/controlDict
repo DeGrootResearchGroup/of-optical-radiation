@@ -23,11 +23,11 @@ solver          incompressibleFluid;
 startFrom       latestTime;
 startTime       0;
 
-// Pressure-drop converged by ~iter 1000 on the level-3 mesh; 1500
-// gives a comfortable margin. residualControl in fvSolution should
-// also trigger early stop, but this is the belt-and-braces cap.
+// Pressure-drop converged by ~iter 1000 on the level-3 mesh.
+// residualControl in fvSolution triggers early stop once tolerances
+// are met; this endTime is the safety cap.
 stopAt          endTime;
-endTime         1500;
+endTime         1000;
 
 deltaT          1;
 
