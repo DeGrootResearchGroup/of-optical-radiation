@@ -53,6 +53,11 @@ in absorbing/scattering participating media:
 - Standalone solver `opticalRadiationFoam`.
 - `fvModel` wrapper for embedding into any host solver via the
   `fvModels` dictionary, without modifying the host's source.
+- Static meshes only — runtime mesh motion or topology change
+  (`dynamicFvMesh`, adaptive refinement, etc.) is not currently
+  supported. The fvModel and solver-module forms raise a clear
+  fatal error if such an event is attempted, rather than silently
+  producing a wrong answer.
 
 ### radiationDose (Lagrangian dose tracker)
 

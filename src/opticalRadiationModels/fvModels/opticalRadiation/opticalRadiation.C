@@ -92,20 +92,41 @@ Foam::wordList Foam::fv::opticalRadiation::addSupFields() const
 
 bool Foam::fv::opticalRadiation::movePoints()
 {
+    FatalErrorInFunction
+        << "opticalRadiation does not support moving meshes. "
+        << "See the 'Mesh-motion limitations' section in CLAUDE.md "
+        << "for details and the planned fix path."
+        << exit(FatalError);
     return true;
 }
 
 
 void Foam::fv::opticalRadiation::topoChange(const polyTopoChangeMap&)
-{}
+{
+    FatalErrorInFunction
+        << "opticalRadiation does not support topology changes "
+        << "(adaptive refinement, cell add/remove). "
+        << "See the 'Mesh-motion limitations' section in CLAUDE.md."
+        << exit(FatalError);
+}
 
 
 void Foam::fv::opticalRadiation::mapMesh(const polyMeshMap&)
-{}
+{
+    FatalErrorInFunction
+        << "opticalRadiation does not support mesh remapping "
+        << "(post mesh-motion / topology-change field mapping). "
+        << "See the 'Mesh-motion limitations' section in CLAUDE.md."
+        << exit(FatalError);
+}
 
 
 void Foam::fv::opticalRadiation::distribute(const polyDistributionMap&)
-{}
+{
+    // Parallel redistribution (e.g. dynamic load balancing) is not
+    // mesh motion -- opticalRadiation works correctly across a
+    // static decomposition. No-op is intentional.
+}
 
 
 void Foam::fv::opticalRadiation::correct()
