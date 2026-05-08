@@ -168,11 +168,13 @@ Foam::dose::
   trackPoint                       (vertex: position, time, accumulated dose, cell index)
 
   particle (OF base, barycentric tracking)
-  └── dosePathParticle             (adds V, D, t, endReason, dispersion state, trajectory)
+  └── dosePathParticle             (adds V, V_disp, D, t, endReason, dispersion
+                                    state, motion state, trajectory)
 
   lagrangian::Cloud<dosePathParticle>
   └── dosePathCloud                (case config: dtMax, cflMax, escapePatchIDs,
-                                    maxTime/maxDose, wallReflection, dispersion model)
+                                    maxTime/maxDose, wallReflection, dispersion
+                                    model, motion model)
 
   seedingModel                     (RTS family — initial particle distribution)
     └── patchInjection             (face-area-weighted on listed patches)
@@ -180,6 +182,13 @@ Foam::dose::
   dispersionModel                  (RTS family — turbulent fluctuation u')
     ├── noDispersion               (deterministic streamlines)
     └── discreteRandomWalk         (Gosman-Ioannides DRW; needs k, epsilon)
+
+  motionModel                      (RTS family — particle equation of motion)
+    ├── tracer                     (V = U + u'; algebraic, fluid-following)
+    └── inertial                   (OU exact: drag + optional gravity + Brownian)
+            └── dragModel          (sub-RTS used by inertial)
+                  ├── stokesDrag           (tau_p = rho_p d_p^2 / (18 mu_f))
+                  └── schillerNaumann      (tau_p / (1 + 0.15 Re_p^0.687))
 
 Foam::functionObjects::
 
@@ -221,7 +230,8 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/track/track.{H,C}` | Per-particle trajectory storage (vertices + endReason) |
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (currently: patchInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
-| `tutorials/` | Eleven runnable cases plus `Alltest` validation harness |
+| `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
+| `tutorials/` | Fourteen runnable cases plus `Alltest` validation harness |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
 | `Allwmake` | Builds both libraries + standalone solver + module + setFluenceRate in one shot |
@@ -498,6 +508,86 @@ The 0.1 factor that converts (W/m²)·s → mJ/cm² is exposed as the
 named constant `radiationDose::Wm2_s_to_mJcm2` in the function-object
 header so it can't be confused with a magic number.
 
+### Equation of motion (RTS)
+
+The per-particle velocity update is RTS-selectable. `tracer` (the
+default; matches v0.3 behaviour bit-for-bit) treats the particle as
+fluid-following:
+
+    V = U + u'
+
+`inertial` integrates the linear-drag Langevin equation
+
+    dV/dt = (U_seen - V)/tau_p  +  a_g  +  a_B(t)
+    U_seen = U + u'
+    a_g    = (1 - rho_f/rho_p) * g                      (gravity off ⇒ 0)
+    a_B    = sqrt(2 k_B T / (m_p tau_p)) * eta(t)       (Brownian off ⇒ 0)
+
+over one outer step using the **Ornstein-Uhlenbeck exact update**
+(analytical for piecewise-constant `U_seen` and `a_g`):
+
+    V_eq        = U_seen + a_g * tau_p
+    omega       = dt / tau_p
+    V(t+dt)     = V_eq + (V(t) - V_eq) * exp(-omega) + sigma_V * xi      (drag + Brownian)
+    V_disp      = V_eq + (V(t) - V_eq) * (1 - exp(-omega)) / omega       (mean over [t, t+dt])
+    sigma_V^2   = (k_B T / m_p) * (1 - exp(-2 omega))                    (FDT-tied to tau_p)
+
+`V_disp` is the displacement-mean velocity used by the inner
+trackToAndHitFace loop; `V` is the end-of-step value carried as
+V_old for the next step. For tracer they're equal; for inertial
+the OU `phi` factor `(1 - exp(-omega))/omega` interpolates between
+`V_old` (omega → 0) and `V_eq` (omega → ∞). The drag is unconditionally
+stable: `dt >> tau_p` is fine — the particle reaches terminal velocity
+within the first outer step and the rest of the trajectory is at
+`V_eq`.
+
+Drag response time `tau_p` comes from the nested `dragModel` sub-RTS:
+
+| Drag model       | tau_p formula                              |
+|------------------|--------------------------------------------|
+| stokes           | `rho_p d_p^2 / (18 mu_f)`                  |
+| schillerNaumann  | stokes / `(1 + 0.15 Re_p^0.687)`           |
+
+Re_p is evaluated once per outer step at the start-of-step `V`; the
+linearisation in the OU update treats the resulting tau_p as constant
+over `dt`, so per-step Re_p suffices (no Picard iteration needed).
+
+The **position-noise contribution** from the velocity Brownian motion
+is dropped from `V_disp` for first-cut simplicity. Long-time diffusion
+is recovered correctly (D = `k_B T tau_p / m_p`, Einstein-Stokes) as V
+correlations decay between steps; mean-square displacement on
+sub-tau_p timescales is under-counted by the missing `O(tau_p^2)` term.
+Add the sigma_x term to V_disp if a driver case needs sub-tau_p
+displacement statistics.
+
+Composition with DRW dispersion: the dispersion model produces `u'` and
+the motion model consumes `U_seen = U + u'`. For `St ≪ 1` the inertial
+particle follows U_seen instantaneously and recovers the tracer; for
+`St ≫ 1` the tau_p filter naturally damps the high-frequency content
+of u' (correct physics, no separate "filtered DRW" needed). DRW and
+Brownian co-exist at different physical scales (k/epsilon turbulence
+vs. k_B T thermal); both contribute to V independently.
+
+**LES edge case** (documented limitation, not currently a blocker).
+DRW is a RANS closure: it injects an unresolved-turbulence fluctuation
+under the assumption that the carrier-phase k spectrum is fully
+modelled. In an LES driver where the carrier already resolves down to
+the Kolmogorov scale, adding DRW double-counts. The same limitation
+applies to fluid tracers and is not introduced by inertial particles.
+For sub-µm particles in resolved LES turbulence, the inertial path
+plus Brownian is the right combination; disable DRW (`dispersion {
+type none; }`) so the tracer-kinematic content of `u'` is not
+double-counted on top of the resolved fluctuations. No code change is
+needed — the user toggles each mechanism independently.
+
+Wall reflection: specular (`V <- V - 2(V·n)n`) for both `V` and
+`V_disp` on a wall hit. The "moment of hit" V on the OU trajectory
+lies between `V_old` and `V_new`; reflecting the end-of-step `V`
+is the tractable approximation, in the same `O(dt)` family as the
+rest of the inner-step truncation. Coefficient of restitution `e`
+generalisation (`V_n -> -e V_n`) is one dictionary key away — not
+implemented today because no driver case has called for it.
+
 ### Selectable models (RTS)
 
 ```
@@ -521,6 +611,22 @@ dispersionModel
                               k        k;          // optional, default "k"
                               epsilon  epsilon;    // optional, default "epsilon"
                               Cl       0.15;       // optional, default 0.15
+
+motionModel
+├── tracer                 V = U + u' (algebraic, fluid-following). Default
+                           when `motion` sub-dict is omitted.
+                              type     tracer;
+└── inertial               OU exact integrator for drag (+ optional gravity,
+                           Brownian). Sub-RTS dragModel + composable
+                           gravity/brownian sub-blocks:
+                              type     inertial;
+                              rhoP     1050;        // kg/m^3
+                              dP       50e-6;       // m
+                              rhoF     1000;        // kg/m^3 (default 1000)
+                              muF      1e-3;        // Pa.s   (default 1e-3)
+                              drag     { type schillerNaumann; }   // or stokes
+                              gravity  { active true;  value (0 -9.81 0); }
+                              brownian { active false; T 293.15; }
 ```
 
 `terminationModel` is intentionally **not** an RTS family; the
@@ -795,8 +901,8 @@ Don't try to `git push` from inside the sandbox; it fails with
 
 ## Tutorials & validation
 
-`tutorials/` ships twelve cases — ten for opticalRadiation, two for
-radiationDose:
+`tutorials/` ships fourteen cases — eleven for opticalRadiation, three
+for radiationDose:
 
 opticalRadiation:
 
@@ -898,6 +1004,20 @@ radiationDose:
   `CELL_DATA` count == `LINES` count). A regression guard for the
   unit-conversion factor, trapezoidal-G accumulation, patch-hit
   classification, and the `.vtk` writer.
+- **`inertialSettlingBox`** — 0.1 m × 0.1 m × 1 m vertical box,
+  particles seeded at the top, escape at the bottom. Uniform `U = 0`
+  in still water (`rho_f = 1000, mu_f = 1e-3`), uniform `G = 1 W/m²`,
+  gravity `(0, 0, -9.81)`. Stokes-drag inertial settling with
+  `rho_p = 2000, d_p = 100 µm`: `tau_p = 1.11 ms`, terminal
+  `V_s = 5.45 mm/s`, residence `t = L/V_s = 183.5 s`, analytical
+  dose `G·t·0.1 = 18.35 mJ/cm²`. With `dtMax = 0.5 s ≫ tau_p` the
+  OU exact integrator reaches terminal velocity in the first step;
+  the rest of the trajectory is at `V_eq` and the result is
+  deterministic to floating-point. Validate-script asserts:
+  100 % escape, mean dose within 1 % of analytical (observed ~1e-5
+  relative), stdev below 1e-3 (observed ~1e-14, floating-point
+  noise). Regression guard for the inertial motion path, the OU
+  exact update, the Stokes drag formula, and the gravity composition.
 - **`uvReactorSozzi2006`** — Sozzi & Taghipour 2006 L-shape annular
   reactor at 25 GPM (water, 70% UV transmissivity per cm, 35 W lamp,
   80 cm arc). Geometry comes from a STEP file processed via gmsh's
@@ -945,11 +1065,11 @@ Remove it to opt the case back into the default suite.
 ## Open items — radiationDose
 
 The pipeline is functionally complete: particle tracking, dose
-integration, dispersion, output (CSV + summary + VTK), and
-single-rank OMP threading all land. Architecture, output, and
-parallelism are documented inline in the sections above; the
-short list below is what's left to look at if a real driver case
-ever calls for it.
+integration, dispersion, inertial motion (drag + gravity + Brownian),
+output (CSV + summary + VTK), and single-rank OMP threading all land.
+Architecture, output, and parallelism are documented inline in the
+sections above; the short list below is what's left to look at if a
+real driver case ever calls for it.
 
 1. **Termination model RTS family.** The three soft stops
    (escapePatches, maxTime, maxDose) are plain data on the cloud
@@ -961,6 +1081,27 @@ ever calls for it.
    tighten coverage for the barycentric tracker against curved
    boundaries. The Sozzi case effectively exercises this already,
    so this is not blocking anything.
+
+3. **Inertial-particle extensions.** The `inertial` motion model
+   covers drag + gravity + Brownian via the OU exact update. Two
+   natural extensions are sketched but not built:
+   - **Position-noise term in V_disp.** Currently the Brownian
+     velocity kick contributes to position only via the next step's
+     V_disp; the explicit `O(tau_p^2)` displacement-noise integral
+     is dropped. Long-time diffusion is correct
+     (D = k_B T tau_p / m_p); sub-tau_p MSD is under-counted. Add if
+     a sub-µm aerosol case calls for it.
+   - **Polydisperse / per-particle physical properties.** rho_p, d_p
+     are cloud-level today. Promote to per-particle when a driver
+     case (e.g. settling of a size distribution) needs it; the
+     dragModel signature already takes them by value.
+   - **Restitution-coefficient wall reflection.** Specular (e=1) is
+     hard-coded today. One dictionary key + one multiplier in
+     `hitWallPatch` to generalise.
+   - **Maxey-Riley extras.** Added-mass, pressure-gradient, Basset
+     history, lift forces are out-of-scope for the current driver
+     cases (settling and DRW-driven inertial in water/air); add
+     when the carrier-phase regime warrants it.
 
 ---
 

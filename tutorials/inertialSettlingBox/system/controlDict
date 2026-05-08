@@ -1,0 +1,116 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | inertialSettlingBox: Stokes-drag settling test
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     postProcess;
+
+startTime       0;
+endTime         0;
+deltaT          1;
+
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+
+writeFormat     ascii;
+writePrecision  8;
+
+functions
+{
+    radiationDose
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+
+        U               U;
+        fluenceRate     G;
+        seed            42;
+
+        seeding
+        {
+            type        patchInjection;
+            patches     (top);
+            nParticles  100;
+        }
+
+        dispersion
+        {
+            type        none;
+        }
+
+        // Inertial point-particle motion: 100 µm spheres of density
+        // 2000 kg/m^3 (≈ silica) settling in still water under
+        // gravity. Drag is Stokes (Re_p = V_s·d_p/ν_f ≈ 0.55, just at
+        // the edge of strict Stokes validity but the closed-form V_s
+        // is what the validate script checks against).
+        //
+        // τ_p   = ρ_p·d_p²/(18·μ_f) = 2000·(1e-4)²/(18·1e-3) = 1.11 ms
+        // a_g   = (1 - ρ_f/ρ_p)·g   = 0.5·9.81 = 4.905 m/s²
+        // V_s   = τ_p·a_g           = 5.45 mm/s   (downward)
+        // t_res = L/V_s             = 1m / 5.45 mm/s = 183.5 s
+        // dose  = G·t_res·0.1       = 1·183.5·0.1 = 18.35 mJ/cm²
+        //
+        // dtMax (0.5 s) ≫ τ_p, but the OU exact integrator is
+        // unconditionally stable so this is fine; V relaxes to V_eq
+        // within the first outer step and the rest of the trajectory
+        // is at terminal velocity.
+        motion
+        {
+            type        inertial;
+            rhoP        2000;
+            dP          1e-4;
+            rhoF        1000;
+            muF         1e-3;
+
+            drag
+            {
+                type    stokes;
+            }
+
+            gravity
+            {
+                active  true;
+                value   (0 0 -9.81);
+            }
+
+            brownian
+            {
+                active  false;
+            }
+        }
+
+        termination
+        {
+            escapePatches   (bottom);
+            maxTime         600;
+            maxDose         0;
+            wallReflection  true;
+        }
+
+        integration
+        {
+            dtMax           0.5;
+            cflMax          0.5;
+            maxOuterSteps   2000;
+        }
+
+        output
+        {
+            kInact          ();
+            writeVtk        true;
+        }
+    }
+}
+
+// ************************************************************************* //

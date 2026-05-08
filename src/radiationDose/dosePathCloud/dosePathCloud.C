@@ -39,7 +39,8 @@ Foam::dose::dosePathCloud::dosePathCloud
     const scalar maxDose,
     const Switch wallReflection,
     const Switch storeTrack,
-    autoPtr<dispersionModel> dispersion
+    autoPtr<dispersionModel> dispersion,
+    autoPtr<motionModel> motion
 )
 :
     lagrangian::Cloud<dosePathParticle>(mesh, cloudName, false),
@@ -51,7 +52,8 @@ Foam::dose::dosePathCloud::dosePathCloud
     maxDose_(maxDose),
     wallReflection_(wallReflection),
     storeTrack_(storeTrack),
-    dispersion_(std::move(dispersion))
+    dispersion_(std::move(dispersion)),
+    motion_(std::move(motion))
 {}
 
 

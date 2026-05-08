@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Validate inertialSettlingBox: Stokes-drag settling under gravity.
+
+The case is a 0.1 m x 0.1 m x 1.0 m vertical box. Particles are
+seeded at the top patch with V_0 = 0 and settle under gravity in
+still water (U = 0 everywhere). The Stokes drag relaxes V to its
+equilibrium ("terminal") value within the first outer step:
+
+    tau_p = rho_p * d_p^2 / (18 * mu_f)
+          = 2000 * (1e-4)^2 / (18 * 1e-3) = 1.111e-3 s
+
+    a_g   = (1 - rho_f/rho_p) * g
+          = (1 - 1000/2000) * 9.81 = 4.905 m/s^2
+
+    V_s   = tau_p * a_g = 5.45e-3 m/s   (downward)
+
+For an L = 1 m fall, every particle therefore has the same residence
+time t_res = L / V_s = 183.5 s and accumulates the same dose
+G * t_res * 0.1 = 1 * 183.5 * 0.1 = 18.35 mJ/cm^2 (G = 1 W/m^2,
+unit-conversion factor 0.1 from W/m^2 . s -> mJ/cm^2).
+
+The OU exact integrator with dt_max = 0.5 s >> tau_p collapses the
+transient on the first step; the rest of the trajectory is at
+terminal velocity. The result is deterministic to floating-point
+precision (no dispersion, no Brownian).
+
+Checks:
+  1. Every seeded particle escapes through the bottom patch.
+  2. Mean dose matches the analytical 18.35 mJ/cm^2 within 1 %.
+  3. Stdev of escape dose is at floating-point-noise level (<1e-3).
+"""
+
+import os
+import sys
+
+
+# Physical constants matching the controlDict
+RHO_P = 2000.0
+D_P = 1.0e-4
+RHO_F = 1000.0
+MU_F = 1.0e-3
+G_MAG = 9.81
+G_FLUENCE = 1.0  # W/m^2
+L_FALL = 1.0     # m
+
+TAU_P = RHO_P * D_P * D_P / (18.0 * MU_F)
+A_G = (1.0 - RHO_F / RHO_P) * G_MAG
+V_S = TAU_P * A_G
+T_RES = L_FALL / V_S
+DOSE_ANALYTICAL = G_FLUENCE * T_RES * 0.1
+
+
+def find_latest(name):
+    base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "postProcessing", "radiationDose",
+    )
+    if not os.path.isdir(base):
+        return None
+    times = sorted(
+        ((float(t), t) for t in os.listdir(base) if t.replace(".", "", 1).isdigit()),
+    )
+    if not times:
+        return None
+    p = os.path.join(base, times[-1][1], name)
+    return p if os.path.isfile(p) else None
+
+
+def parse_summary(path):
+    out = {}
+    with open(path) as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) >= 2 and not parts[0].startswith("#"):
+                try:
+                    out[parts[0]] = float(parts[-1])
+                except ValueError:
+                    pass
+    return out
+
+
+def main():
+    print(f"Stokes settling: tau_p = {TAU_P:.3e} s")
+    print(f"                 V_s   = {V_S:.3e} m/s (downward)")
+    print(f"                 t_res = {T_RES:.2f} s for L = {L_FALL} m")
+    print(f"                 dose  = {DOSE_ANALYTICAL:.3f} mJ/cm^2 (analytical)")
+    print()
+
+    summary = find_latest("summary.dat")
+    if summary is None:
+        sys.stderr.write("validate: no summary.dat found\n")
+        return 1
+
+    data = parse_summary(summary)
+    nSeeded = int(data.get("totalSeeded", 0))
+    nEscaped = int(data.get("escaped", 0))
+    meanDose = data.get("meanDose_mJcm2")
+    stdevDose = data.get("stdevDose_mJcm2")
+    minDose = data.get("minDose_mJcm2")
+    maxDose = data.get("maxDose_mJcm2")
+
+    print(f"validate: seeded   = {nSeeded}")
+    print(f"validate: escaped  = {nEscaped}")
+    print(f"validate: meanDose = {meanDose} mJ/cm^2")
+    print(f"validate: stdev    = {stdevDose} mJ/cm^2")
+    print(f"validate: min/max  = {minDose} / {maxDose} mJ/cm^2")
+
+    failures = []
+
+    # 1) All seeded particles must escape (gravity is monotonic, no
+    #    way to time out at maxTime = 600 s vs. ~184 s residence).
+    if nSeeded < 1 or nEscaped != nSeeded:
+        failures.append(
+            f"escaped {nEscaped} != seeded {nSeeded} "
+            f"(gravity-driven settling should escape all)"
+        )
+
+    # 2) Mean dose matches analytical within 1%. The OU update is
+    #    exact for piecewise-constant U_seen and a_g, so the only
+    #    error sources are floating-point and the inner-step CFL
+    #    discretisation when the particle sub-cycles within a cell.
+    tol = 0.01 * DOSE_ANALYTICAL
+    if meanDose is None or abs(meanDose - DOSE_ANALYTICAL) > tol:
+        failures.append(
+            f"meanDose {meanDose} not within 1% of {DOSE_ANALYTICAL:.3f}"
+        )
+
+    # 3) No randomness in the model -> stdev should be at the
+    #    floating-point noise floor. 1e-3 leaves headroom over the
+    #    accumulated rounding error.
+    if stdevDose is None or stdevDose > 1.0e-3:
+        failures.append(
+            f"stdevDose {stdevDose} > 1e-3 "
+            f"(deterministic settling should have ~0 spread)"
+        )
+
+    if failures:
+        print("\nFAIL:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+
+    print("\nPASS: Stokes settling matches analytical dose")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
