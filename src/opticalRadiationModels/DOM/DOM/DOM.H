@@ -107,9 +107,6 @@ class DOM
         //- List of pointers to irradiance fields (one per band)
         PtrList<volScalarField> GLambda_;
 
-        //- List of phase function values (one per band)
-        DynamicList<scalar, 1, 0> pf0_;
-
         //- List of pointers to per-direction radiance rays
         PtrList<ray> IRay_;
 
@@ -248,9 +245,6 @@ public:
 
             //- Scattering coefficient
             inline const volScalarField& S(const label iLambda) const;
-
-            //- Phase function values
-            inline scalar pf0(const label iLambda) const;
 
             //- Const access to irradiance field
             virtual const volScalarField& G() const;

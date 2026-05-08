@@ -31,8 +31,6 @@ using namespace Foam::constant::mathematical;
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
-Foam::label Foam::optical::ray::rayId(0);
-
 const Foam::word
 Foam::optical::ray::namePrefix("I");
 
@@ -122,7 +120,6 @@ Foam::optical::ray::ray
 
         I_.reset(new volScalarField(noReadHeader, IDefaultPtr()));
     }
-    rayId++;
 }
 
 
