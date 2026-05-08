@@ -70,7 +70,23 @@ Foam::dose::dosePathParticle::dosePathParticle
     dispState_(),
     motionState_(),
     points_()
-{}
+{
+    if (readFields)
+    {
+        // Mirror operator<<. Without this the stream desynchronises:
+        // operator<< writes these unconditionally, so leaving them
+        // unread leaves dangling tokens for the next particle's
+        // parse. points_ is intentionally not transmitted (would
+        // require trackPoint I/O operators); a particle that hands
+        // off mid-flight across a processor patch loses its
+        // pre-handoff trajectory vertices for VTK output but keeps
+        // its accumulated dose, time, velocity, and end reason for
+        // accurate final stats.
+        label er;
+        is  >> V_ >> V_disp_ >> D_ >> t_ >> er;
+        endReason_ = static_cast<endReason>(er);
+    }
+}
 
 
 Foam::dose::dosePathParticle::dosePathParticle(const dosePathParticle& p)
@@ -104,6 +120,26 @@ bool Foam::dose::dosePathParticle::move
     if (endReason_ != endReason::active)
     {
         return true;
+    }
+
+    // Lazy-initialise per-track dispersion / motion state from the
+    // cloud's models. Cover three paths that don't go through the
+    // seeding loop's setDispState / setMotionState calls:
+    //   - Particles handed off across a processor patch arrive with
+    //     empty state autoPtrs (the Istream constructor doesn't get
+    //     a cloud reference).
+    //   - Copy-constructed particles (e.g. during cross-rank
+    //     transfer queues) similarly start with empty state.
+    //   - For DRW + handoff, a fresh eddy state on the receiver is
+    //     also the right physics — eddy lifetime is not continuous
+    //     across the decomposition.
+    if (!dispState_.valid())
+    {
+        dispState_ = cloud.dispersion().newState();
+    }
+    if (!motionState_.valid())
+    {
+        motionState_ = cloud.motion().newState();
     }
 
     // Sample U at the current position; add a turbulent fluctuation.
@@ -344,7 +380,8 @@ Foam::Ostream& Foam::dose::operator<<
         << p.V_ << token::SPACE
         << p.V_disp_ << token::SPACE
         << p.D_ << token::SPACE
-        << p.t_;
+        << p.t_ << token::SPACE
+        << static_cast<label>(p.endReason_);
     return os;
 }
 
