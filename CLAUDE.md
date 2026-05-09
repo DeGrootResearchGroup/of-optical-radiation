@@ -1002,7 +1002,7 @@ Don't try to `git push` from inside the sandbox; it fails with
 
 ## Tutorials & validation
 
-`tutorials/` ships fifteen cases — eleven for opticalRadiation, four
+`tutorials/` ships sixteen cases — twelve for opticalRadiation, four
 for radiationDose:
 
 opticalRadiation:
@@ -1029,6 +1029,14 @@ opticalRadiation:
   absorption and isotropic scattering (κ=σ_s=0.5, ω=0.5), validated
   against a Schwarzschild-Milne integral-equation reference solved
   inline in the validate script. Tolerance 10%; observed ~9.7%.
+- **`scatteringSlab3D`** — 3-D analogue of `scatteringSlab2D`, same
+  Schwarzschild-Milne reference (1-D plane-parallel applies in 3-D
+  with mirrored y, z faces). 1 m × 0.1 m × 0.1 m, 100×4×4 cells,
+  `nPhi=4` `nTheta=4` (32 rays). With true-3-D angular discretisation
+  the `|dAve|/omega` ratio goes to 1 in the fine limit (the 2-D-as-3-D
+  scheme has it stuck at π/4); useful regression case for in-scatter
+  questions where the 2-D-as-3-D factor is a confound. Same 10%
+  tolerance; observed ~7.1%.
 - **`diffuseReflectionSlab2D`** — 2-D transparent slab between a
   Lambertian emitter (E=1 W/m²) and a pure diffuse reflector
   (`diffuseFraction=1`, `reflectionCoef=0.5`), specular mirrors on the
