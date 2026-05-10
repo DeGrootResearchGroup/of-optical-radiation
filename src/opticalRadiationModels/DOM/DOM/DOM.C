@@ -285,13 +285,12 @@ void Foam::optical::DOM::calculate()
                 for (label jAngle = 0; jAngle < nAngle_; jAngle++)
                 {
                     rayJ = jAngle + iBand*nAngle_;
-                    if(rayI != rayJ )
+                    if (rayI != rayJ)
                     {
-                        scalar rayCos = IRay_[rayI].d() & IRay_[rayJ].d();
-                        if(rayCos > 0 )
-                        {
-                            diffusionScatter_ = diffusionScatter_ + ISnapshot_[rayJ]*phaseFunctionModel_->correct(rayI,rayJ, iBand)*IRay_[rayJ].omega();
-                        }
+                        diffusionScatter_ +=
+                            ISnapshot_[rayJ]
+                          * phaseFunctionModel_->correct(rayI, rayJ, iBand)
+                          * IRay_[rayJ].omega();
                     }
                 }
             }

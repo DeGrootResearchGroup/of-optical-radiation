@@ -313,11 +313,11 @@ the API port:
        and uses the snapshot for every source computation that
        iteration (Jacobi update). The in-scatter source path is now
        order-symmetric.
-  Validated by `scatteringSlab2D` against a Schwarzschild-Milne
-  integral-equation reference (~9.7% peak error vs 10% tol with
-  `nPhi=8` isotropic) and by the
-  `absorbingScatteringBox3D` vs `variableExtinctionBox3D` bit-for-bit
-  cross-case match in 3-D with strong-forward HG (g=0.98/0.99).
+  Validated by `scatteringSlab2D` (~5.7% peak error) and the 3-D
+  analogue `scatteringSlab3D` (~7.1%) against a Schwarzschild-Milne
+  integral-equation reference, and by the `absorbingScatteringBox3D`
+  vs `variableExtinctionBox3D` bit-for-bit cross-case match in 3-D
+  with strong-forward HG (g=0.98/0.99).
 - `reflective` BC's diffuse-reflection term divided by `2π` instead
   of `π`, halving the Lambertian-reflection radiance. The accumulator
   `Σ_j I_j |n·dAve_j|` is the discrete incident irradiance `q_in`
@@ -1028,7 +1028,7 @@ opticalRadiation:
 - **`scatteringSlab2D`** — 2-D plane-parallel slab with combined
   absorption and isotropic scattering (κ=σ_s=0.5, ω=0.5), validated
   against a Schwarzschild-Milne integral-equation reference solved
-  inline in the validate script. Tolerance 10%; observed ~9.7%.
+  inline in the validate script. Tolerance 10%; observed ~5.7%.
 - **`scatteringSlab3D`** — 3-D analogue of `scatteringSlab2D`, same
   Schwarzschild-Milne reference (1-D plane-parallel applies in 3-D
   with mirrored y, z faces). 1 m × 0.1 m × 0.1 m, 100×4×4 cells,

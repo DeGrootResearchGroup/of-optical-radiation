@@ -119,7 +119,7 @@ Foam::optical::HenyeyGreensteinModel::HenyeyGreensteinModel
                             }
                         }
                         pfSum = pfSum + phaseFunction_[idx];
-                        phaseFunction_[idx] = phaseFunction_[idx]/dom.IRay(rayI).omega() ;
+                        phaseFunction_[idx] = phaseFunction_[idx]/dom.IRay(rayJ).omega() ;
                     }
 
                     for(label j = 0; j<nAngle_ ; j++)
@@ -155,7 +155,7 @@ Foam::optical::HenyeyGreensteinModel::HenyeyGreensteinModel
                         }
 			
                         pfSum = pfSum + phaseFunction_(idx);
-                        phaseFunction_[idx] = phaseFunction_[idx]/dom.IRay(rayI).omega() ;
+                        phaseFunction_[idx] = phaseFunction_[idx]/dom.IRay(rayJ).omega() ;
                     }
                     
                     for(scalar j = 0; j<nAngle_ ; j++)

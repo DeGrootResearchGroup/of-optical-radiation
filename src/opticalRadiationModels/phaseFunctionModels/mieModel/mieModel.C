@@ -179,7 +179,7 @@ Foam::optical::mieModel::mieModel
                         }
                     }
                     pfSum += phaseFunction_[idx];
-                    phaseFunction_[idx] /= dom.IRay(rayI).omega();
+                    phaseFunction_[idx] /= dom.IRay(rayJ).omega();
                 }
 
                 for (label j = 0; j < nAngle_; ++j)
@@ -216,7 +216,7 @@ Foam::optical::mieModel::mieModel
                             mie.phaseIntensity(cosV)*nOmega;
                     }
                     pfSum += phaseFunction_[idx];
-                    phaseFunction_[idx] /= dom.IRay(rayI).omega();
+                    phaseFunction_[idx] /= dom.IRay(rayJ).omega();
                 }
 
                 for (label j = 0; j < nAngle_; ++j)

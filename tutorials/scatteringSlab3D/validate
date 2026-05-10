@@ -136,7 +136,26 @@ def main() -> int:
 
     sample_indices = [0, 10, 20, 50, 99]
     taus_sim = [(ix + 0.5) / NX * tau_L for ix in sample_indices]
-    G_ana = reference_G(tau_L, omega, L_w, taus_sim)
+
+    # Build the reference on a uniform fine tau-grid then interpolate to
+    # the simulation's sample stations. reference_G's Picard iteration
+    # assumes uniform dt internally, so a non-uniform input grid (like
+    # the sample stations) silently produces wrong values away from the
+    # finest gap.
+    N_REF = 200
+    taus_ref = [(i + 0.5) / N_REF * tau_L for i in range(N_REF)]
+    G_full = reference_G(tau_L, omega, L_w, taus_ref)
+    def G_at(t):
+        if t <= taus_ref[0]:
+            return G_full[0]
+        if t >= taus_ref[-1]:
+            return G_full[-1]
+        for k in range(len(taus_ref) - 1):
+            if taus_ref[k] <= t <= taus_ref[k + 1]:
+                f = (t - taus_ref[k]) / (taus_ref[k + 1] - taus_ref[k])
+                return (1 - f) * G_full[k] + f * G_full[k + 1]
+        return G_full[-1]
+    G_ana = [G_at(t) for t in taus_sim]
 
     print(
         f"omega = {omega:.2f},  tau_L = {tau_L:.2f},  "

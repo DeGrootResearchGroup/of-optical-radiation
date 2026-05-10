@@ -47,7 +47,7 @@ Tolerance: 10% peak relative error (looser than `diffuseSlab2D`'s 7%
 because the scattering source compounds the angular-discretisation
 error of the DOM with `nPhi=8`).
 
-Observed peak error with the shipped configuration: ~9.7%.
+Observed peak error with the shipped configuration: ~5.7%.
 
 ## Running
 
