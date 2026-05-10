@@ -43,10 +43,10 @@ Foam::optical::ray::ray
     const fvMesh& mesh,
     const label iBand,
     const label iAngle,
-    const scalar phi,
     const scalar theta,
-    const scalar deltaPhi,
-    const scalar deltaTheta
+    const scalar phi,
+    const scalar deltaTheta,
+    const scalar deltaPhi
 )
 :
     dom_(dom),
@@ -131,7 +131,7 @@ Foam::optical::ray::~ray()
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::scalar Foam::optical::ray::correct()
+Foam::scalar Foam::optical::ray::correct(const volScalarField& ds)
 {
     scalar maxResidual = -GREAT;
     scalar eqnResidual;
@@ -139,8 +139,6 @@ Foam::scalar Foam::optical::ray::correct()
     const volScalarField& A = dom_.A(iBand_);
     const volScalarField& S = dom_.S(iBand_);
     const volScalarField K = A + S;
-
-    const volScalarField& ds = dom_.diffusionScatter();
 
     surfaceScalarField Ji0(vector(0,0,0) & mesh_.Sf());
     surfaceScalarField Ji1(vector(0,0,0) & mesh_.Sf());

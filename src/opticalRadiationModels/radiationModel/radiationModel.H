@@ -113,9 +113,6 @@ public:
 
     // Constructors
 
-        //- Null constructor
-        radiationModel(const volScalarField& I);
-
         //- Construct from components
         radiationModel(const word& type, const volScalarField& I);
 

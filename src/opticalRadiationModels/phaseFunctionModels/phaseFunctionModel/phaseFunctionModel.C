@@ -199,4 +199,19 @@ Foam::scalar Foam::optical::phaseFunctionModel::correct
 }
 
 
+const Foam::scalar* Foam::optical::phaseFunctionModel::phaseRow
+(
+    const label rayI,
+    const label iBand
+) const
+{
+    if (phaseFunction_.empty())
+    {
+        return nullptr;
+    }
+    const label i = rayI - iBand*nAngle_;
+    return &phaseFunction_[i*nAngle_ + iBand*nAngle_*nAngle_];
+}
+
+
 // ************************************************************************* //

@@ -119,18 +119,19 @@ public:
 
     // Constructors
 
-        //- Construct from components
+        //- Construct from components. theta / phi follow the (theta, phi)
+        //  parameter ordering used by the rest of DOM (anglesToDir,
+        //  intDirOmega, dirToTheta / dirToPhi).
         ray
         (
             const DOM& dom,
             const fvMesh& mesh,
             const label  iBand,
             const label  iAngle,
-            const scalar phi,
             const scalar theta,
-            const scalar deltaPhi,
-            const scalar deltaTheta
-
+            const scalar phi,
+            const scalar deltaTheta,
+            const scalar deltaPhi
         );
 
     // Destructor
@@ -140,8 +141,10 @@ public:
 
         // Edit
 
-            //- Update radiance on i direction
-            scalar correct();
+            //- Update radiance on i direction. ds is the in-scatter
+            //  source S_in,i = sum_j table[i,j] * I_j computed in
+            //  DOM::calculate() and passed in by reference.
+            scalar correct(const volScalarField& ds);
 
             //- Update boundaries
             void updateBoundary();

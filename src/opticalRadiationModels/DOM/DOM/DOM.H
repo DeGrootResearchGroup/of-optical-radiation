@@ -80,9 +80,6 @@ class DOM
         //- Irradiance field  [W/m^2]
         volScalarField G_;
 
-        //- Inscattering field
-        volScalarField diffusionScatter_;
-
         //- Number of solid angles in theta
         label nTheta_;
 
@@ -124,7 +121,7 @@ class DOM
         scalar convergence_;
 
         //- Maximum number of iterations
-        scalar maxIter_;
+        label maxIter_;
 
         //- phi interval
         scalar deltaPhi_;
@@ -144,11 +141,14 @@ class DOM
         void checkDim_();
 
         //- Set up a radiance ray
-        void setRay_(const label i,
-                     const label iBand,
-                     const label iAngle,
-                     const scalar phi,
-                     const scalar theta);
+        void setRay_
+        (
+            const label i,
+            const label iBand,
+            const label iAngle,
+            const scalar theta,
+            const scalar phi
+        );
 
 public:
 
@@ -248,9 +248,6 @@ public:
 
             //- Const access to irradiance field
             virtual const volScalarField& G() const;
-
-            //- Const access to
-            inline const volScalarField& diffusionScatter() const;
 
 };
 

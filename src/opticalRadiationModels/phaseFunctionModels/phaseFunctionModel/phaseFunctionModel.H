@@ -235,6 +235,21 @@ public:
                 const label rayJ,
                 const label iBand
             ) const;
+
+            //- Pointer to the contiguous row table[rayI, *, iBand] of
+            //  length nAngle_. Lets the in-scatter loop in DOM hoist
+            //  the (rayI, iBand) lookup out of the inner ray-pair loop
+            //  -- one virtual call per (rayI, iBand) pair instead of
+            //  one per (rayI, rayJ, iBand) tuple.
+            //
+            //  Returns nullptr if the table has not been built (e.g.
+            //  inScatter == false, or this is the no-op base class
+            //  used as the missing-dictionary fallback).
+            const scalar* phaseRow
+            (
+                const label rayI,
+                const label iBand
+            ) const;
 };
 
 
