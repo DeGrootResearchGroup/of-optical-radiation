@@ -100,17 +100,35 @@ Foam::optical::rayleighExtinction::rayleighExtinction
 
     const scalar kB = 1.380649e-23;
     const scalar pi = constant::mathematical::pi;
-    const scalar N  = p_/(kB*T_);
+
+    // Bodhaine et al. 1999 reference state: the standard conditions at
+    // which the Peck-Reeder air refractive-index fit (used in
+    // airRefractiveIndex above) is defined. The Rayleigh per-molecule
+    // cross-section is intrinsic to the molecule and was inferred from
+    // n_s measured at N_s, so the (n^2 - 1) and N^2 factors in
+    // sigma(lambda) must use that reference density -- NOT the local
+    // density implied by the user-supplied (T, p). Local thermodynamics
+    // enters only through the bulk scattering coefficient
+    //   sigma_s(T, p) = N(T, p) * sigma_per_molecule
+    // below. Using local N in the cross-section formula gives results
+    // that are correct at the Peck-Reeder reference state but drift
+    // (~few %) away from it.
+    const scalar T_s = 288.15;       // Peck & Reeder reference T [K]
+    const scalar p_s = 101325.0;     // Peck & Reeder reference p [Pa]
+    const scalar N_s = p_s/(kB*T_s); // standard-state number density [1/m^3]
+    const scalar N   = p_/(kB*T_);   // local number density [1/m^3]
 
     forAll(wavelengths_, b)
     {
         const scalar lamM = wavelengths_[b]*1e-9;
         const scalar ns   = airRefractiveIndex(wavelengths_[b]);
         const scalar lr   = (sqr(ns) - 1.0)/(sqr(ns) + 2.0);
-        const scalar sigmaR =
-            24.0*pow3(pi)/(pow4(lamM)*sqr(N))*sqr(lr)*kingFactor_;
+        // Per-molecule cross-section (Bodhaine 1999), uses N_s.
+        const scalar sigmaPerMolecule =
+            24.0*pow3(pi)/(pow4(lamM)*sqr(N_s))*sqr(lr)*kingFactor_;
 
-        sigmaSPerBand_[b] = N*sigmaR;
+        // Bulk volume scattering coefficient at local (T, p).
+        sigmaSPerBand_[b] = N*sigmaPerMolecule;
 
         ALambda_[b] = dimensionedScalar("A", dimless/dimLength, 0.0);
         SLambda_[b] =

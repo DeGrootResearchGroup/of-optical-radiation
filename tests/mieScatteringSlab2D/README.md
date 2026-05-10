@@ -12,8 +12,8 @@ Bohren-Huffman canonical case `x = 3, m = 1.55 + 0i`.
 * Single band, `lambda = 500 nm` vacuum.
 * Particle: `radius = 2.387324e-7 m`, `m_particle = 1.55 + 0i`,
   `m_medium = 1` -> size parameter `x = 3.000`, pure scatterer.
-* Number density: uniform `n = 1e+12 1/m^3` from `0.orig/n` ->
-  `sigma_s = pi r^2 n Q_sca ~ 0.516 1/m`,
+* Number density: uniform `nP = 1e+12 1/m^3` from `0.orig/nP` ->
+  `sigma_s = pi r^2 nP Q_sca ~ 0.516 1/m`,
   `tau_L ~ 0.516`.
 
 ## Validation (`./validate`)

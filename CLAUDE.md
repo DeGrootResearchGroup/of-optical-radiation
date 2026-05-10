@@ -455,7 +455,9 @@ re-litigate them.
   g, S_1, S_2` over a size distribution at construction; not
   implemented because no driver case has needed it. Number density
   `N(x)` is read from a registered `volScalarField` named via
-  `numberDensityField` (default `n`, units `1/m^3`); converting
+  `numberDensityField` (default `nP`, units `1/m^3`; `nP` rather than
+  the more obvious `n` because the latter collides with common
+  conventions for refractive index and surface normals); converting
   mass concentration `c [kg/m^3]` to `N` (via particle density and
   shape) is left to the user. Phase function table construction
   re-uses the same row-normalised pixel-averaged scheme as

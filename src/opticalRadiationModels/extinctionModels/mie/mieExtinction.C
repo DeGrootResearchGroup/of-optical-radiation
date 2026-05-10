@@ -63,7 +63,7 @@ Foam::optical::mieExtinction::mieExtinction
     mMedium_(coeffsDict_.lookupOrDefault<scalar>("mMedium", 1.0)),
     numberDensityFieldName_
     (
-        coeffsDict_.lookupOrDefault<word>("numberDensityField", "n")
+        coeffsDict_.lookupOrDefault<word>("numberDensityField", "nP")
     ),
     QscaPerBand_(),
     QabsPerBand_(),

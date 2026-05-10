@@ -131,6 +131,39 @@ Foam::optical::linearSpeciesExtinction::linearSpeciesExtinction
         );
     }
 
+    // Validate species-field dimensions at construction so dictionary
+    // mistakes (e.g. supplying a mole-fraction field instead of a mass
+    // concentration) are caught upfront rather than at the first
+    // correct() call, deep inside the time loop. Expected dimensions:
+    // mass concentration [kg/m^3] so that
+    //   a * C = [m^2/kg] * [kg/m^3] = [1/m]
+    // matches the extinction-coefficient dimensions assigned to
+    // ALambda_ / SLambda_. (See the dimensionedScalar `a`/`s`
+    // constructions in correct() below.)
+    const dimensionSet expectedDims(dimMass/pow3(dimLength));
+    auto checkDim = [&](const word& name)
+    {
+        const volScalarField& f = mesh.lookupObject<volScalarField>(name);
+        if (f.dimensions() != expectedDims)
+        {
+            FatalErrorInFunction
+                << "Species field '" << name << "' has dimensions "
+                << f.dimensions() << "; linearSpeciesExtinction expects "
+                << "mass-concentration dimensions " << expectedDims
+                << " (kg/m^3). Coefficient * concentration must yield"
+                << " an extinction coefficient with 1/m dimensions."
+                << exit(FatalError);
+        }
+    };
+    if (absorption_)
+    {
+        forAll(aSpecies_, i) checkDim(aSpecies_[i]);
+    }
+    if (scattering_)
+    {
+        forAll(sSpecies_, i) checkDim(sSpecies_[i]);
+    }
+
     // Correct the extinction coefficient fields
     correct();
 }
@@ -148,10 +181,18 @@ Foam::optical::linearSpeciesExtinction::~linearSpeciesExtinction()
 
 void Foam::optical::linearSpeciesExtinction::correct()
 {
-    // Set the absorption coefficient field
+    // Absorption / scattering loops are guarded on the master toggle.
+    // If absorption is off the user is allowed to leave absorbingVars
+    // / absorptionCoeff unset; without this guard the loop would still
+    // run nAbsorbing_ times (whatever the user wrote in the dict) and
+    // try to look up empty species names. Symmetric for scattering.
     forAll(ALambda_, iBand)
     {
         ALambda_[iBand] = dimensionedScalar("A", dimless/dimLength, 0.0);
+        if (!absorption_)
+        {
+            continue;
+        }
         for (label i = 0; i < nAbsorbing_; i++)
         {
             const dimensionedScalar a
@@ -163,10 +204,13 @@ void Foam::optical::linearSpeciesExtinction::correct()
         }
     }
 
-    // Set the scattering coefficient field
     forAll(SLambda_, iBand)
     {
         SLambda_[iBand] = dimensionedScalar("S", dimless/dimLength, 0.0);
+        if (!scattering_)
+        {
+            continue;
+        }
         for (label i = 0; i < nScattering_; i++)
         {
             const dimensionedScalar s
