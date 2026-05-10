@@ -55,8 +55,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef iesPhotometry_H
-#define iesPhotometry_H
+#ifndef optical_iesPhotometry_H
+#define optical_iesPhotometry_H
 
 #include "scalarList.H"
 #include "fileName.H"

@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 2008-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -52,8 +52,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationModelDOM_H
-#define opticalRadiationModelDOM_H
+#ifndef optical_DOM_H
+#define optical_DOM_H
 
 #include "radiationModel.H"
 #include "ray.H"
@@ -176,6 +176,20 @@ public:
 
             //- Update G
             void updateG();
+
+            //- Look up the registered DOM model from any object registry
+            //  (typically a BC's `db()`). Replaces the
+            //
+            //      const radiationModel& r =
+            //          db.lookupObject<radiationModel>(
+            //              "opticalRadiationProperties");
+            //      const DOM& dom = refCast<const DOM>(r);
+            //
+            //  boilerplate that every optical BC used to repeat. Throws
+            //  the standard FOAM FATAL ERROR if the registered model
+            //  isn't a DOM (i.e. someone selected a different
+            //  radiationModel type but kept a DOM-only BC).
+            static const DOM& lookup(const objectRegistry& db);
 
             //- Get the ray ID by decomposing a radiance field name
             label nameToRayId(const word& name) const;

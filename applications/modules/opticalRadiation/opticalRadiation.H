@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           |
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.

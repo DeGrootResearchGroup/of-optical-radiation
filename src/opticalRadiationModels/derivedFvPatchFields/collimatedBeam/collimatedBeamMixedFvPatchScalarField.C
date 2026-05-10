@@ -157,9 +157,7 @@ void Foam::optical::collimatedBeamMixedFvPatchScalarField::updateCoeffs()
     UPstream::msgType() = oldTag + 1;
 
     scalarField& Iw = *this;
-    const radiationModel& opticalRadiation =
-        db().lookupObject<radiationModel>("opticalRadiationProperties");
-    const DOM& dom(refCast<const DOM>(opticalRadiation));
+    const DOM& dom = DOM::lookup(db());
 
     if (dom.nBand() != nBands_)
     {

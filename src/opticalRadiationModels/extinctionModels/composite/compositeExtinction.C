@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -54,10 +54,10 @@ Foam::optical::compositeExtinction::compositeExtinction
 :
     extinctionModel(dict, mesh),
     coeffsDict_(dict.subDict(typeName + "Coeffs")),
-    nBands_(readLabel(coeffsDict_.lookup("nBands"))),
     models_()
 {
-    init(nBands_);
+    // init() sets the inherited nBands_ and resizes ALambda_ / SLambda_.
+    init(readLabel(coeffsDict_.lookup("nBands")));
 
     const dictionary& modelsDict = coeffsDict_.subDict("models");
     const wordList childNames = modelsDict.toc();

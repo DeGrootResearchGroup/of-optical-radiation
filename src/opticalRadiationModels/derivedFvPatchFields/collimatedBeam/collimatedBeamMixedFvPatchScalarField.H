@@ -95,8 +95,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef collimatedBeamMixedFvPatchScalarField_H
-#define collimatedBeamMixedFvPatchScalarField_H
+#ifndef optical_collimatedBeamMixedFvPatchScalarField_H
+#define optical_collimatedBeamMixedFvPatchScalarField_H
 
 #include "mixedFvPatchFields.H"
 

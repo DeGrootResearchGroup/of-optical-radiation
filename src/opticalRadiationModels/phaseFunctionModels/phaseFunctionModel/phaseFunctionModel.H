@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -48,8 +48,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef phaseFunctionModel_H
-#define phaseFunctionModel_H
+#ifndef optical_phaseFunctionModel_H
+#define optical_phaseFunctionModel_H
 
 #include "IOdictionary.H"
 #include "autoPtr.H"

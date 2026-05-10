@@ -3,7 +3,7 @@
   \\      /  F ield         | radiationDose: Lagrangian radiation dose tracking
    \\    /   O peration     |
     \\  /    A nd           |
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 \*---------------------------------------------------------------------------*/
 
 #include "discreteRandomWalk.H"

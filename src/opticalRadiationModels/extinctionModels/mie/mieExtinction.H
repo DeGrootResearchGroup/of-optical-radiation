@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -55,8 +55,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationMieExtinction_H
-#define opticalRadiationMieExtinction_H
+#ifndef optical_mieExtinction_H
+#define optical_mieExtinction_H
 
 #include "extinctionModel.H"
 
@@ -81,9 +81,6 @@ class mieExtinction
 
         //- Extinction model dictionary
         dictionary coeffsDict_;
-
-        //- Number of bands
-        label nBands_;
 
         //- Per-band central wavelengths in vacuum [nm]
         List<scalar> wavelengths_;

@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -53,8 +53,7 @@ Foam::optical::linearSpeciesExtinction::linearSpeciesExtinction
 )
 :
     extinctionModel(dict, mesh),
-    coeffsDict_((dict.subDict(typeName + "Coeffs"))),
-    nBands_(readLabel(coeffsDict_.lookup("nBands"))),
+    coeffsDict_(dict.subDict(typeName + "Coeffs")),
     absorption_(coeffsDict_.lookup("absorption")),
     nAbsorbing_(readLabel(coeffsDict_.lookup("nAbsorbing"))),
     aSpecies_(nAbsorbing_),
@@ -64,27 +63,16 @@ Foam::optical::linearSpeciesExtinction::linearSpeciesExtinction
     sSpecies_(nScattering_),
     sCoeffs_(nScattering_)
 {
-    // Initialize the extinction model
-    init(nBands_);
+    // init() sets the inherited nBands_ and resizes ALambda_ / SLambda_.
+    init(readLabel(coeffsDict_.lookup("nBands")));
 
-    // Initialize absorption coefficients
     forAll(aCoeffs_, i)
     {
-        aCoeffs_[i].setSize(nBands_);
-        forAll(aCoeffs_[i], j)
-        {
-            aCoeffs_[i][j] = 0.0;
-        }
+        aCoeffs_[i].setSize(nBands_, 0.0);
     }
-
-    // Initialize scattering coefficients
     forAll(sCoeffs_, i)
     {
-        sCoeffs_[i].setSize(nBands_);
-        forAll(sCoeffs_[i], j)
-        {
-            sCoeffs_[i][j] = 0.0;
-        }
+        sCoeffs_[i].setSize(nBands_, 0.0);
     }
 
     // Read the coefficients

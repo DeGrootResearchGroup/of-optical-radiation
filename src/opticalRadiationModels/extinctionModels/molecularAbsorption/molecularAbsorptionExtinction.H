@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -69,8 +69,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationMolecularAbsorptionExtinction_H
-#define opticalRadiationMolecularAbsorptionExtinction_H
+#ifndef optical_molecularAbsorptionExtinction_H
+#define optical_molecularAbsorptionExtinction_H
 
 #include "extinctionModel.H"
 
@@ -103,9 +103,6 @@ private:
 
         //- Extinction model dictionary
         dictionary coeffsDict_;
-
-        //- Number of bands
-        label nBands_;
 
         //- Concentration mode
         concentrationMode mode_;
