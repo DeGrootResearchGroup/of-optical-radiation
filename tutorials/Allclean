@@ -1,9 +1,18 @@
 #!/bin/sh
 cd "${0%/*}" || exit 1
 
+# Clean every tutorial case in this directory by invoking its Allclean.
+# Honours LONG_RUNNING the same way Allrun does (set RUN_LONG_TUTORIALS=1
+# to include long-running cases).
+
 for case in */ ; do
     case_name="${case%/}"
     if [ -x "$case_name/Allclean" ]; then
+        if [ -f "$case_name/LONG_RUNNING" ] \
+            && [ -z "${RUN_LONG_TUTORIALS:-}" ]; then
+            echo "==> skipping $case_name (LONG_RUNNING; set RUN_LONG_TUTORIALS=1 to include)"
+            continue
+        fi
         echo "==> cleaning $case_name"
         ( cd "$case_name" && ./Allclean )
     fi

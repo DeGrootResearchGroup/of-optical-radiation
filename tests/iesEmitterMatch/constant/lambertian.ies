@@ -1,0 +1,36 @@
+IESNA:LM-63-2002
+[TEST]      synthetic Lambertian fixture for iesEmitter2D regression
+[MANUFAC]   none
+[LUMCAT]    LAMBERTIAN-COSINE
+[LUMINAIRE] flat circular emitter, perfect Lambertian I(gamma) = cos(gamma)
+[LAMP]      idealised
+[ISSUEDATE] 2026-05-06
+[OTHER]     Used by tutorials/iesEmitter2D to validate the iesEmitter
+[OTHER]     boundary condition. Vertical (gamma) values from 0 to 180 in
+[OTHER]     5 deg steps; the cosine shape is the physically correct
+[OTHER]     intensity distribution for a flat Lambertian emitter.
+[OTHER]     I(gamma) = cos(gamma) for gamma <= 90, I(gamma) = 0 above
+[OTHER]     (no back emission). Single horizontal angle (axisymmetric).
+TILT=NONE
+1
+1.0
+1.0
+37
+1
+1
+2
+0.0 0.0 0.0
+1.0 1.0 0
+0   5   10  15  20  25  30  35  40  45
+50  55  60  65  70  75  80  85  90  95
+100 105 110 115 120 125 130 135 140 145
+150 155 160 165 170 175 180
+0
+1.00000000  0.99619470  0.98480775  0.96592583  0.93969262
+0.90630779  0.86602540  0.81915204  0.76604444  0.70710678
+0.64278761  0.57357644  0.50000000  0.42261826  0.34202014
+0.25881905  0.17364818  0.08715574  0.00000000
+0.00000000  0.00000000  0.00000000  0.00000000  0.00000000
+0.00000000  0.00000000  0.00000000  0.00000000  0.00000000
+0.00000000  0.00000000  0.00000000  0.00000000  0.00000000
+0.00000000  0.00000000  0.00000000

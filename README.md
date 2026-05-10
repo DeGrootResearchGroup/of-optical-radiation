@@ -111,7 +111,7 @@ You can then build and run inside the container:
 
 ```sh
 docker run --rm -e USER=root -v $(pwd):/code -w /code openfoam13 \
-    "./Allwmake && (cd tutorials && ./Alltest)"
+    "./Allwmake && (cd tests && ./Alltest)"
 ```
 
 ---
@@ -145,105 +145,77 @@ Build products:
 
 ---
 
-## Running a tutorial
+## Tests vs tutorials
 
-Seventeen tutorial cases ship under `tutorials/`:
+The case suite is split into two trees:
 
-opticalRadiation cases:
+- **`tests/`** -- 16 regression cases run by CI on every PR. Synthetic
+  geometries (slabs, boxes) chosen for closed-form analytical
+  references (E_2 integrals, Schwarzschild-Milne, Beer-Lambert, etc.)
+  plus three bit-for-bit cross-case identity checks. What you re-run
+  to catch a regression.
+- **`tutorials/`** -- 4 pedagogical cases run on demand by users.
+  Either drawn from literature (`uvReactorSozzi2006`) or
+  demonstrating an architectural pattern that doesn't exist anywhere
+  else in the repo (`refractiveInterface2D` for multi-region
+  `foamMultiRun`; `fvModelChannel2D` for fvModel embedding into a
+  host solver; `iesEmitter2D` for IES photometric file integration).
+  Each has a small bit-for-bit replacement test under
+  `tests/<name>Match` so promoting them to tutorials didn't lose CI
+  coverage.
 
-- `diffuseSlab2D` — 2-D plane-parallel slab with an analytical reference.
-- `absorbingScatteringBox3D` — 3-D box, multi-band, anisotropic scatter.
-- `variableExtinctionBox3D` — same as above, driven by species fields;
-  cross-case identity check.
-- `refractiveInterface2D` — refractive-index step with collimated beam,
-  analytical Fresnel-transmission validation.
-- `fvModelChannel2D` — same radiation problem as `diffuseSlab2D` but
-  embedded into `incompressibleFluid` via the fvModel wrapper;
-  bit-for-bit cross-case match against the standalone solver.
-- `scatteringSlab2D` — combined absorption + isotropic scattering,
-  validated against a Schwarzschild-Milne integral-equation reference.
-- `scatteringSlab3D` — 3-D analogue of the same slab problem; useful
-  when the 2-D-as-3-D `|dAve|/omega = π/4` factor is a confound.
-- `isotropicSlab2D` — `scatteringSlab2D` with `isotropicModel` instead
-  of HG g=0; cross-case bit-for-bit match in `Alltest` confirms the
-  two paths are algebraically identical.
-- `diffuseReflectionSlab2D` — transparent slab between a Lambertian
-  emitter and a pure diffuse reflector, analytical uniform G = 3.0;
-  regression guard for the diffuse term of the `reflective` BC.
-- `rayleighSlab2D` — `diffuseSlab2D` geometry with `composite{constant
-  κ=0.5, rayleigh@222 nm}` extinction and the `rayleighModel` phase
-  function. Validates the Bodhaine cross-section formula and the
-  composite per-channel summation to 8 digits; G profile against the
-  absorbing analytical regression-guards the phase-function path.
-- `molecularAbsorptionSlab2D` — `diffuseSlab2D` geometry with a
-  `composite` of two `molecularAbsorption` children: O₂ in `idealGas`
-  mode (atmospheric mole fraction at standard conditions) and O₃ in
-  `field` mode (volScalarField in mol/m³). Beer-Lambert validation at
-  222 nm; exercises the cross-section + concentration plumbing in
-  both modes through composite stacking.
-- `mieScatteringSlab2D` — Bohren-Huffman canonical Mie test case
-  (`x = 3, m_rel = 1.55 + 0i`, monodisperse spheres) with both
-  `mieExtinction` and the full `mieModel` phase function. Four-stage
-  validate: BHMIE Rayleigh limit at small `x` (anchors the Python
-  reference), C++ kernel cross-check vs. the validated reference,
-  `pi r^2 N Q_sca` field cross-check, and a G-profile sanity decay.
-- `iesEmitter2D` — `diffuseSlab2D` geometry with the radiating wall
-  switched to `iesEmitter` and a synthetic Lambertian-shape IES file
-  (`I(gamma) = cos(gamma)`). With `fixtureAxis` aligned to the inward
-  normal the BC reduces to a constant Lambertian radiance whose
-  effective `L_w` follows from `power / (A_patch * Phi_table)`; the
-  validate script recomputes that `L_w` from case parameters and
-  checks `G(x)` against `2*pi*L_w*E_2(kappa*x)` summed over bands
-  (~5.4 % peak error vs 7 % tol — same DOM angular discretisation
-  budget as `diffuseSlab2D`).
-
-radiationDose cases:
-
-- `doseSmokeBox` — uniform plug-flow box with analytical `G·t` dose;
-  unit-conversion + integrator sanity check.
-- `inertialSettlingBox` — gravity-driven Stokes settling in still
-  water with uniform `G`; analytical mean dose `G·L/V_s·0.1` matched
-  to ~1e-5 relative. Regression guard for the `inertial` motion
-  model, the OU exact integrator, and the Stokes drag path.
-- `pointInjectionBox` — `U = 0` cube with sphere and box `pointInjection`
-  seeding regions; particles are stuck at their seed positions, so the
-  validate script can read end-positions from `doseDistribution.csv`
-  and check that the sample mean and per-axis stddev match the
-  analytical uniform-in-region values within ~6 σ.
-- `uvReactorSozzi2006` — Sozzi & Taghipour 2006 L-shape annular reactor
-  at 25 GPM with realizable k-ε flow + analytical radial `G`. On a
-  10000-particle run (matching the paper): 100 % escape, mean dose
-  70.28 mJ/cm² (paper: 68 — within 3.4 %), log reduction 2.05
-  (paper: 1.87).
-
-Run an individual case:
+### Run the regression suite
 
 ```sh
-cd tutorials/diffuseSlab2D
+cd tests
+./Alltest    # all 16 cases + 3 cross-case diffs; what CI runs
+```
+
+### Run an individual test or tutorial
+
+```sh
+cd tests/diffuseSlab2D
 ./Allrun                # mesh + solve
 ./validate              # check simulated G against 2*pi*L_w*E_2(kappa*x)
 ```
 
-The Sozzi case has a separate post-process step:
+The Sozzi tutorial has the post-process step chained into `Allrun`:
 
 ```sh
 cd tutorials/uvReactorSozzi2006
-./Allrun                # mesh + flow solve
-./Allrun-postProcess    # setFluenceRate + radiationDose (3-5 min, 1k particles)
+./Allrun                # mesh + flow solve + setFluenceRate + radiationDose
 ./validate              # check mean dose + log reduction against the paper
 ```
 
-Or run every case and validate end-to-end:
+### Run every tutorial
 
 ```sh
 cd tutorials
-./Alltest                    # short cases only (the CI default)
-RUN_LONG_TESTS=1 ./Alltest   # also include long cases (Sozzi, ~45 min)
+./Allrun                          # short tutorials only
+RUN_LONG_TUTORIALS=1 ./Allrun     # include long tutorials (Sozzi, ~45 min)
 ```
 
-Cases marked with a `LONG_RUNNING` marker file (currently just
-`uvReactorSozzi2006`) are skipped by default to keep CI runs short;
-set `RUN_LONG_TESTS=1` to include them.
+Tutorials marked with a `LONG_RUNNING` marker file (currently just
+`uvReactorSozzi2006`) are skipped by `tutorials/Allrun` /
+`tutorials/Allclean` by default; set `RUN_LONG_TUTORIALS=1` to
+include them. Run a single tutorial directly with
+`cd tutorials/<name> && ./Allrun` regardless of the marker.
+
+### What's in `tests/`
+
+opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
+`variableExtinctionBox3D`, `scatteringSlab2D`, `scatteringSlab3D`,
+`isotropicSlab2D`, `diffuseReflectionSlab2D`, `rayleighSlab2D`,
+`molecularAbsorptionSlab2D`, `mieScatteringSlab2D`,
+`refractiveCoupledMatch`, `fvModelMatch`, `iesEmitterMatch`.
+
+radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
+`pointInjectionBox`.
+
+### What's in `tutorials/`
+
+`uvReactorSozzi2006`, `refractiveInterface2D`, `fvModelChannel2D`,
+`iesEmitter2D`. See each case's `README.md` for a walkthrough.
 
 Each case has its own `README.md` describing the geometry, BCs, and
 expected behaviour.
@@ -359,7 +331,8 @@ applications/
     modules/opticalRadiation/        DOM solver module for foamMultiRun
     utilities/setFluenceRate/        analytical radial G writer
 
-tutorials/               eleven runnable cases + Alltest validation harness
+tests/                   16 regression cases + Alltest harness (CI runs this)
+tutorials/               4 pedagogical cases (run on demand by users)
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)
 Allwclean                clean all build outputs
@@ -447,9 +420,12 @@ transient ventilation or dynamic occupancy).
 Contributions are welcome via pull request. Please:
 
 1. Fork the repository and create a feature branch.
-2. Run `cd tutorials && ./Alltest` and confirm all cases still pass.
+2. Run `cd tests && ./Alltest` and confirm all cases still pass.
 3. If your change is a bug fix or methodology change, add (or update)
-   a tutorial case that exercises it.
+   a regression test under `tests/` that exercises it. If your change
+   demonstrates a real-world workflow worth showing to a learner,
+   consider adding a `tutorials/` case as well (with a small matching
+   `tests/<name>Match` so the code path is covered by CI).
 4. Open a PR with a short description of the change and the test
    results.
 

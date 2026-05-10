@@ -254,7 +254,8 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tutorials/` | Seventeen runnable cases plus `Alltest` validation harness |
+| `tests/` | Sixteen regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tutorials/` | Four pedagogical cases (`uvReactorSozzi2006`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
 | `Allwmake` | Builds both libraries + standalone solver + module + setFluenceRate in one shot |
@@ -515,13 +516,15 @@ Implementation choices:
   contributions to those equations.
 - Static meshes only — see "Mesh-motion limitations" below.
 
-End-to-end runtime tests of both forms ship as tutorials:
-- `tutorials/fvModelChannel2D` exercises the fvModel inside
+End-to-end runtime tests of both forms ship in `tests/`:
+- `tests/fvModelMatch` exercises the fvModel inside
   `incompressibleFluid` (driven by `foamRun`) and confirms G is
-  bit-for-bit identical to `tutorials/diffuseSlab2D`'s standalone-solver
-  answer.
-- `tutorials/refractiveInterface2D` exercises the solver-module form
-  via `foamMultiRun` with two regions both running `opticalRadiation`.
+  bit-for-bit identical to `tests/diffuseSlab2D`'s standalone-solver
+  answer. The pedagogical version with full README walkthrough lives
+  at `tutorials/fvModelChannel2D`.
+- `tests/refractiveCoupledMatch` exercises the solver-module form via
+  `foamMultiRun` with two regions both running `opticalRadiation`.
+  Pedagogical version at `tutorials/refractiveInterface2D`.
 
 ### Mesh-motion limitations
 
@@ -568,7 +571,8 @@ Cross-region refractive-index BCs work either through:
   `refractiveCoupled` BC; or
 - the fvModel wrapper embedded in each region's host solver.
 
-The `tutorials/refractiveInterface2D` case exercises the first path.
+The `tutorials/refractiveInterface2D` case (pedagogical) and
+`tests/refractiveCoupledMatch` (regression) exercise the first path.
 
 ---
 
@@ -987,39 +991,29 @@ dependencies. Build it once on each machine:
 docker build -t openfoam13 .
 ```
 
-Then build and run the tutorial suite the way CI does:
+Then build and run the regression suite the way CI does:
 
 ```bash
 docker run --rm -e USER=root -v "$(pwd):/code" -w /code openfoam13 \
-    bash -c './Allwmake && cd tutorials && ./Alltest'
+    bash -c './Allwmake && cd tests && ./Alltest'
 ```
 
-Two non-obvious gotchas when iterating from a host that doesn't have
-OpenFOAM installed:
+Build artefacts live inside the container. `Allwmake` installs
+binaries and libraries to `$FOAM_USER_APPBIN` / `$FOAM_USER_LIBBIN`
+(i.e. `/root/OpenFOAM/root-13/...`), which is *inside* the container
+and lost when `--rm` deletes it. Always run `./Allwmake` and
+`./Alltest` in the **same** `docker run` invocation, not separate
+ones.
 
-- **Build artefacts live inside the container.** `Allwmake` installs
-  binaries and libraries to `$FOAM_USER_APPBIN` / `$FOAM_USER_LIBBIN`
-  (i.e. `/root/OpenFOAM/root-13/...`), which is *inside* the container
-  and lost when `--rm` deletes it. Always run `./Allwmake` and
-  `./Alltest` in the **same** `docker run` invocation, not separate
-  ones.
-- **`runApplication` skips reruns when `log.<app>` exists.** If a
-  previous run produced a stale `log.opticalRadiationFoam` (e.g. from
-  a failed build attempt), the next `./Allrun` silently exits 0
-  without running the solver, and `Alltest`'s "ok" line lies. If you
-  see validate failures complaining about a missing time directory,
-  `./Allclean` each affected case and rerun. To prevent this, prepend
-  a `cd tutorials && for d in */; do ( cd "$d" && [ -x ./Allclean ]
-  && ./Allclean ); done` to the run command.
-
-A safe one-liner that handles both:
+Each case's `Allrun` now calls `./Allclean` before doing anything
+else, so the runApplication-skips-on-stale-log gotcha is no longer
+a footgun -- the iteration loop is just:
 
 ```bash
 docker run --rm -e USER=root -v "$(pwd):/code" -w /code openfoam13 \
     bash -c '
         ./Allwmake > /tmp/build.log 2>&1 || { tail /tmp/build.log; exit 1; }
-        cd tutorials
-        for d in */; do [ -x "${d}Allclean" ] && ( cd "$d" && ./Allclean > /dev/null 2>&1 ); done
+        cd tests
         ./Alltest
     '
 ```
@@ -1062,12 +1056,23 @@ Don't try to `git push` from inside the sandbox; it fails with
 
 ---
 
-## Tutorials & validation
+## Tutorials, tests & validation
 
-`tutorials/` ships seventeen cases — thirteen for opticalRadiation,
-four for radiationDose:
+The case suite is split into two trees:
 
-opticalRadiation:
+- **`tests/`** -- regression suite, run by CI on every PR via
+  `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
+  closed-form analytical references plus pairs of bit-for-bit
+  cross-case matches. What you re-run when fixing a bug.
+  Sixteen cases.
+- **`tutorials/`** -- pedagogical / paper-validation cases, run on
+  demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
+  Not run by CI. Four cases. Each retains rich `README.md`
+  walkthroughs. Each promoted from `tests/` to `tutorials/` has a
+  small bit-for-bit replacement test under `tests/<name>Match` so
+  CI coverage of its code path is preserved.
+
+### `tests/`
 
 - **`diffuseSlab2D`** — 2-D plane-parallel slab, mirror sides, validated
   against `2π·L_w·E_2(κx)`.
@@ -1077,16 +1082,18 @@ opticalRadiation:
 - **`variableExtinctionBox3D`** — same as above but driven by species
   fields (`X1`, `X2`, `S1`, `S2`); equivalent to the constant case at
   uniform 0.5 concentrations and produces a bit-for-bit identical `G`.
-- **`refractiveInterface2D`** — 2-D two-region case verifying the
-  `refractiveCoupled` BC at a refractive-index step (n_A=1.0, n_B=1.5)
-  with a collimated beam source, validated against the
-  Fresnel-transmission analytical with the étendue n² factor. Runs via
-  `foamMultiRun` and exercises the solver-module form.
-- **`fvModelChannel2D`** — same radiation problem as `diffuseSlab2D`,
+- **`refractiveCoupledMatch`** — small 2-region 2-D case verifying the
+  `refractiveCoupled` BC and the solver-module form via `foamMultiRun`.
+  Test-grade replacement for the pedagogical `tutorials/refractiveInterface2D`.
+- **`fvModelMatch`** — same radiation problem as `diffuseSlab2D`,
   but the radiation library is wired into `incompressibleFluid`
   (driven by `foamRun`) via the `opticalRadiation` fvModel. Exercises
   the fvModel embedding path end-to-end; `Alltest` requires
-  bit-for-bit `G` agreement with `diffuseSlab2D`.
+  bit-for-bit `G` agreement with `diffuseSlab2D`. Test-grade
+  replacement for the pedagogical `tutorials/fvModelChannel2D`.
+- **`iesEmitterMatch`** — small slab with the `iesEmitter` BC fed a
+  synthetic Lambertian-shape IES file. Test-grade replacement for the
+  pedagogical `tutorials/iesEmitter2D`.
 - **`scatteringSlab2D`** — 2-D plane-parallel slab with combined
   absorption and isotropic scattering (κ=σ_s=0.5, ω=0.5), validated
   against a Schwarzschild-Milne integral-equation reference solved
@@ -1151,21 +1158,6 @@ opticalRadiation:
   slab (qualitative; the Mie phase function is anisotropic and
   the in-tree analytical references all assume isotropic
   scattering, so a strict G-profile comparison is out of scope).
-- **`iesEmitter2D`** — `diffuseSlab2D` geometry with the radiating
-  wall switched to `iesEmitter` and a synthetic Lambertian-shape
-  IES file (`I(gamma) = cos(gamma)` for gamma <= 90, zero above;
-  axisymmetric, single horizontal angle). With `fixtureAxis =
-  (1 0 0)` aligned to the patch's inward normal, the cos shape
-  exactly cancels the per-ray `I/cos` factor and the BC reduces
-  to a constant Lambertian radiance. The validate script
-  recomputes the discrete `Phi_table` for the 16-ray 2-D grid
-  and predicts `L_w = power / (A_patch * Phi_table)` from the
-  case parameters; observed peak error vs `2*pi*L_w*E_2(kappa*x)`
-  is 5.4% against the same 7% DOM angular tolerance the other
-  E_2 cases use. Regression guard for the IES Type C parser, the
-  fixture-frame angle conversion, the bilinear table interpolation,
-  and the per-band radiometric renormalisation.
-
 radiationDose:
 
 - **`doseSmokeBox`** — 1 m × 0.1 m × 0.1 m box with uniform
@@ -1213,6 +1205,8 @@ radiationDose:
   for the box) within 6 σ_stddev. Regression guard for the
   rejection-sampling kernel, the bounding-box / shape-test geometry,
   and the dictionary parser.
+### `tutorials/`
+
 - **`uvReactorSozzi2006`** — Sozzi & Taghipour 2006 L-shape annular
   reactor at 25 GPM (water, 70% UV transmissivity per cm, 35 W lamp,
   80 cm arc). Geometry comes from a STEP file processed via gmsh's
@@ -1232,34 +1226,65 @@ radiationDose:
   the boundary-face values of G; the mean dose and log reduction
   are dominated by bulk particles and reproduce the paper to
   within a few percent. Runtime: ~43 min for foamRun on a
-  workstation, ~90 s for the radiationDose post-process.
+  workstation, ~90 s for the radiationDose post-process. Marked
+  `LONG_RUNNING`; not run by `tutorials/Allrun` unless
+  `RUN_LONG_TUTORIALS=1` is set.
+- **`refractiveInterface2D`** — full pedagogical version of the
+  multi-region refractive-coupling case. `foamMultiRun` with the
+  `opticalRadiation` solver module per region; mapped patches and
+  `refractiveCoupled` BC at the n_A=1.0 vs n_B=1.5 interface. Beam
+  at θ=11.25° validated against analytical Fresnel transmission
+  with the étendue `n²` invariant. Bit-for-bit regression-grade
+  test under `tests/refractiveCoupledMatch`.
+- **`fvModelChannel2D`** — full pedagogical version of the
+  fvModel-into-host-solver embedding pattern. `foamRun` driving
+  `incompressibleFluid` with the `opticalRadiation` fvModel
+  installed; same radiation problem as `diffuseSlab2D` so
+  bit-for-bit `G` agreement is achievable. Bit-for-bit
+  regression-grade test under `tests/fvModelMatch` (CI cross-case
+  match against `tests/diffuseSlab2D`).
+- **`iesEmitter2D`** — full pedagogical version of the IES
+  photometric-file integration. `iesEmitter` BC fed a synthetic
+  Lambertian-shape IES file; with `fixtureAxis = (1 0 0)` the cos
+  shape cancels the per-ray `I/cos` factor and the BC reduces to a
+  constant Lambertian radiance whose `L_w = power /
+  (A_patch * Phi_table)` is recomputed in the validate script from
+  the discrete 16-ray grid. Regression-grade test under
+  `tests/iesEmitterMatch`.
 
-`tutorials/Alltest` is the orchestrator: builds (cheap if up-to-date),
-runs every case's `Allrun`, runs each case's `validate` script if
-present, and performs a cross-case diff between
-`absorbingScatteringBox3D` and `variableExtinctionBox3D`. Exits 0 only
-if every check passes.
+### Test orchestration
 
-### Long-running cases
+`tests/Alltest` is the CI orchestrator: runs each case's `Allrun`
+(dumping `log.<app>` on failure), runs each case's `validate`
+script if present, and performs three bit-for-bit cross-case
+diffs:
 
-Any case directory containing a `LONG_RUNNING` marker file is
-skipped by default — these are too heavy for CI on every pull
-request. To include them, set `RUN_LONG_TESTS=1`:
+- `absorbingScatteringBox3D` vs `variableExtinctionBox3D`
+  (constant vs species-driven extinction; same physics).
+- `fvModelMatch` vs `diffuseSlab2D` (fvModel embedding vs
+  standalone solver; same radiation problem).
+- `isotropicSlab2D` vs `scatteringSlab2D` (`isotropicModel` vs
+  `HenyeyGreensteinModel` at `g=0`; algebraically identical
+  tables).
+
+Exits 0 only if every check passes. A missing `Allrun` output
+upstream is a hard failure (not a skip) so a broken Allrun cannot
+silently skip its cross-case diff.
+
+### Long-running cases (tutorials)
+
+Tutorials with a `LONG_RUNNING` marker (currently just Sozzi) are
+skipped by `tutorials/Allrun` and `tutorials/Allclean` by default.
+Set `RUN_LONG_TUTORIALS=1` to include them:
 
 ```sh
 cd tutorials
-./Alltest                    # short cases only (CI default)
-RUN_LONG_TESTS=1 ./Alltest   # everything, long cases included
+./Allrun                           # short tutorials only
+RUN_LONG_TUTORIALS=1 ./Allrun      # include Sozzi
 ```
 
-Currently marked long-running:
-
-- `uvReactorSozzi2006` — full Sozzi 2006 pipeline (snappyHexMesh +
-  RANS solve + radiationDose post-process). ~45 min wall-clock,
-  dominated by the RANS solve to convergence.
-
-The marker file's content doesn't matter; presence is what counts.
-Remove it to opt the case back into the default suite.
+Run a single tutorial directly with `cd tutorials/<name> && ./Allrun`
+regardless of the marker.
 
 ---
 
@@ -1390,9 +1415,19 @@ guessed.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every pull request. It pulls the
-pre-built `ghcr.io/degrootresearchgroup/of-optical-radiation-ci`
-image (built by `docker-publish.yml` from the repo's `Dockerfile`),
-runs `./Allwmake`, and then `cd tutorials && ./Alltest`. Passes only
-if every tutorial's `validate` script passes and the cross-case diff
-matches.
+`.github/workflows/ci.yml` runs on every pull request. It detects
+whether the PR touches the `Dockerfile` (or `docker-publish.yml`):
+
+- **Regular PR:** pulls the pre-built
+  `ghcr.io/degrootresearchgroup/of-optical-radiation-ci` image (built
+  by `docker-publish.yml` from `main`'s Dockerfile), runs
+  `./Allwmake`, then `cd tests && ./Alltest`.
+- **Dockerfile-touching PR:** builds the image fresh from the PR's
+  Dockerfile, exports it as a workflow artifact, loads it in the test
+  job, then runs the same `./Allwmake` + `cd tests && ./Alltest`. So
+  a Dockerfile change tests its own image immediately, not after a
+  next-merge round trip.
+
+Passes only if every test's `validate` script passes and all three
+cross-case diffs match. Pedagogical tutorials under `tutorials/` are
+not run by CI; they're for users.

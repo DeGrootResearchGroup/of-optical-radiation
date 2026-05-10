@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""
+Verification of refractiveCoupled at a refractive interface.
+
+Geometry: 2-D, two-region (mediumA n=1.0, mediumB n=1.5).
+Source: collimated beam at theta_A = 11.25 deg from +x (centre of
+        ray-bin 0 in the nPhi=8 angular discretisation).
+Both zones transparent (kappa = 0). Mapped patches between regions.
+
+Analytical:
+  Each region's lit-region G includes the beam-direction ray plus any
+  same-region reflections at the interface:
+
+    G_A = L_0 * omega_0 * (1 + R)            (incident + reflected)
+    G_B = L_0 * omega_0 * (n_B/n_A)^2 * (1 - R)   (transmitted)
+
+  R is the unpolarised Fresnel reflectivity at theta_A; omega_0 = pi/4
+  for nPhi=8 in 2-D. Probes are placed along the discrete-ordinate
+  characteristic from y_source = 0.10, at x = 0.30 (mediumA) and
+  x = 0.70 (mediumB). Both points are well inside the lit region and
+  away from the y-walls.
+"""
+
+import math
+import re
+import sys
+
+TOLERANCE = 0.05  # 5%
+
+
+def read_internal(path):
+    with open(path) as f:
+        txt = f.read()
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt, re.S,
+    )
+    if not m:
+        sys.exit(f"validate: could not parse {path}")
+    return list(map(float, m.group(2).split()))
+
+
+def fresnel_R(theta_A, nA, nB):
+    sin_B = (nA / nB) * math.sin(theta_A)
+    if sin_B >= 1.0:
+        return 1.0  # total internal reflection
+    theta_B = math.asin(sin_B)
+    cos_A, cos_B = math.cos(theta_A), math.cos(theta_B)
+    r1 = (nA*cos_A - nB*cos_B)/(nA*cos_A + nB*cos_B)
+    r2 = (nA*cos_B - nB*cos_A)/(nA*cos_B + nB*cos_A)
+    return 0.5 * (r1*r1 + r2*r2)
+
+
+def main():
+    # Case parameters (must match constant/<region>/opticalRadiationProperties
+    # and 0.orig/<region>/I).
+    L0 = 10.0
+    nA, nB = 1.0, 1.5
+    theta_A = math.radians(11.25)        # ray-bin 0 centre with nPhi=8
+    omega_0 = math.pi / 4.0               # 2-D, nPhi=8
+
+    R = fresnel_R(theta_A, nA, nB)
+    G_A_expected = L0 * omega_0 * (1.0 + R)
+    G_B_expected = L0 * omega_0 * (nB/nA)**2 * (1.0 - R)
+    ratio_expected = G_B_expected / G_A_expected
+
+    GA = read_internal("1/mediumA/G")
+    GB = read_internal("1/mediumB/G")
+
+    # Mesh: each region 50 x 25 x 1 cells, dx = dy = 0.01
+    nx = 50
+    def cell(grid, x, y, x_offset=0.0):
+        ix = int((x - x_offset) / 0.01)
+        iy = int(y / 0.01)
+        return grid[ix + iy*nx]
+
+    # Probes along characteristic from y_source=0.10
+    # y(x) = 0.10 + x * tan(11.25)
+    tan_a = math.tan(theta_A)
+    xA, yA = 0.30, 0.10 + 0.30 * tan_a    # mediumA probe
+    xB, yB = 0.70, 0.10 + 0.70 * tan_a    # mediumB probe (along same characteristic)
+
+    GA_sim = cell(GA, xA, yA)
+    GB_sim = cell(GB, xB, yB, x_offset=0.5)
+
+    rA = abs(GA_sim - G_A_expected) / G_A_expected
+    rB = abs(GB_sim - G_B_expected) / G_B_expected
+
+    print(f"theta_A = 11.25 deg, R = {R:.4f}")
+    print(f"expected: G_A = {G_A_expected:.4f}  (L0*omega_0*(1+R))")
+    print(f"          G_B = {G_B_expected:.4f}  (L0*omega_0*(nB/nA)^2*(1-R))")
+    print(f"          ratio G_B/G_A = {ratio_expected:.4f}")
+    print()
+    print(f"  mediumA probe ({xA:.3f}, {yA:.3f})  G = {GA_sim:7.4f}  err = {rA:+.2%}")
+    print(f"  mediumB probe ({xB:.3f}, {yB:.3f})  G = {GB_sim:7.4f}  err = {rB:+.2%}")
+
+    ratio_sim = GB_sim / GA_sim if GA_sim > 0 else float("nan")
+    rratio = abs(ratio_sim - ratio_expected) / ratio_expected
+    print(f"  observed ratio G_B/G_A = {ratio_sim:.4f}  err = {rratio:+.2%}")
+    print(f"  tolerance = {TOLERANCE:.2%}")
+
+    return 0 if max(rA, rB, rratio) <= TOLERANCE else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

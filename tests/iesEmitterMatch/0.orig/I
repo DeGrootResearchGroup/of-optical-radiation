@@ -1,0 +1,73 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        // IES-driven emitter, fed a synthetic Lambertian shape
+        // (I(gamma) = cos(gamma)). With fixtureAxis aligned with the
+        // patch's inward normal (+x), each outgoing ray's gamma equals
+        // the angle of d from +x and the renormalised radiance reduces
+        // to a constant Lambertian L = P / (A_patch * Phi_table) on
+        // every emitting ray. validate compares the resulting G(x)
+        // against the analytical 2*pi*L_w*E_2(kappa*x) profile that
+        // pencil-and-paper Lambertian emission gives, summed over
+        // bands.
+        type            iesEmitter;
+        nBands          2;
+        iesFile         "constant/lambertian.ies";
+        power           (0.005 0.005);   // W per band
+        fixtureAxis     (1 0 0);
+        fixtureUp       (0 0 1);
+        value           uniform 0;
+    }
+    radOut
+    {
+        // Black absorber (matches diffuseSlab2D so the analytical
+        // E_2 reference applies).
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    sides
+    {
+        // Specular mirrors at y = 0 and y = 0.1 to recover the
+        // 1-D plane-parallel limit for an infinite tiled slab.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  1;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //
