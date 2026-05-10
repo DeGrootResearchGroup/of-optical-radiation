@@ -24,7 +24,7 @@ the y-walls — finite-y geometry behaves as 1-D plane-parallel.
   - `ozone` (field mode): O3 species field at uniform 0.0188 mol/m³;
     σ = 4.4 × 10⁻²³ m²/molecule (Daumont/Brion-style Hartley value at
     222 nm).
-- Phase function: `nullModel` (pure absorber, no in-scatter).
+- Phase function: omitted (pure absorber, no in-scatter).
 
 The cross-sections are *representative* literature values for the
 two species at 222 nm. The case exercises the mode plumbing and

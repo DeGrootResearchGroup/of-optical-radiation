@@ -123,18 +123,30 @@ Foam::optical::
                                       are unregistered/unwritten so the
                                       composite owns the canonical output)
 
-  phaseFunctionModel              (phase function P(θ) between ray pairs)
-    ├── HenyeyGreensteinModel
-    ├── schlickModel
-    ├── isotropicModel              (uniform P = 1)
+  phaseFunctionModel              (phase function P(θ) between ray pairs;
+                                   each subclass overrides the protected
+                                   phaseShape(cosV, iBand); the base class
+                                   buildPhaseTable does the pixel-averaged
+                                   row-normalised table construction once
+                                   and is shared. Selection is OPTIONAL --
+                                   if `phaseFunctionModel` is absent from
+                                   opticalRadiationProperties, the base
+                                   class is instantiated directly with
+                                   inScatter_ = false and DOM skips the
+                                   in-scatter source entirely)
+    ├── HenyeyGreensteinModel       ((1 + g^2 - 2 g cos theta)^(-3/2);
+    │                                per-band g, |g| < 1)
+    ├── schlickModel                ((1 + k cos theta)^(-2); per-band k,
+    │                                |k| < 1)
+    ├── isotropicModel              (uniform P; bit-for-bit equivalent
+    │                                to HG with g = 0)
     ├── rayleighModel               ((1 + cos^2 theta), wavelength-/band-
     │                                independent)
-    ├── mieModel                    (full Mie phase function from the same
-    │                                BHMIE kernel as mieExtinction; reads
-    │                                its own copy of radius / mParticle /
-    │                                mMedium / wavelengths to stay
-    │                                independently selectable)
-    └── nullModel
+    └── mieModel                    (full Mie phase function from the same
+                                     BHMIE kernel as mieExtinction; reads
+                                     its own copy of radius / mParticle /
+                                     mMedium / wavelengths to stay
+                                     independently selectable)
 
   mixedFvPatchScalarField         (boundary conditions; active set)
     ├── diffuseEmitterMixedFvPatchScalarField
@@ -242,7 +254,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tutorials/` | Fourteen runnable cases plus `Alltest` validation harness |
+| `tutorials/` | Seventeen runnable cases plus `Alltest` validation harness |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
 | `Allwmake` | Builds both libraries + standalone solver + module + setFluenceRate in one shot |
@@ -318,6 +330,36 @@ the API port:
   integral-equation reference, and by the `absorbingScatteringBox3D`
   vs `variableExtinctionBox3D` bit-for-bit cross-case match in 3-D
   with strong-forward HG (g=0.98/0.99).
+- **Phase-function table construction consolidated into the base
+  class.** The HG / Schlick / Rayleigh / Mie / isotropic models each
+  used to carry their own ~80-line copy of the same pixel-averaged
+  row-normalised table-build loop. They now override only a thin
+  `phaseShape(cosV, iBand)` returning the angular shape of `Phi`
+  (e.g. `(1+g²-2g·cosV)^(-3/2)` for HG); the base class's
+  `buildPhaseTable()` does the pixel sampling, the Σ_j Ψ_ij
+  row-normalisation, and the storage. Three knock-on simplifications
+  fall out:
+  * The runtime in-scatter sum in `DOM::calculate` no longer needs
+    `* IRay_[rayJ].omega()`. The old code divided table entries by
+    `ω_j` at build time and multiplied by `ω_j` at runtime; the two
+    factors cancel and were not in the underlying RTE integral.
+    Removing both leaves `S_in,i ≈ σ_s · Σ_j table[i,j] · I_j` where
+    `table[i,j] ≈ ω_j · Φ(ŝ_i·ŝ_j)/(4π)` -- the row-norm absorbs
+    both `ω_j` and the canonical `1/(4π)` prefactor of the in-scatter
+    integral.
+  * `isotropicModel::correct()` used to return `1` directly,
+    bypassing the table entirely. With the runtime `* ω_j` in place
+    that was mathematically wrong (off by a factor of 4π in the
+    isotropic limit) but invisible because every shipped tutorial
+    used HG g=0 instead. `isotropicModel` now goes through the same
+    table path with constant `phaseShape = 1`, and is bit-for-bit
+    equivalent to HG g=0 -- enforced by the new `isotropicSlab2D`
+    tutorial.
+  * `nullModel` was a thin RTS-registered alias of the no-op base
+    class. With the dictionary entry now optional (selection falls
+    back to a directly-instantiated base class when the key is
+    missing), it earns nothing and is removed; the six tutorials
+    that named it just drop the line.
 - `reflective` BC's diffuse-reflection term divided by `2π` instead
   of `π`, halving the Lambertian-reflection radiance. The accumulator
   `Σ_j I_j |n·dAve_j|` is the discrete incident irradiance `q_in`
@@ -1002,8 +1044,8 @@ Don't try to `git push` from inside the sandbox; it fails with
 
 ## Tutorials & validation
 
-`tutorials/` ships sixteen cases — twelve for opticalRadiation, four
-for radiationDose:
+`tutorials/` ships seventeen cases — thirteen for opticalRadiation,
+four for radiationDose:
 
 opticalRadiation:
 
@@ -1037,6 +1079,15 @@ opticalRadiation:
   scheme has it stuck at π/4); useful regression case for in-scatter
   questions where the 2-D-as-3-D factor is a confound. Same 10%
   tolerance; observed ~7.1%.
+- **`isotropicSlab2D`** — `scatteringSlab2D` geometry with the phase
+  function switched to `isotropicModel`. Same Schwarzschild-Milne
+  validation (10% peak); the tighter cross-case bit-for-bit check
+  against `scatteringSlab2D/1/G` runs from `Alltest` at `1e-9`
+  relative and confirms that `isotropicModel` and `HenyeyGreensteinModel`
+  with `g=0` produce algebraically identical row-normalised tables.
+  Regression guard for the latent `1/(4π)` factor that the old
+  `isotropicModel::correct() = 1.0` was missing (silent because no
+  shipped tutorial used `isotropicModel`).
 - **`diffuseReflectionSlab2D`** — 2-D transparent slab between a
   Lambertian emitter (E=1 W/m²) and a pure diffuse reflector
   (`diffuseFraction=1`, `reflectionCoef=0.5`), specular mirrors on the

@@ -22,10 +22,29 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::optical::scatterModel
+    Foam::optical::phaseFunctionModel
 
 Description
-    Base class for opticalRadiation scattering
+    Base class for opticalRadiation scattering phase functions.
+
+    The discrete in-scatter source assembled in DOM::calculate is
+
+        ds(rayI) = sum over j of (I_j * table[i, j, iBand])
+
+    where the table entries are bin integrals of the angular phase
+    function Phi(s_i . s'):
+
+        table[i, j, iBand] ~ integral over Omega_j of
+                             Phi(s_i . s') dOmega'
+
+    (suitably normalised; see buildPhaseTable below).
+
+    Concrete subclasses implement only the angular shape phaseShape(cosV,
+    iBand); buildPhaseTable handles the Murthy-Mathur sub-pixel sampling
+    over each Omega_j bin and the row-wise normalisation.
+
+SourceFiles
+    phaseFunctionModel.C
 
 \*---------------------------------------------------------------------------*/
 
@@ -37,7 +56,6 @@ Description
 #include "runTimeSelectionTables.H"
 #include "volFields.H"
 
-
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -47,85 +65,176 @@ namespace optical
 class DOM;
 
 /*---------------------------------------------------------------------------*\
-                           Class phaseFunctionModel Declaration
+                       Class phaseFunctionModel Declaration
 \*---------------------------------------------------------------------------*/
 
 class phaseFunctionModel
 {
 protected:
-    // Protected data
-    const DOM& dom_;
-    
-    //- opticalRadiation model dictionary
-    const dictionary dict_;
 
-    //- number of dimensions
-    label nDim_;
-    
-    label nBand_;
-    
-    label nAngle_;
-        
+    // Protected data
+
+        //- Owning DOM (for ray angles, dimensions, etc.)
+        const DOM& dom_;
+
+        //- opticalRadiation model dictionary
+        const dictionary dict_;
+
+        //- Number of spatial dimensions (2 or 3); selects pixel layout in
+        //  buildPhaseTable.
+        label nDim_;
+
+        //- Number of spectral bands.
+        label nBand_;
+
+        //- Number of angular bins per band (= 2*nPhi*nTheta).
+        label nAngle_;
+
+        //- Set true when the concrete model contributes to the in-scatter
+        //  source. Subclass constructor reads this from its own
+        //  ${modelType}Coeffs sub-dict.
+        bool inScatter_;
+
+        //- Number of sub-divisions per pixel side in the table-construction
+        //  pixel sum (subAngleNum^2 sub-pixels per Omega_j bin in 3-D,
+        //  subAngleNum in 2-D).
+        label subAngleNum_;
+
+        //- Flat-indexed phase function table; entry [i, j, iBand] lives at
+        //  phaseFunction_[j + i*nAngle_ + iBand*nAngle_*nAngle_]. Filled by
+        //  buildPhaseTable; consumed by correct().
+        DynamicList<scalar, 1, 0> phaseFunction_;
+
+
+    // Protected member functions
+
+        //- Angular shape Phi(cosV) of the phase function. Subclasses
+        //  override; absolute scaling does not matter (the row-
+        //  normalisation in buildPhaseTable absorbs it). The default
+        //  returns 1.0 so a subclass that hasn't overridden produces an
+        //  isotropic table -- this is also what the base class itself
+        //  evaluates to when instantiated directly via the missing-
+        //  dictionary fallback in phaseFunctionModel::New() (in which
+        //  case buildPhaseTable is not called at all and the in-scatter
+        //  source is skipped because inScatter_ defaults to false).
+        virtual scalar phaseShape
+        (
+            const scalar cosV,
+            const label iBand
+        ) const
+        {
+            return 1.0;
+        }
+
+        //- Fill phaseFunction_ from phaseShape(). Subclasses call this
+        //  from their constructor *after* reading any per-band parameters
+        //  (so virtual dispatch reaches the derived phaseShape).
+        //
+        //  Algorithm per (iBand, source ray i):
+        //
+        //    1. For each destination ray j, sub-sample Omega_j on a regular
+        //       (subAngleNum)-by-(subAngleNum) pixel grid (3-D) or
+        //       subAngleNum-strip (2-D), and accumulate the bin integral
+        //       Psi_ij = sum over pixels of phaseShape(s_i . s_pixel) *
+        //                                  d Omega_pixel
+        //       which approximates integral over Omega_j of Phi(s_i . s')
+        //       dOmega'. The pixel weight d Omega_pixel uses the standard
+        //       sin(theta) Jacobian in 3-D and 2*d phi in 2-D.
+        //
+        //    2. Row-normalise: divide every Psi_ij in row i by their sum
+        //       pfSum_i = sum over j of Psi_ij. The result satisfies
+        //       sum over j of table[i, j, iBand] = 1. Without this step,
+        //       the absolute scaling of phaseShape leaks into the
+        //       in-scatter source magnitude (problematic for shapes that
+        //       are not normalised to integrate to 1 over 4 pi, e.g. raw
+        //       BHMIE |S1|^2 + |S2|^2 from mieKernel::phaseIntensity).
+        //
+        //  The runtime in-scatter sum in DOM::calculate then computes
+        //  ds(rayI) = sum over j of (I_j * table[i, j, iBand]) directly,
+        //  with no extra solid-angle weight.
+        void buildPhaseTable();
+
+
+private:
+
+    // Private member functions
+
+        phaseFunctionModel(const phaseFunctionModel&) = delete;
+        void operator=(const phaseFunctionModel&) = delete;
+
+
 public:
+
     //- Runtime type information
     TypeName("phaseFunctionModel");
 
     //- Declare runtime constructor selection table
     declareRunTimeSelectionTable
     (
-	autoPtr,
-	phaseFunctionModel,
-	dictionary,
-	(
-	    const DOM& dom,
-	    const dictionary& dict,
-	    const label& nDim
+        autoPtr,
+        phaseFunctionModel,
+        dictionary,
+        (
+            const DOM& dom,
+            const dictionary& dict,
+            const label& nDim
         ),
-	(dom,dict,nDim)
+        (dom, dict, nDim)
     );
-    
-    
+
+
     // Constructors
-    
-    //- Construct from components
-    phaseFunctionModel
-    (
-	const DOM& dom,
-	const dictionary& dict,
-	const label& nDim
-    );
+
+        //- Construct from components.
+        phaseFunctionModel
+        (
+            const DOM& dom,
+            const dictionary& dict,
+            const label& nDim
+        );
+
 
     // Selector
-    static autoPtr<phaseFunctionModel> New
-    (
-	const DOM& dom,
-	const dictionary& dict,
-	const label& nDim
+
+        static autoPtr<phaseFunctionModel> New
+        (
+            const DOM& dom,
+            const dictionary& dict,
+            const label& nDim
         );
-    
-    // Destructor
+
+
+    //- Destructor
     virtual ~phaseFunctionModel();
-    
-    // Member Functions
-    
-    // Access
 
-    //- Reference to the dictionary
-    inline const dictionary& dict() const
-    {
-	return dict_;
-    }
-    
-    virtual bool inScatter() const;
-    
-    
-    virtual scalar correct
-    (
-	label rayI,
-	label rayJ,
-	label iBand
-	) const;
 
+    // Member functions
+
+        // Access
+
+            //- Reference to the dictionary the model was constructed from.
+            inline const dictionary& dict() const
+            {
+                return dict_;
+            }
+
+            //- Whether this model contributes to the in-scatter source.
+            virtual bool inScatter() const
+            {
+                return inScatter_;
+            }
+
+            //- Phase-function table value table[rayI, rayJ, iBand]. The
+            //  rayI / rayJ flat indices already include the band offset
+            //  (rayI = iAngleI + iBand*nAngle_); the table is laid out by
+            //  per-band angle indices, so we strip the offset before
+            //  forming the lookup.
+            virtual scalar correct
+            (
+                const label rayI,
+                const label rayJ,
+                const label iBand
+            ) const;
 };
 
 
@@ -139,4 +248,3 @@ public:
 #endif
 
 // ************************************************************************* //
-

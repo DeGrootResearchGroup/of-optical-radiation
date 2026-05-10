@@ -22,10 +22,16 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::optical::
+    Foam::optical::schlickModel
 
 Description
-    Schlick approximation to in scattering
+    Schlick approximation to the Henyey-Greenstein phase function:
+
+        Phi(cos theta) ~ 1 / (1 + k cos theta)^2
+
+    parameterised by a single asymmetry factor k per band (k = 0 is
+    isotropic; k -> 1 is forward-peaked; k -> -1 is backward-peaked).
+    Requires |k| < 1 for non-singularity.
 
 SourceFiles
     schlickModel.C
@@ -35,11 +41,8 @@ SourceFiles
 #ifndef schlickModel_H
 #define schlickModel_H
 
-#include "IOdictionary.H"
-#include "autoPtr.H"
-#include "runTimeSelectionTables.H"
-#include "scalar.H"
 #include "phaseFunctionModel.H"
+#include "DynamicList.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -49,75 +52,64 @@ namespace optical
 {
 
 class DOM;
+
 /*---------------------------------------------------------------------------*\
-                           Class constantScatter Declaration
+                          Class schlickModel Declaration
 \*---------------------------------------------------------------------------*/
 
-class schlickModel : public phaseFunctionModel
+class schlickModel
+:
+    public phaseFunctionModel
 {
 private:
 
     // Private data
-    Switch inScatter_;
-    dictionary coeffsDict_;
-    label subAngleNum_ ;
-    DynamicList<scalar, 1, 0> k_;
-    DynamicList<scalar, 1, 0> phaseFunction_;
-    
+
+        //- Asymmetry factor k per band, |k| < 1.
+        DynamicList<scalar, 1, 0> k_;
+
+
+    // Private member functions
+
+        //- Override of phaseFunctionModel::phaseShape: returns the Schlick
+        //  shape (1 + k cos theta)^(-2). The (1 - k^2)/(4 pi) prefactor
+        //  is omitted because the row-normalisation in buildPhaseTable
+        //  absorbs it.
+        virtual scalar phaseShape
+        (
+            const scalar cosV,
+            const label iBand
+        ) const override;
+
+
 public:
 
     //- Runtime type information
     TypeName("schlickModel");
 
+
     // Constructors
-    //- Construct from components
-    schlickModel
-    (
-        const DOM& dom,
-        const dictionary& dict,
-        const label& nDim
-    );
+
+        schlickModel
+        (
+            const DOM& dom,
+            const dictionary& dict,
+            const label& nDim
+        );
 
 
-    // Destructor
+    //- Destructor
     virtual ~schlickModel();
-
-
-    // Member Operators
-    virtual bool inScatter() const
-    {
-        return inScatter_;
-    }
-
-    Foam::scalar correct
-    (
-        const label rayI,
-        const label rayJ,
-        const label iBand
-    ) const;
-
-    Foam::scalar sl3d
-    (
-        const scalar cosV,
-        const scalar k
-    ) const;
-    
-    Foam::scalar sl2d
-    (
-        const scalar cosV,
-        const scalar k
-    ) const;
-    
 };
-    
-    
-    // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
-    
+
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
 } // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-    #endif
+#endif
 
 // ************************************************************************* //

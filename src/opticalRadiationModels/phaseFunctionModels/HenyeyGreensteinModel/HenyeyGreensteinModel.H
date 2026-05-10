@@ -22,26 +22,27 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::optical::constantScatter
+    Foam::optical::HenyeyGreensteinModel
 
 Description
-    Constant opticalRadiation scatter coefficient
+    Henyey-Greenstein anisotropic phase function:
+
+        Phi(cos theta) = (1 - g^2) / (4 pi (1 + g^2 - 2 g cos theta)^1.5)
+
+    parameterised by a single asymmetry factor g per band (g = 0 is
+    isotropic; g -> 1 is fully forward-peaked; g -> -1 is fully
+    backward-peaked). Requires |g| < 1 for non-singularity.
 
 SourceFiles
-    scatterModel.C
+    HenyeyGreensteinModel.C
 
 \*---------------------------------------------------------------------------*/
 
 #ifndef HenyeyGreensteinModel_H
 #define HenyeyGreensteinModel_H
 
-#include "IOdictionary.H"
-#include "autoPtr.H"
-#include "runTimeSelectionTables.H"
-
-#include "scalar.H"
-
 #include "phaseFunctionModel.H"
+#include "DynamicList.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -51,75 +52,64 @@ namespace optical
 {
 
 class DOM;
+
 /*---------------------------------------------------------------------------*\
-                           Class constantScatter Declaration
+                    Class HenyeyGreensteinModel Declaration
 \*---------------------------------------------------------------------------*/
 
-class HenyeyGreensteinModel : public phaseFunctionModel
+class HenyeyGreensteinModel
+:
+    public phaseFunctionModel
 {
 private:
 
     // Private data
-    Switch inScatter_;
-    dictionary coeffsDict_;
-    label subAngleNum_ ;
-    DynamicList<scalar, 1, 0> g_;
-    DynamicList<scalar, 1, 0> phaseFunction_;
-    
+
+        //- Asymmetry factor g per band, |g| < 1.
+        DynamicList<scalar, 1, 0> g_;
+
+
+    // Private member functions
+
+        //- Override of phaseFunctionModel::phaseShape: returns the HG
+        //  shape (1 + g^2 - 2 g cos theta)^(-1.5). The (1 - g^2)/(4 pi)
+        //  prefactor is omitted because the row-normalisation in
+        //  buildPhaseTable absorbs it.
+        virtual scalar phaseShape
+        (
+            const scalar cosV,
+            const label iBand
+        ) const override;
+
+
 public:
 
     //- Runtime type information
     TypeName("HenyeyGreensteinModel");
 
+
     // Constructors
-    //- Construct from components
-    HenyeyGreensteinModel
-    (
-        const DOM& dom,
-        const dictionary& dict,
-        const label& nDim
-    );
+
+        HenyeyGreensteinModel
+        (
+            const DOM& dom,
+            const dictionary& dict,
+            const label& nDim
+        );
 
 
-    // Destructor
+    //- Destructor
     virtual ~HenyeyGreensteinModel();
-
-
-    // Member Operators
-    virtual bool inScatter() const
-    {
-        return inScatter_;
-    }
-
-    Foam::scalar correct
-    (
-        const label rayI,
-        const label rayJ,
-        const label iBand
-    ) const;
-        
-    Foam::scalar hg3d
-    (
-        const scalar cosV,
-        const scalar g
-    ) const;
-    
-    Foam::scalar hg2d
-    (
-        const scalar cosV,
-        const scalar g
-    ) const;
-    
 };
-    
-    
-    // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
-    
+
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
 } // End namespace optical
 } // End namespace Foam
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-    #endif
+#endif
 
 // ************************************************************************* //

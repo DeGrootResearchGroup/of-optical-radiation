@@ -25,11 +25,13 @@ Class
     Foam::optical::rayleighModel
 
 Description
-    Rayleigh phase function P(cos theta) ~ 1 + cos^2 theta. Wavelength- and
-    band-independent. The precomputed table is row-renormalised in the same
-    pixel-averaged scheme used by HenyeyGreensteinModel, so the absolute
-    kernel scaling does not affect the in-scatter source -- only the angular
-    shape matters.
+    Rayleigh phase function:
+
+        Phi(cos theta) ~ 1 + cos^2 theta
+
+    Wavelength- and band-independent. The (3/(16 pi)) prefactor of the
+    canonical Rayleigh form is omitted because the row-normalisation in
+    buildPhaseTable absorbs it.
 
 SourceFiles
     rayleighModel.C
@@ -38,11 +40,6 @@ SourceFiles
 
 #ifndef rayleighModel_H
 #define rayleighModel_H
-
-#include "IOdictionary.H"
-#include "autoPtr.H"
-#include "runTimeSelectionTables.H"
-#include "scalar.H"
 
 #include "phaseFunctionModel.H"
 
@@ -56,19 +53,25 @@ namespace optical
 class DOM;
 
 /*---------------------------------------------------------------------------*\
-                  Class rayleighModel Declaration
+                          Class rayleighModel Declaration
 \*---------------------------------------------------------------------------*/
 
-class rayleighModel : public phaseFunctionModel
+class rayleighModel
+:
+    public phaseFunctionModel
 {
 private:
 
-    // Private data
+    // Private member functions
 
-        Switch inScatter_;
-        dictionary coeffsDict_;
-        label subAngleNum_;
-        DynamicList<scalar, 1, 0> phaseFunction_;
+        //- Override of phaseFunctionModel::phaseShape: returns the
+        //  Rayleigh shape (1 + cos^2 theta).
+        virtual scalar phaseShape
+        (
+            const scalar cosV,
+            const label iBand
+        ) const override;
+
 
 public:
 
@@ -78,7 +81,6 @@ public:
 
     // Constructors
 
-        //- Construct from components
         rayleighModel
         (
             const DOM& dom,
@@ -89,24 +91,6 @@ public:
 
     //- Destructor
     virtual ~rayleighModel();
-
-
-    // Member Functions
-
-        virtual bool inScatter() const
-        {
-            return inScatter_;
-        }
-
-        Foam::scalar correct
-        (
-            const label rayI,
-            const label rayJ,
-            const label iBand
-        ) const;
-
-        Foam::scalar rayleigh3d(const scalar cosV) const;
-        Foam::scalar rayleigh2d(const scalar cosV) const;
 };
 
 

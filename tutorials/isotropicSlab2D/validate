@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""
+Validate the simulated G profile against the Schwarzschild-Milne
+integral-equation reference for a 1-D plane-parallel slab with
+absorption + isotropic scattering.
+
+Setup (matches constant/opticalRadiationProperties and 0.orig/I):
+- slab length L = 1 m, mirror y-walls (1-D plane-parallel)
+- Lambertian emitter at x=0 with emissivePower = 5 W/m^2
+  (radiance L_w = 5/pi)
+- black absorber at x=L
+- single band, kappa = sigma_s = 0.5, beta = 1, omega = 0.5
+- isotropic phase function (Henyey-Greenstein with g=0)
+
+The reference solves
+
+  G(tau) = 2*pi*L_w*E_2(tau)
+         + (omega/2) * integral_0^{tau_L} G(t') * E_1(|tau-t'|) dt'
+
+by Picard iteration on a uniform tau-grid. The diagonal cell of the
+integral is handled analytically using d/dt[E_2(t)] = -E_1(t):
+
+  integral_0^{dt/2} E_1(s) ds = 1 - E_2(dt/2)
+
+so the i==j contribution to G_i is G_i * 2 * (1 - E_2(dt/2)). Off-
+diagonal cells use straight midpoint with E_1(|tau_i - tau_j|).
+
+Tolerance: 10% peak relative error (looser than diffuseSlab2D's 7%
+because the scattering source compounds the angular-discretisation
+error of the DOM).
+"""
+
+import math
+import os
+import re
+import statistics
+import sys
+
+
+TOLERANCE = 0.10
+
+
+def E_n(n: int, t: float, m: int = 400) -> float:
+    """E_n(t) = int_0^1 mu^(n-2) exp(-t/mu) dmu, midpoint rule."""
+    if t == 0.0:
+        return 1.0 / (n - 1) if n > 1 else float("inf")
+    if t > 60.0:
+        return 0.0
+    s = 0.0
+    for k in range(m):
+        mu = (k + 0.5) / m
+        s += mu ** (n - 2) * math.exp(-t / mu)
+    return s / m
+
+
+def reference_G(tau_L: float, omega: float, L_w: float, taus: list,
+                max_iter: int = 400, tol: float = 1e-7) -> list:
+    """Schwarzschild-Milne G(tau) at the supplied station list."""
+    N = len(taus)
+    dt = taus[1] - taus[0] if N > 1 else 0.0
+    # Pre-tabulate off-diagonal E_1 kernel.
+    E1 = [[0.0] * N for _ in range(N)]
+    for i in range(N):
+        for j in range(N):
+            if i != j:
+                E1[i][j] = E_n(1, abs(taus[i] - taus[j]))
+    diag_factor = 2.0 * (1.0 - E_n(2, dt / 2)) if dt > 0 else 0.0
+
+    src = [2 * math.pi * L_w * E_n(2, t) for t in taus]
+    G = list(src)
+    for _ in range(max_iter):
+        G_new = list(src)
+        for i in range(N):
+            integ = G[i] * diag_factor
+            for j in range(N):
+                if i != j:
+                    integ += G[j] * E1[i][j] * dt
+            G_new[i] += (omega / 2.0) * integ
+        diff = max(abs(a - b) for a, b in zip(G, G_new))
+        scale = max(max(abs(a) for a in G_new), 1e-12)
+        G = G_new
+        if diff / scale < tol:
+            break
+    return G
+
+
+def read_G(path: str) -> list:
+    with open(path) as f:
+        txt = f.read()
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt,
+        re.S,
+    )
+    if not m:
+        sys.exit(f"validate: could not parse {path}")
+    return list(map(float, m.group(2).split()))
+
+
+def main() -> int:
+    EMISSIVE_POWER = 5.0
+    KAPPA = 0.5
+    SIGMA_S = 0.5
+    NX, NY = 100, 10
+    L = 1.0  # slab length
+
+    L_w = EMISSIVE_POWER / math.pi
+    beta = KAPPA + SIGMA_S
+    omega = SIGMA_S / beta
+    tau_L = beta * L
+
+    vals = read_G("1/G")
+    if len(vals) != NX * NY:
+        sys.exit(
+            f"validate: expected {NX*NY} cells, got {len(vals)} - "
+            "mesh may have changed"
+        )
+
+    # Average G over y at each x (cell ordering: x-fastest, then y).
+    profile = [
+        statistics.mean(vals[ix + iy * NX] for iy in range(NY)) for ix in range(NX)
+    ]
+
+    sample_indices = [0, 10, 20, 50, 99]
+    taus_sim = [(ix + 0.5) / NX * tau_L for ix in sample_indices]
+
+    # Build the reference on a uniform fine tau-grid then interpolate to
+    # the simulation's sample stations. reference_G's Picard iteration
+    # assumes uniform dt internally, so a non-uniform input grid (like
+    # the sample stations) silently produces wrong values away from the
+    # finest gap.
+    N_REF = 200
+    taus_ref = [(i + 0.5) / N_REF * tau_L for i in range(N_REF)]
+    G_full = reference_G(tau_L, omega, L_w, taus_ref)
+    def G_at(t):
+        if t <= taus_ref[0]:
+            return G_full[0]
+        if t >= taus_ref[-1]:
+            return G_full[-1]
+        for k in range(len(taus_ref) - 1):
+            if taus_ref[k] <= t <= taus_ref[k + 1]:
+                f = (t - taus_ref[k]) / (taus_ref[k + 1] - taus_ref[k])
+                return (1 - f) * G_full[k] + f * G_full[k + 1]
+        return G_full[-1]
+    G_ana = [G_at(t) for t in taus_sim]
+
+    print(
+        f"omega = {omega:.2f},  tau_L = {tau_L:.2f},  "
+        f"emissivePower = {EMISSIVE_POWER} W/m^2"
+    )
+    print(f"{'tau':>6}  {'G_sim':>12}  {'G_ref':>12}  {'rel_err':>10}")
+    max_err = 0.0
+    for ix, tau, ga in zip(sample_indices, taus_sim, G_ana):
+        gs = profile[ix]
+        err = abs(gs - ga) / ga
+        max_err = max(max_err, err)
+        print(f"{tau:6.4f}  {gs:12.4e}  {ga:12.4e}  {err:10.2%}")
+    print(f"max relative error: {max_err:.2%}  tolerance: {TOLERANCE:.2%}")
+
+    return 0 if max_err <= TOLERANCE else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

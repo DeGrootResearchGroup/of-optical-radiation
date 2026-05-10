@@ -147,7 +147,7 @@ Build products:
 
 ## Running a tutorial
 
-Fourteen tutorial cases ship under `tutorials/`:
+Seventeen tutorial cases ship under `tutorials/`:
 
 opticalRadiation cases:
 
@@ -162,6 +162,11 @@ opticalRadiation cases:
   bit-for-bit cross-case match against the standalone solver.
 - `scatteringSlab2D` — combined absorption + isotropic scattering,
   validated against a Schwarzschild-Milne integral-equation reference.
+- `scatteringSlab3D` — 3-D analogue of the same slab problem; useful
+  when the 2-D-as-3-D `|dAve|/omega = π/4` factor is a confound.
+- `isotropicSlab2D` — `scatteringSlab2D` with `isotropicModel` instead
+  of HG g=0; cross-case bit-for-bit match in `Alltest` confirms the
+  two paths are algebraically identical.
 - `diffuseReflectionSlab2D` — transparent slab between a Lambertian
   emitter and a pure diffuse reflector, analytical uniform G = 3.0;
   regression guard for the diffuse term of the `reflective` BC.
@@ -318,7 +323,12 @@ src/opticalRadiationModels/                  (opticalRadiation library)
                               molecular absorber, idealGas or field mode;
                               composite — sums multiple models)
     phaseFunctionModels/     Henyey-Greenstein, Schlick, isotropic,
-                             rayleigh, mie, null
+                             rayleigh, mie. Selection is OPTIONAL --
+                             omit the dictionary key for non-scattering
+                             media. Each subclass overrides only the
+                             angular shape phaseShape(cosV, iBand);
+                             the base class shares the pixel-averaged
+                             row-normalised table-build loop.
     inScatterModels/         legacy scatter tree (excluded from build)
     derivedFvPatchFields/    boundary conditions
     fvModels/opticalRadiation/   fvModel wrapper (radiation as side-physics in host)

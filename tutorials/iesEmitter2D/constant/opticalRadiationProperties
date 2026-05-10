@@ -27,7 +27,6 @@ DOMCoeffs
     nBand         2;
     nPixelPhi     1;
     nPixelTheta   1;
-    phaseFunctionModel nullModel;
 }
 
 extinctionModel constant;

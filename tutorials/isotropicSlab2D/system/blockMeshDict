@@ -10,33 +10,65 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    location    "constant/mediumB";
-    object      opticalRadiationProperties;
+    object      blockMeshDict;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-opticalRadiation on;
-radiationModel   DOM;
+convertToMeters 1;
 
-DOMCoeffs
-{
-    nPhi          8;
-    nTheta        1;
-    convergence   1e-6;
-    maxIter       100;
-    nBand         1;
-    nPixelPhi     1;
-    nPixelTheta   1;
-}
+vertices
+(
+    (0    0   0)
+    (1    0   0)
+    (1    0.1 0)
+    (0    0.1 0)
+    (0    0   0.01)
+    (1    0   0.01)
+    (1    0.1 0.01)
+    (0    0.1 0.01)
+);
 
-extinctionModel constant;
-constantCoeffs
-{
-    nBands           1;
-    absorption       true;
-    absorptionCoeff  (0);
-    scattering       false;
-    scatteringCoeff  (0);
-}
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (100 10 1) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+    radSource
+    {
+        type patch;
+        faces ((0 4 7 3));
+    }
+    radOut
+    {
+        type patch;
+        faces ((2 6 5 1));
+    }
+    sides
+    {
+        type patch;
+        faces
+        (
+            (0 1 5 4)
+            (2 3 7 6)
+        );
+    }
+    frontAndBack
+    {
+        type empty;
+        faces
+        (
+            (0 3 2 1)
+            (4 5 6 7)
+        );
+    }
+);
+
+mergePatchPairs ();
 
 // ************************************************************************* //

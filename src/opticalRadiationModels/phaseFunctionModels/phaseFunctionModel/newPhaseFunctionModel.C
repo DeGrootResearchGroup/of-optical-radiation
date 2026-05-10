@@ -22,31 +22,44 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 \*---------------------------------------------------------------------------*/
+
 #include "error.H"
 #include "phaseFunctionModel.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::autoPtr<Foam::optical::phaseFunctionModel> Foam::optical::phaseFunctionModel::New
+Foam::autoPtr<Foam::optical::phaseFunctionModel>
+Foam::optical::phaseFunctionModel::New
 (
     const DOM& dom,
     const dictionary& dict,
     const label& nDim
 )
 {
-    word phaseFunctionModelType(dict.lookup("phaseFunctionModel"));
-    
+    // Phase function selection is optional. If the dictionary entry is
+    // omitted, fall back to the base class -- inScatter_ is false by
+    // default, so DOM skips the in-scatter source entirely. This is the
+    // intended setup for non-scattering media.
+    if (!dict.found("phaseFunctionModel"))
+    {
+        Info<< "No phaseFunctionModel selected; scattering disabled" << endl;
+        return autoPtr<phaseFunctionModel>
+        (
+            new phaseFunctionModel(dom, dict, nDim)
+        );
+    }
+
+    const word phaseFunctionModelType(dict.lookup("phaseFunctionModel"));
+
     Info<< "Selecting phaseFunctionModel " << phaseFunctionModelType << endl;
-    
+
     dictionaryConstructorTable::iterator cstrIter =
         dictionaryConstructorTablePtr_->find(phaseFunctionModelType);
-    
+
     if (cstrIter == dictionaryConstructorTablePtr_->end())
     {
-        FatalErrorIn
-        (
-            "phaseFunctionModel::New(const dictionary&, const fvMesh&)"
-        )   << "Unknown phaseFunctionModelType type "
+        FatalErrorInFunction
+            << "Unknown phaseFunctionModel type "
             << phaseFunctionModelType
             << ", constructor not in hash table" << nl << nl
             << "    Valid phaseFunctionModel types are :" << nl
@@ -54,7 +67,7 @@ Foam::autoPtr<Foam::optical::phaseFunctionModel> Foam::optical::phaseFunctionMod
             << exit(FatalError);
     }
 
-        return autoPtr<phaseFunctionModel>(cstrIter()(dom,dict,nDim));
+    return autoPtr<phaseFunctionModel>(cstrIter()(dom, dict, nDim));
 }
 
 
