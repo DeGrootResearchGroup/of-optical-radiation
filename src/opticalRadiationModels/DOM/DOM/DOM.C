@@ -1,5 +1,5 @@
 /*---------------------------------------------------------------------------*\
-  =========   	              |
+  =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 2008-2010 OpenCFD Ltd.
@@ -63,20 +63,8 @@ Foam::optical::DOM::DOM(const volScalarField& I)
             IOobject::AUTO_WRITE
         ),
         mesh_,
-        dimensionedScalar("G", dimMass/pow3(dimTime), 0.0)
-    ),
-    diffusionScatter_
-    (
-         IOobject
-        (
-            "diffusionScatter",
-            mesh_.time().name(),
-            mesh_,
-            IOobject::NO_READ,
-            IOobject::NO_WRITE
-        ),
-        mesh_,
-        dimensionedScalar("diffusionScatter",dimMass/pow3(dimTime), 0.0)
+        // [W/m^2] = kg/s^3
+        dimensionedScalar("G", dimPower/dimArea, 0.0)
     ),
     nTheta_(readLabel(coeffs_.lookup("nTheta"))),
     nPhi_(readLabel(coeffs_.lookup("nPhi"))),
@@ -120,7 +108,7 @@ Foam::optical::DOM::DOM(const volScalarField& I)
                 label iAngle = iPhi + 2*iTheta*nPhi_;
                 scalar theta = (iTheta + 0.5)*deltaTheta_;
                 scalar phi = (iPhi + 0.5)*deltaPhi_;
-                setRay_(i, iBand, iAngle, phi, theta);
+                setRay_(i, iBand, iAngle, theta, phi);
                 i++;
             }
         }
@@ -237,15 +225,31 @@ bool Foam::optical::DOM::read()
 
 void Foam::optical::DOM::calculate()
 {
-    scalar maxResidual = 0.0;
-    label rayJ;
-    label iBand = 0;
-    label iAngle = 0;
-    label radIter = 0;
-    scalar maxBandResidual = 0.0;
-
-    // Correct the extinction model
+    // Correct the extinction model.
     extinction_->correct();
+
+    // In-scatter source S_in,i scratch field, allocated once per
+    // calculate(). Re-zeroed and re-filled per (iBand, rayI) pair
+    // inside the inner loop. [W/m^2 = kg/s^3] -- same dimensionSet
+    // group as I, modulo the implicit /sr that DOM tracks
+    // dimensionally as dimensionless throughout.
+    volScalarField ds
+    (
+        IOobject
+        (
+            "diffusionScatter",
+            mesh_.time().name(),
+            mesh_,
+            IOobject::NO_READ,
+            IOobject::NO_WRITE
+        ),
+        mesh_,
+        dimensionedScalar("diffusionScatter", dimPower/dimArea, 0.0)
+    );
+
+    const bool doInScatter = phaseFunctionModel_->inScatter();
+    scalar maxResidual = 0.0;
+    label radIter = 0;
 
     do
     {
@@ -259,7 +263,7 @@ void Foam::optical::DOM::calculate()
         // in the outer iteration on strongly-coupled cases. Computing ds
         // from a snapshot frozen at the start of the outer iteration
         // (Jacobi) symmetrises the coupling and stabilises convergence.
-        if (phaseFunctionModel_->inScatter())
+        if (doInScatter)
         {
             forAll(IRay_, rayI)
             {
@@ -268,46 +272,81 @@ void Foam::optical::DOM::calculate()
         }
 
         forAll(IRay_, rayI)
-	{
-            iBand = IRay_[rayI].iBand();
-            iAngle = IRay_[rayI].iAngle();
+        {
+            const label iBand = IRay_[rayI].iBand();
 
-            Info << endl;
-            Info << "opticalRadiation solver: " << "    iter: " << radIter
-                                        << "    iBand: "<< iBand
-                                        << "    iAngle  : "<< iAngle;
-            Info << endl;
-
-            if (phaseFunctionModel_->inScatter())
+            if (debug)
             {
-                diffusionScatter_ = dimensionedScalar("diffusionScatter",dimMass/pow3(dimTime), 0.0) ;
+                Info<< "opticalRadiation solver:"
+                    << "    iter: "   << radIter
+                    << "    iBand: "  << iBand
+                    << "    iAngle: " << IRay_[rayI].iAngle() << endl;
+            }
 
-                // The table value table[i, j, iBand] from buildPhaseTable
-                // is row-normalised so sum_j table[i, j, iBand] = 1, which
-                // means it already absorbs both the per-bin solid angle
+            if (doInScatter)
+            {
+                // Fused in-scatter accumulator. The table value
+                // table[i, j, iBand] from buildPhaseTable is row-
+                // normalised so sum_j table[i, j, iBand] = 1, which
+                // means it absorbs both the per-bin solid angle
                 // omega_j and the 1/(4 pi) prefactor of the in-scatter
-                // integral. The runtime sum below is therefore the
-                // discrete approximation of the angular average
-                //   (1/(4 pi)) integral over 4 pi of Phi(s_i . s') I(s')
-                //   dOmega'
-                // with no extra solid-angle weight needed.
+                // integral. The discrete sum here approximates
+                //   (1/(4 pi)) integral over 4 pi of
+                //                Phi(s_i . s') I(s') dOmega'
+                // with no extra solid-angle weight.
+                //
+                // The whole row table[i, *, iBand] is fetched once via
+                // phaseRow() (one virtual call per (rayI, iBand) pair),
+                // and the cell- and boundary-loops below fold the
+                // per-pair multiply-and-accumulate into a single pass
+                // -- no tmp<volScalarField> per ray pair.
+                const scalar* row =
+                    phaseFunctionModel_->phaseRow(rayI, iBand);
+
+                scalarField& dsCell = ds.primitiveFieldRef();
+                dsCell = 0.0;
+
+                volScalarField::Boundary& dsBf = ds.boundaryFieldRef();
+                forAll(dsBf, patchi)
+                {
+                    dsBf[patchi] = 0.0;
+                }
+
                 for (label jAngle = 0; jAngle < nAngle_; jAngle++)
                 {
-                    rayJ = jAngle + iBand*nAngle_;
-                    if (rayI != rayJ)
+                    const label rayJ = jAngle + iBand*nAngle_;
+                    if (rayJ == rayI)
                     {
-                        diffusionScatter_ +=
-                            ISnapshot_[rayJ]
-                          * phaseFunctionModel_->correct(rayI, rayJ, iBand);
+                        continue;
+                    }
+                    const scalar pf = row[jAngle];
+
+                    const scalarField& Ij =
+                        ISnapshot_[rayJ].primitiveField();
+                    forAll(dsCell, celli)
+                    {
+                        dsCell[celli] += pf*Ij[celli];
+                    }
+
+                    const volScalarField::Boundary& IjBf =
+                        ISnapshot_[rayJ].boundaryField();
+                    forAll(dsBf, patchi)
+                    {
+                        scalarField& dsP = dsBf[patchi];
+                        const scalarField& IjP = IjBf[patchi];
+                        forAll(dsP, fi)
+                        {
+                            dsP[fi] += pf*IjP[fi];
+                        }
                     }
                 }
             }
 
             IRay_[rayI].updateBoundary();
-            maxBandResidual = IRay_[rayI].correct(); // solve the RTE equation
+            const scalar maxBandResidual = IRay_[rayI].correct(ds);
             maxResidual = max(maxBandResidual, maxResidual);
         }
-    } while(maxResidual > convergence_ && radIter < maxIter_);
+    } while (maxResidual > convergence_ && radIter < maxIter_);
 
     updateG();
 }
@@ -315,15 +354,17 @@ void Foam::optical::DOM::calculate()
 
 void Foam::optical::DOM::updateG()
 {
-    G_ = dimensionedScalar("zero",dimMass/pow3(dimTime), 0.0);
-    label rayI;
+    const dimensionedScalar zeroIrradiance("zero", dimPower/dimArea, 0.0);
+    G_ = zeroIrradiance;
     forAll(GLambda_, iBand)
     {
-        GLambda_[iBand] = dimensionedScalar("zero",dimMass/pow3(dimTime), 0.0);
+        GLambda_[iBand] = zeroIrradiance;
         for (label iAngle = 0; iAngle < nAngle_; iAngle++)
         {
-            rayI = iAngle + iBand*nAngle_;
-            GLambda_[iBand] += IRay_[rayI].I()*IRay_[rayI].omega();  // convert the radiance to irradiance
+            const label rayI = iAngle + iBand*nAngle_;
+            // Convert per-ray radiance [W/m^2/sr] to irradiance [W/m^2]
+            // by multiplying by the ray's solid angle.
+            GLambda_[iBand] += IRay_[rayI].I()*IRay_[rayI].omega();
         }
         G_ += GLambda_[iBand];
     }
@@ -352,19 +393,13 @@ Foam::scalar Foam::optical::DOM::dirToTheta(const vector& dir) const
 
 Foam::scalar Foam::optical::DOM::dirToPhi(const vector& dir) const
 {
-    scalar phi = 0.0;
-    if (mag(dir.x()) > SMALL)
-    {
-        phi = Foam::atan(dir.y()/dir.x());
-        if (dir.x() < 0.0) phi += pi;
-        if (dir.x() > 0.0 && dir.y() < 0.0) phi += 2.0*pi;
-    }
-    else
-    {
-        if (dir.y() > 0.0) phi = pi/2.0;
-        if (dir.y() < 0.0) phi = 3.0*pi/2.0;
-    }
-    return phi;
+    // atan2 returns phi in (-pi, pi]; map to [0, 2 pi) for compatibility
+    // with deltaPhi-based ray binning in dirToRayId. atan2(0, 0) is
+    // implementation-defined but conventionally returns 0, which is the
+    // correct azimuth for the +z pole (dirToRayId then uses theta to
+    // resolve).
+    const scalar phi = Foam::atan2(dir.y(), dir.x());
+    return phi >= 0.0 ? phi : phi + 2.0*pi;
 }
 
 
@@ -460,8 +495,8 @@ void Foam::optical::DOM::setRay_
     const label i,
     const label iBand,
     const label iAngle,
-    const scalar phi,
-    const scalar theta
+    const scalar theta,
+    const scalar phi
 )
 {
     IRay_.set
@@ -473,10 +508,10 @@ void Foam::optical::DOM::setRay_
             mesh_,
             iBand,
             iAngle,
-            phi,
             theta,
-            deltaPhi_,
-            deltaTheta_
+            phi,
+            deltaTheta_,
+            deltaPhi_
         )
     );
 }

@@ -102,10 +102,4 @@ inline const Foam::volScalarField& Foam::optical::DOM::G() const
 }
 
 
-inline const Foam::volScalarField& Foam::optical::DOM::diffusionScatter() const
-{
-    return diffusionScatter_;
-}
-
-
 // ************************************************************************* //

@@ -41,27 +41,6 @@ namespace Foam
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::optical::radiationModel::radiationModel(const volScalarField& I)
-:
-    IOdictionary
-    (
-        IOobject
-        (
-            "opticalRadiationProperties",
-            I.time().constant(),
-            I.mesh(),
-            IOobject::MUST_READ,
-            IOobject::NO_WRITE
-        )
-    ),
-    mesh_(I.mesh()),
-    time_(I.time()),
-    opticalRadiation_(false),
-    coeffs_(dictionary::null),
-    extinction_(nullptr)
-{}
-
-
 Foam::optical::radiationModel::radiationModel
 (
     const word& type,
