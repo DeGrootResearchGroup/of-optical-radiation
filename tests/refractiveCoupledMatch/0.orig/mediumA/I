@@ -1,0 +1,69 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0/mediumA";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        // Collimated beam at 11.25 deg from +x (centre of ray-bin 0
+        // in the nPhi=8 angular discretisation; the beam radiance lands
+        // cleanly in one ray, and on refraction across the n_A=1, n_B=1.5
+        // interface the refracted direction (~7.5 deg) stays in the same
+        // discrete bin).
+        type            collimatedBeam;
+        nBands          1;
+        beamDirection   (0.98079 0.19509 0);
+        beamRadiance    (10);
+        value           uniform 0;
+    }
+
+    sides
+    {
+        // Black absorbing y-walls (R = 0). Limits the test to the
+        // characteristic-traceable region but keeps the analysis clean.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    mediumA_to_mediumB
+    {
+        // Refractive interface: this side ("own") is n_A = 1.0;
+        // neighbour ("nbg") is n_B = 1.5.
+        type            refractiveCoupled;
+        nBands          1;
+        nNbg            (1.5);
+        nOwn            (1.0);
+        diffuseFraction 0;
+        value           uniform 0;
+    }
+
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

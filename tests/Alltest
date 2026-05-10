@@ -1,0 +1,164 @@
+#!/bin/sh
+#
+# Run every regression test in this directory and check the result.
+#
+# - Each case's Allrun is invoked; output goes to stdout (the per-app
+#   logs are still captured in `log.<app>` inside the case directory).
+# - On failure, the relevant case logs are dumped so CI failure
+#   diagnostics aren't empty.
+# - If a case has a `validate` script it is executed; non-zero exit
+#   means failure.
+# - The cross-case checks at the end compare G fields between paired
+#   runs (different code paths solving the same problem; should agree
+#   bit-for-bit or near it).
+#
+# Exit code: 0 if all checks pass, 1 otherwise.
+#
+# This directory contains regression tests run on every CI build. The
+# pedagogical / paper-validation cases live under `../tutorials/` and
+# are run on demand by the user, not by CI.
+
+set -eu
+cd "${0%/*}" || exit 1
+
+if [ -z "${WM_PROJECT_DIR:-}" ]; then
+    echo "Alltest: WM_PROJECT_DIR not set; source the OpenFOAM environment" >&2
+    exit 1
+fi
+
+overall=0
+
+# Dump all log.* files in a case directory; used on failure so CI
+# diagnostics aren't a black box.
+dump_case_logs() {
+    case_name=$1
+    for log in "$case_name"/log.*; do
+        [ -f "$log" ] || continue
+        echo "----- $log -----"
+        cat "$log"
+        echo
+    done
+}
+
+# 1) Run every case.
+for case_dir in */ ; do
+    case_name="${case_dir%/}"
+    if [ -x "$case_name/Allrun" ]; then
+        echo "==> running $case_name"
+        if ( cd "$case_name" && ./Allrun ); then
+            echo "    ok"
+        else
+            echo "    FAIL (Allrun returned non-zero)"
+            dump_case_logs "$case_name"
+            overall=1
+        fi
+    fi
+done
+
+# 2) Per-case validation scripts.
+for case_dir in */ ; do
+    case_name="${case_dir%/}"
+    if [ -x "$case_name/validate" ]; then
+        echo "==> validating $case_name"
+        if ( cd "$case_name" && ./validate ); then
+            echo "    PASS"
+        else
+            echo "    FAIL"
+            overall=1
+        fi
+    fi
+done
+
+# 3) Cross-case matches.
+#    Each pair below should produce bit-for-bit identical G (different
+#    code paths solving the same radiation problem). A missing run on
+#    either side is treated as a hard failure -- something upstream
+#    broke and we should not silently let the diff pass.
+cross_case_check() {
+    label="$1"
+    a="$2"
+    b="$3"
+    tol="${4:-1e-9}"
+    echo "==> cross-case match: $label"
+    if [ ! -f "$a" ] || [ ! -f "$b" ]; then
+        echo "    FAIL (one or both runs missing: $a, $b)"
+        overall=1
+        return 0
+    fi
+    if A="$a" B="$b" TOL="$tol" python3 - <<'PY'
+import os, re, sys
+
+def read_G(path):
+    with open(path) as f:
+        txt = f.read()
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt, re.S,
+    )
+    if not m:
+        sys.exit(f"could not parse {path}")
+    return list(map(float, m.group(2).split()))
+
+a = read_G(os.environ["A"])
+b = read_G(os.environ["B"])
+if len(a) != len(b):
+    sys.exit(f"size mismatch: {len(a)} vs {len(b)}")
+
+TOL = float(os.environ["TOL"])
+max_abs = max(abs(av - bv) for av, bv in zip(a, b))
+scale = max(max(abs(av) for av in a), 1e-12)
+max_rel = max_abs / scale
+print(f"max |dG| = {max_abs:.3e}, max rel = {max_rel:.3e}, tol = {TOL:.0e}")
+sys.exit(0 if max_rel <= TOL else 1)
+PY
+    then
+        echo "    PASS"
+    else
+        echo "    FAIL"
+        overall=1
+    fi
+}
+
+# absorbingScatteringBox3D vs variableExtinctionBox3D: same physics
+# (constant kappa/sigma_s) routed through two different extinction-model
+# paths. Both run as a single time step from zero init, so the
+# convergence path is identical and bit-for-bit agreement is achievable.
+cross_case_check \
+    "absorbingScatteringBox3D vs variableExtinctionBox3D" \
+    "absorbingScatteringBox3D/1/G" \
+    "variableExtinctionBox3D/1/G" \
+    "1e-9"
+
+# fvModelMatch vs diffuseSlab2D: same radiation problem solved either
+# by opticalRadiationFoam directly (slab) or by foamRun invoking the
+# radiation through the opticalRadiation fvModel. The fvModel case
+# runs PIMPLE time steps, each calling DOM->correct() from the
+# previous radiance state; the standalone runs once from zero. The
+# convergence paths differ slightly so the final fields agree to
+# ~1e-5 relative, not bit-for-bit. Tolerance set accordingly.
+cross_case_check \
+    "fvModelMatch vs diffuseSlab2D" \
+    "fvModelMatch/0.5/G" \
+    "diffuseSlab2D/1/G" \
+    "1e-4"
+
+# isotropicSlab2D vs scatteringSlab2D: same physics
+# (kappa=sigma_s=0.5 with isotropic in-scattering) routed through
+# isotropicModel vs HenyeyGreensteinModel with g=0. Both go through
+# buildPhaseTable with phaseShape collapsing to a constant; the
+# row-normalised tables are algebraically identical, so the converged
+# G fields agree bit-for-bit.
+cross_case_check \
+    "isotropicSlab2D vs scatteringSlab2D" \
+    "isotropicSlab2D/1/G" \
+    "scatteringSlab2D/1/G" \
+    "1e-9"
+
+if [ "$overall" -eq 0 ]; then
+    echo
+    echo "Alltest: ALL PASS"
+else
+    echo
+    echo "Alltest: FAILURES"
+fi
+exit "$overall"

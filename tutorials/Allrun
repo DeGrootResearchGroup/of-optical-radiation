@@ -3,10 +3,23 @@ cd "${0%/*}" || exit 1
 
 # Run every tutorial case in this directory by invoking its Allrun.
 # Cases are visited in name order so output is deterministic.
+#
+# Long-running cases (those with a LONG_RUNNING marker file) are
+# skipped by default. Set RUN_LONG_TUTORIALS=1 to include them:
+#
+#     RUN_LONG_TUTORIALS=1 ./Allrun
+#
+# Tutorials are not run by CI -- they're meant for users learning the
+# code. Regression tests live under ../tests/.
 
 for case in */ ; do
     case_name="${case%/}"
     if [ -x "$case_name/Allrun" ]; then
+        if [ -f "$case_name/LONG_RUNNING" ] \
+            && [ -z "${RUN_LONG_TUTORIALS:-}" ]; then
+            echo "==> skipping $case_name (LONG_RUNNING; set RUN_LONG_TUTORIALS=1 to include)"
+            continue
+        fi
         echo "==> $case_name"
         ( cd "$case_name" && ./Allrun )
     fi

@@ -1,13 +1,12 @@
 #!/bin/sh
 cd "${0%/*}" || exit 1
+set -e
+
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
 
 # Sets up the analytical fluence-rate field G via setFluenceRate and
 # runs radiationDose on the latest converged flow state. Assumes the
 # flow solve has produced at least one time directory.
 
-setFluenceRate -latestTime > log.setFluenceRate 2>&1 || {
-    echo "setFluenceRate failed; see log.setFluenceRate"
-    exit 1
-}
-
-foamPostProcess -dict system/postProcess.dict -latestTime > log.postProcess 2>&1
+runApplication setFluenceRate -latestTime
+runApplication foamPostProcess -dict system/postProcess.dict -latestTime

@@ -23,14 +23,21 @@ RUN apt-get update && apt-get install -y \
 # Add OpenFOAM repo key and list so apt knows the package metadata,
 # then download the .deb manually with curl (which follows https->http redirects)
 # and install with dpkg
-RUN curl -s https://dl.openfoam.org/gpg.key | gpg --dearmor -o /usr/share/keyrings/openfoam.gpg \
+RUN set -eux \
+    && curl -s https://dl.openfoam.org/gpg.key | gpg --dearmor -o /usr/share/keyrings/openfoam.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/openfoam.gpg] https://dl.openfoam.org/ubuntu jammy main" \
        > /etc/apt/sources.list.d/openfoam.list \
     && apt-get update \
     && DEB_URL=$(apt-cache show openfoam13 | grep ^Filename: | head -1 | awk '{print "https://dl.openfoam.org/ubuntu/" $2}') \
     && curl -fSL -o /tmp/openfoam13.deb "$DEB_URL" \
-    && dpkg -i /tmp/openfoam13.deb || true \
-    && apt-get install -f -y \
+    # dpkg -i can return non-zero on unmet deps; the "apt-get install -f -y"
+    # line below resolves them. We don't mask the failure with "|| true"
+    # any more -- if dpkg fails for a reason apt-get -f can't fix
+    # (corrupt .deb, missing repo, etc.), fail the build now rather
+    # than letting a broken image masquerade as healthy until a user
+    # hits a missing-symbol error inside a container.
+    && (dpkg -i /tmp/openfoam13.deb || apt-get install -f -y) \
+    && dpkg -l openfoam13 | grep -q '^ii' \
     && rm /tmp/openfoam13.deb \
     && rm -rf /var/lib/apt/lists/*
 

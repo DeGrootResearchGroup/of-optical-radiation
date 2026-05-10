@@ -1,0 +1,13 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# Clean prior state so runApplication doesn't skip on stale log.<app>.
+./Allclean > /dev/null 2>&1 || true
+
+# Restore stock initial fields
+cp -r 0.orig 0
+
+runApplication blockMesh
+runApplication foamPostProcess

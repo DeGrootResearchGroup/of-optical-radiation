@@ -22,8 +22,12 @@ Description
     Defaults match the Sozzi 2006 25 GPM L-shape case (water, 70%
     transmissivity per cm, 35 W lamp, 80 cm arc).
 
-    Standard timeSelector flags (-time, -latestTime, ...) pick the
-    time directory the field is written to.
+    A timeSelector flag IS REQUIRED -- with no flags the utility
+    defaults to writing the field into time 0/, which is rarely what
+    you want (your converged flow lives at the latest time, not at
+    t=0). Use -latestTime for the typical "drop G next to my converged
+    flow snapshot" workflow, or -time <T> for a specific time
+    directory.
 
 Usage
     setFluenceRate -latestTime

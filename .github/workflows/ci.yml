@@ -5,36 +5,102 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  # If a PR touches the Dockerfile, build the image fresh on that
+  # PR's commit and use it for testing. Otherwise the image is the
+  # published ghcr.io tag (built by docker-publish.yml on main pushes).
+  # Without this split, a Dockerfile change couldn't actually test its
+  # own image until after merge -- the published tag was always the
+  # previous version.
+  detect-docker-change:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/degrootresearchgroup/of-optical-radiation-ci:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      options: --user root
+    outputs:
+      docker_changed: ${{ steps.check.outputs.docker_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          if git diff --name-only "$base" "$head" \
+              | grep -E '^(Dockerfile|\.github/workflows/docker-publish\.yml)$' \
+              > /dev/null
+          then
+              echo "docker_changed=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "docker_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-pr-image:
+    needs: detect-docker-change
+    if: needs.detect-docker-change.outputs.docker_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build PR image, export as artifact
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          tags: photobio-ci:pr
+          outputs: type=docker,dest=/tmp/photobio-ci.tar
+          cache-from: type=gha
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-pr
+          path: /tmp/photobio-ci.tar
+          retention-days: 1
+
+  test:
+    needs: [detect-docker-change, build-pr-image]
+    if: |
+      always()
+      && (needs.build-pr-image.result == 'success'
+          || needs.build-pr-image.result == 'skipped')
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify OpenFOAM install
-        shell: bash
+      # Either pull the published image (regular PR) or load the
+      # PR-built one (Dockerfile-touching PR). Tag both as
+      # photobio-ci:current so the rest of the steps don't have to
+      # branch.
+      - name: Pull published CI image
+        if: needs.detect-docker-change.outputs.docker_changed == 'false'
         run: |
-          ls -la /opt/openfoam13/etc/bashrc
-          dpkg -l openfoam13 || true
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+              | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker pull \
+              ghcr.io/degrootresearchgroup/of-optical-radiation-ci:latest
+          docker tag \
+              ghcr.io/degrootresearchgroup/of-optical-radiation-ci:latest \
+              photobio-ci:current
 
-      - name: Build library, solver, and module
-        shell: bash
-        run: |
-          set +eu
-          source /opt/openfoam13/etc/bashrc
-          set -eu
-          echo "WM_PROJECT_DIR=${WM_PROJECT_DIR:-NOT SET}"
-          ./Allwmake
+      - name: Download PR-built CI image
+        if: needs.detect-docker-change.outputs.docker_changed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-pr
+          path: /tmp/
 
-      - name: Run tutorial validation suite
-        shell: bash
+      - name: Import PR-built CI image
+        if: needs.detect-docker-change.outputs.docker_changed == 'true'
         run: |
-          set +eu
-          source /opt/openfoam13/etc/bashrc
-          set -eu
-          cd tutorials && ./Alltest
+          docker load -i /tmp/photobio-ci.tar
+          docker tag photobio-ci:pr photobio-ci:current
+
+      - name: Build library + run regression tests
+        run: |
+          docker run --rm \
+              -e USER=root \
+              -v "$(pwd):/code" \
+              -w /code \
+              photobio-ci:current \
+              bash -c '
+                  set -e
+                  source /opt/openfoam13/etc/bashrc
+                  ./Allwmake
+                  cd tests && ./Alltest
+              '

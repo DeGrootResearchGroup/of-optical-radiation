@@ -1,11 +1,16 @@
 #!/bin/sh
 cd "${0%/*}" || exit 1
+set -e
 
-# Library
-( cd src/opticalRadiationModels              && wclean libso )
+# Libraries
+( cd src/opticalRadiationModels && wclean libso )
+( cd src/radiationDose          && wclean libso )
 
 # Standalone solver
 ( cd applications/solvers/opticalRadiationFoam && wclean )
 
+# Utilities
+( cd applications/utilities/setFluenceRate && wclean )
+
 # Solver module
-( cd applications/modules/opticalRadiation    && wclean libso )
+( cd applications/modules/opticalRadiation && wclean libso )

@@ -1,0 +1,15 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+# Run every regression test in this directory by invoking its Allrun.
+# Cases are visited in name order so output is deterministic.
+
+for case in */ ; do
+    case_name="${case%/}"
+    if [ -x "$case_name/Allrun" ]; then
+        echo "==> $case_name"
+        ( cd "$case_name" && ./Allrun )
+    fi
+done
+
+# ----------------------------------------------------------------------------
