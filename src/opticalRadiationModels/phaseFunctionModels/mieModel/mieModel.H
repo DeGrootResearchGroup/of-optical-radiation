@@ -27,9 +27,9 @@ Class
 Description
     Full Mie phase function for monodisperse spherical particles. Per band,
     constructs a Mie kernel from the size parameter and complex relative
-    refractive index, then precomputes the row-normalised pixel-integrated
-    P[i,j,band] table on the same sub-angle scheme as
-    HenyeyGreensteinModel / rayleighModel.
+    refractive index. The phaseShape returns the raw BHMIE intensity
+    |S_1|^2 + |S_2|^2 (unnormalised); the row-normalisation in
+    buildPhaseTable absorbs the absolute scaling.
 
     Reads the same physical parameters as mieExtinction (radius, mParticle,
     mMedium, wavelengths). Keeping them duplicated rather than coupled
@@ -44,12 +44,9 @@ SourceFiles
 #ifndef mieModel_H
 #define mieModel_H
 
-#include "IOdictionary.H"
-#include "autoPtr.H"
-#include "runTimeSelectionTables.H"
-#include "scalar.H"
-
 #include "phaseFunctionModel.H"
+#include "mieKernel.H"
+#include "PtrList.H"
 
 #include <complex>
 
@@ -66,15 +63,13 @@ class DOM;
                           Class mieModel Declaration
 \*---------------------------------------------------------------------------*/
 
-class mieModel : public phaseFunctionModel
+class mieModel
+:
+    public phaseFunctionModel
 {
 private:
 
     // Private data
-
-        Switch inScatter_;
-        dictionary coeffsDict_;
-        label subAngleNum_;
 
         //- Particle radius [m]
         scalar radius_;
@@ -88,9 +83,24 @@ private:
         //- Per-band central wavelengths in vacuum [nm]
         List<scalar> wavelengths_;
 
-        //- Pixel-integrated, row-normalised phase function table.
-        //  Indexed phaseFunction_[j + i*nAngle + iband*nAngle*nAngle].
-        DynamicList<scalar, 1, 0> phaseFunction_;
+        //- One Mie kernel per band; constructed once in the ctor and
+        //  consulted by phaseShape() during table build.
+        PtrList<mieKernel> kernels_;
+
+
+    // Private member functions
+
+        //- Override of phaseFunctionModel::phaseShape: returns the raw
+        //  BHMIE intensity |S_1|^2 + |S_2|^2 evaluated at cos theta.
+        //  Absolute scaling does not matter (row-normalisation absorbs
+        //  it); only the angular shape contributes to the in-scatter
+        //  source.
+        virtual scalar phaseShape
+        (
+            const scalar cosV,
+            const label iBand
+        ) const override;
+
 
 public:
 
@@ -100,7 +110,6 @@ public:
 
     // Constructors
 
-        //- Construct from components
         mieModel
         (
             const DOM& dom,
@@ -111,21 +120,6 @@ public:
 
     //- Destructor
     virtual ~mieModel();
-
-
-    // Member Functions
-
-        virtual bool inScatter() const
-        {
-            return inScatter_;
-        }
-
-        Foam::scalar correct
-        (
-            const label rayI,
-            const label rayJ,
-            const label iBand
-        ) const;
 };
 
 

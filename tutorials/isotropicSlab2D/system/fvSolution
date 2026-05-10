@@ -10,33 +10,20 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    location    "constant/mediumB";
-    object      opticalRadiationProperties;
+    location    "system";
+    object      fvSolution;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-opticalRadiation on;
-radiationModel   DOM;
-
-DOMCoeffs
+solvers
 {
-    nPhi          8;
-    nTheta        1;
-    convergence   1e-6;
-    maxIter       100;
-    nBand         1;
-    nPixelPhi     1;
-    nPixelTheta   1;
-}
-
-extinctionModel constant;
-constantCoeffs
-{
-    nBands           1;
-    absorption       true;
-    absorptionCoeff  (0);
-    scattering       false;
-    scatteringCoeff  (0);
+    "(G|Ii)"
+    {
+        solver          PBiCG;
+        preconditioner  DILU;
+        tolerance       1e-06;
+        relTol          0;
+    }
 }
 
 // ************************************************************************* //

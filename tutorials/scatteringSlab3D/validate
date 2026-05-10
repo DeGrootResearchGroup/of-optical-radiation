@@ -4,8 +4,15 @@ Validate the simulated G profile against the Schwarzschild-Milne
 integral-equation reference for a 1-D plane-parallel slab with
 absorption + isotropic scattering.
 
+3-D mesh (1 m x 0.1 m x 0.1 m, 100 x 4 x 4 cells); the four
+transverse faces are specular mirrors so the finite y, z extent
+maps to an infinite tiled slab and the problem reduces to 1-D
+plane-parallel transport. Same physics as scatteringSlab2D but
+with an honest 3-D angular discretisation (no |dAve|/omega = pi/4
+2-D-as-3-D scaling factor).
+
 Setup (matches constant/opticalRadiationProperties and 0.orig/I):
-- slab length L = 1 m, mirror y-walls (1-D plane-parallel)
+- slab length L = 1 m, four mirror y, z walls (1-D plane-parallel)
 - Lambertian emitter at x=0 with emissivePower = 5 W/m^2
   (radiance L_w = 5/pi)
 - black absorber at x=L
@@ -101,7 +108,7 @@ def main() -> int:
     EMISSIVE_POWER = 5.0
     KAPPA = 0.5
     SIGMA_S = 0.5
-    NX, NY = 100, 10
+    NX, NY, NZ = 100, 4, 4
     L = 1.0  # slab length
 
     L_w = EMISSIVE_POWER / math.pi
@@ -110,15 +117,21 @@ def main() -> int:
     tau_L = beta * L
 
     vals = read_G("1/G")
-    if len(vals) != NX * NY:
+    if len(vals) != NX * NY * NZ:
         sys.exit(
-            f"validate: expected {NX*NY} cells, got {len(vals)} - "
+            f"validate: expected {NX*NY*NZ} cells, got {len(vals)} - "
             "mesh may have changed"
         )
 
-    # Average G over y at each x (cell ordering: x-fastest, then y).
+    # Average G over y, z at each x (OF cell ordering for blockMesh:
+    # x-fastest, then y, then z, so cell(ix, iy, iz) = ix + iy*NX
+    # + iz*NX*NY).
     profile = [
-        statistics.mean(vals[ix + iy * NX] for iy in range(NY)) for ix in range(NX)
+        statistics.mean(
+            vals[ix + iy * NX + iz * NX * NY]
+            for iy in range(NY) for iz in range(NZ)
+        )
+        for ix in range(NX)
     ]
 
     sample_indices = [0, 10, 20, 50, 99]

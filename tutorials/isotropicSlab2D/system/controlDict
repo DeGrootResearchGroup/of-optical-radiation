@@ -10,33 +10,30 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    location    "constant/mediumB";
-    object      opticalRadiationProperties;
+    location    "system";
+    object      controlDict;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-opticalRadiation on;
-radiationModel   DOM;
+application     opticalRadiationFoam;
 
-DOMCoeffs
-{
-    nPhi          8;
-    nTheta        1;
-    convergence   1e-6;
-    maxIter       100;
-    nBand         1;
-    nPixelPhi     1;
-    nPixelTheta   1;
-}
+startFrom       startTime;
+startTime       0;
+stopAt          endTime;
+endTime         1;
+deltaT          1;
 
-extinctionModel constant;
-constantCoeffs
-{
-    nBands           1;
-    absorption       true;
-    absorptionCoeff  (0);
-    scattering       false;
-    scatteringCoeff  (0);
-}
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+
+writeFormat     ascii;
+writePrecision  7;
+writeCompression off;
+
+timeFormat      general;
+timePrecision   6;
+
+runTimeModifiable true;
 
 // ************************************************************************* //

@@ -34,7 +34,6 @@ namespace Foam
     namespace optical
     {
         defineTypeNameAndDebug(isotropicModel, 0);
-
         addToRunTimeSelectionTable
         (
             phaseFunctionModel,
@@ -54,9 +53,18 @@ Foam::optical::isotropicModel::isotropicModel
     const label& nDim
 )
 :
-phaseFunctionModel(dom,dict,nDim)
+    phaseFunctionModel(dom, dict, nDim)
 {
-    // Nothing to do
+    // No knobs: scattering is on, sub-pixel sampling is fixed at 1.
+    // The base class's default phaseShape() returns 1.0 (constant), which
+    // after row-normalisation gives table[i, j] = omega_j/(4 pi) -- the
+    // expected isotropic shape.
+    inScatter_ = true;
+    nBand_ = dom_.nBand();
+    nAngle_ = dom_.nAngle();
+    subAngleNum_ = 1;
+
+    buildPhaseTable();
 }
 
 
@@ -65,17 +73,5 @@ phaseFunctionModel(dom,dict,nDim)
 Foam::optical::isotropicModel::~isotropicModel()
 {}
 
-
-// * * * * * * * * * * * * * * * Member Functions * * * * * * * * * * * * * //
-
-Foam::scalar Foam::optical::isotropicModel::correct
-(
-    const label rayI,
-    const label rayJ,
-    const label iBand
-) const
-{
-    return 1.0;
-}
 
 // ************************************************************************* //

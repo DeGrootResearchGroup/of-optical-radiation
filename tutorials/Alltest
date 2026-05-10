@@ -144,6 +144,18 @@ cross_case_check \
     "diffuseSlab2D/1/G" \
     "1e-4"
 
+# isotropicSlab2D vs scatteringSlab2D: same physics
+# (kappa=sigma_s=0.5 with isotropic in-scattering) routed through
+# isotropicModel vs HenyeyGreensteinModel with g=0. Both go through
+# buildPhaseTable with phaseShape collapsing to a constant; the
+# row-normalised tables are algebraically identical, so the converged
+# G fields agree bit-for-bit.
+cross_case_check \
+    "isotropicSlab2D vs scatteringSlab2D" \
+    "isotropicSlab2D/1/G" \
+    "scatteringSlab2D/1/G" \
+    "1e-9"
+
 if [ "$overall" -eq 0 ]; then
     echo
     echo "Alltest: ALL PASS"

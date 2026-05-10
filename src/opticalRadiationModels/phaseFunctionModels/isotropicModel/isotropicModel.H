@@ -25,11 +25,12 @@ Class
     Foam::optical::isotropicModel
 
 Description
-    Isotropic phase function model: scattering is enabled and the phase
-    function P(theta) is uniformly 1 for every ray pair. Equivalent to
-    HenyeyGreensteinModel with g = 0, but without the per-call pow / mul /
-    sub / div arithmetic, and with a clearer dictionary intent
-    ("phaseFunction { type isotropic; }").
+    Isotropic phase function: Phi(cos theta) = constant. Bit-for-bit
+    equivalent to HenyeyGreensteinModel with g = 0, but with no
+    asymmetry-factor knob to set. Routes through the base class's
+    buildPhaseTable so the row-normalised table value table[i,j] equals
+    omega_j/(4 pi), the same shape every other phase function model
+    produces in the isotropic limit.
 
 SourceFiles
     isotropicModel.C
@@ -49,6 +50,7 @@ namespace optical
 {
 
 class DOM;
+
 /*---------------------------------------------------------------------------*\
                        Class isotropicModel Declaration
 \*---------------------------------------------------------------------------*/
@@ -66,36 +68,16 @@ public:
 
     // Constructors
 
-        //- Construct from components
-    isotropicModel
-    (
-        const DOM& dom,
-        const dictionary& dict,
-        const label& nDim
-    );
-
-
-    // Destructor
-
-    virtual ~isotropicModel();
-
-
-    // Member Functions
-
-        //- Scattering is enabled (overrides base class default of false)
-        virtual bool inScatter() const
-        {
-            return true;
-        }
-
-        //- Phase function P(theta) = 1 for all ray pairs (isotropic)
-        virtual scalar correct
+        isotropicModel
         (
-            const label rayI,
-            const label rayJ,
-            const label iBand
-        ) const;
+            const DOM& dom,
+            const dictionary& dict,
+            const label& nDim
+        );
 
+
+    //- Destructor
+    virtual ~isotropicModel();
 };
 
 

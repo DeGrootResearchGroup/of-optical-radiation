@@ -10,33 +10,44 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    location    "constant/mediumB";
+    location    "constant";
     object      opticalRadiationProperties;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-opticalRadiation on;
-radiationModel   DOM;
+opticalRadiation        on;
+radiationModel          DOM;
 
 DOMCoeffs
 {
     nPhi          8;
     nTheta        1;
-    convergence   1e-6;
+    convergence   1e-5;
     maxIter       100;
     nBand         1;
     nPixelPhi     1;
     nPixelTheta   1;
+
+    // Isotropic phase function -- regression test that this gives
+    // bit-for-bit identical G to scatteringSlab2D, which uses
+    // HenyeyGreensteinModel with g=0 (the isotropic limit). The two
+    // models route through the same buildPhaseTable; isotropicModel's
+    // constant phaseShape collapses to the same row-normalised table
+    // value table[i, j] = omega_j / (4 pi).
+    phaseFunctionModel isotropicModel;
 }
 
+// Mixed absorption + scattering with single-scatter albedo omega = 0.5.
+// kappa = sigma_s = 0.5, total extinction beta = 1, slab length 1 m
+// gives optical thickness tau_L = 1. Same medium as scatteringSlab2D.
 extinctionModel constant;
 constantCoeffs
 {
     nBands           1;
     absorption       true;
-    absorptionCoeff  (0);
-    scattering       false;
-    scatteringCoeff  (0);
+    absorptionCoeff  (0.5);
+    scattering       true;
+    scatteringCoeff  (0.5);
 }
 
 // ************************************************************************* //

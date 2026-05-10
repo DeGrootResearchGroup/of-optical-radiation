@@ -10,33 +10,45 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    location    "constant/mediumB";
-    object      opticalRadiationProperties;
+    location    "system";
+    object      fvSchemes;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-opticalRadiation on;
-radiationModel   DOM;
-
-DOMCoeffs
+ddtSchemes
 {
-    nPhi          8;
-    nTheta        1;
-    convergence   1e-6;
-    maxIter       100;
-    nBand         1;
-    nPixelPhi     1;
-    nPixelTheta   1;
+    default         steadyState;
 }
 
-extinctionModel constant;
-constantCoeffs
+gradSchemes
 {
-    nBands           1;
-    absorption       true;
-    absorptionCoeff  (0);
-    scattering       false;
-    scatteringCoeff  (0);
+    default         Gauss linear;
+}
+
+divSchemes
+{
+    default         none;
+    div(Ji,Ii_h)    bounded Gauss linearUpwind grad(Ii_h);
+}
+
+laplacianSchemes
+{
+    default         Gauss linear corrected;
+}
+
+interpolationSchemes
+{
+    default         linear;
+}
+
+snGradSchemes
+{
+    default         corrected;
+}
+
+fluxRequired
+{
+    default         yes;
 }
 
 // ************************************************************************* //

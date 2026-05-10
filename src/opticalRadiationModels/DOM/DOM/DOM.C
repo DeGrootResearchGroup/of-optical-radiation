@@ -282,16 +282,23 @@ void Foam::optical::DOM::calculate()
             {
                 diffusionScatter_ = dimensionedScalar("diffusionScatter",dimMass/pow3(dimTime), 0.0) ;
 
+                // The table value table[i, j, iBand] from buildPhaseTable
+                // is row-normalised so sum_j table[i, j, iBand] = 1, which
+                // means it already absorbs both the per-bin solid angle
+                // omega_j and the 1/(4 pi) prefactor of the in-scatter
+                // integral. The runtime sum below is therefore the
+                // discrete approximation of the angular average
+                //   (1/(4 pi)) integral over 4 pi of Phi(s_i . s') I(s')
+                //   dOmega'
+                // with no extra solid-angle weight needed.
                 for (label jAngle = 0; jAngle < nAngle_; jAngle++)
                 {
                     rayJ = jAngle + iBand*nAngle_;
-                    if(rayI != rayJ )
+                    if (rayI != rayJ)
                     {
-                        scalar rayCos = IRay_[rayI].d() & IRay_[rayJ].d();
-                        if(rayCos > 0 )
-                        {
-                            diffusionScatter_ = diffusionScatter_ + ISnapshot_[rayJ]*phaseFunctionModel_->correct(rayI,rayJ, iBand)*IRay_[rayJ].omega();
-                        }
+                        diffusionScatter_ +=
+                            ISnapshot_[rayJ]
+                          * phaseFunctionModel_->correct(rayI, rayJ, iBand);
                     }
                 }
             }
