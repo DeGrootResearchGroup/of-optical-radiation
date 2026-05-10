@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 2008-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -157,12 +157,8 @@ updateCoeffs()
     int oldTag = UPstream::msgType();
     UPstream::msgType() = oldTag+1;
 
-      
     scalarField& Iw = *this;
-    
-    const radiationModel& opticalRadiation = db().lookupObject<radiationModel>("opticalRadiationProperties");
-
-    const DOM& dom(refCast<const DOM>(opticalRadiation));
+    const DOM& dom = DOM::lookup(db());
 
     if (dom.nBand() == 0)
     {

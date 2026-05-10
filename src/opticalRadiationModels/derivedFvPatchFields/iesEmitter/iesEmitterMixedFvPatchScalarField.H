@@ -97,8 +97,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef iesEmitterMixedFvPatchScalarField_H
-#define iesEmitterMixedFvPatchScalarField_H
+#ifndef optical_iesEmitterMixedFvPatchScalarField_H
+#define optical_iesEmitterMixedFvPatchScalarField_H
 
 #include "mixedFvPatchFields.H"
 #include "iesPhotometry.H"

@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -53,27 +53,16 @@ Foam::optical::constantExtinction::constantExtinction
 )
 :
     extinctionModel(dict, mesh),
-    coeffsDict_((dict.subDict(typeName + "Coeffs"))),
+    coeffsDict_(dict.subDict(typeName + "Coeffs")),
     absorption_(coeffsDict_.lookup("absorption")),
     scattering_(coeffsDict_.lookup("scattering")),
-    nBands_(readLabel(coeffsDict_.lookup("nBands"))),
-    ABand_(nBands_),
-    SBand_(nBands_)
+    ABand_(),
+    SBand_()
 {
-    // Initialize the extinction model
-    init(nBands_);
-
-    // Initialize absorption coefficients
-    forAll(ABand_, i)
-    {
-        ABand_[i] = 0.0;
-    }
-    
-    // Initialize scattering coefficients
-    forAll(SBand_, i)
-    {
-        SBand_[i] = 0.0;
-    }
+    // init() sets the inherited nBands_ and resizes ALambda_ / SLambda_.
+    init(readLabel(coeffsDict_.lookup("nBands")));
+    ABand_.setSize(nBands_, 0.0);
+    SBand_.setSize(nBands_, 0.0);
 
     // Read the coefficients
     if (absorption_) coeffsDict_.lookup("absorptionCoeff") >> ABand_;

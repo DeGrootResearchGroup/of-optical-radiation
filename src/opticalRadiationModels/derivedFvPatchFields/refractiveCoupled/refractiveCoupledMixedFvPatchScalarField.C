@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -173,8 +173,7 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
     scalarField& Iw = *this;
 
     // Get the opticalRadiation model and the associated DOM object
-    const radiationModel& opticalRadiation = db().lookupObject<radiationModel>("opticalRadiationProperties");
-    const DOM& dom(refCast<const DOM>(opticalRadiation));
+    const DOM& dom = DOM::lookup(db());
 
     // Get the ray ID for this ray
     label rayId = dom.nameToRayId(internalField().name());

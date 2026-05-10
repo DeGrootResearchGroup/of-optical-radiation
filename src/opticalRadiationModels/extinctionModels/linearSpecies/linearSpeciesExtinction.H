@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -32,8 +32,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationLinearSpeciesExtinction_H
-#define opticalRadiationLinearSpeciesExtinction_H
+#ifndef optical_linearSpeciesExtinction_H
+#define optical_linearSpeciesExtinction_H
 
 #include "extinctionModel.H"
 
@@ -57,9 +57,6 @@ class linearSpeciesExtinction
         
         //- Extinction model dictionary
         dictionary coeffsDict_;
-        
-        //- Number of bands
-        label nBands_;
 
         //- Switch for absorption model
         Switch absorption_;

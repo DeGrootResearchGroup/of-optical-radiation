@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 2008-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -368,6 +368,16 @@ void Foam::optical::DOM::updateG()
         }
         G_ += GLambda_[iBand];
     }
+}
+
+
+const Foam::optical::DOM&
+Foam::optical::DOM::lookup(const objectRegistry& db)
+{
+    return refCast<const DOM>
+    (
+        db.lookupObject<radiationModel>("opticalRadiationProperties")
+    );
 }
 
 

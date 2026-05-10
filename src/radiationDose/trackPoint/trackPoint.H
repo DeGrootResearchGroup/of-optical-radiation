@@ -3,7 +3,7 @@
   \\      /  F ield         | radiationDose: Lagrangian radiation dose tracking
    \\    /   O peration     |
     \\  /    A nd           |
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 
 Class
@@ -18,8 +18,8 @@ Description
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef trackPoint_H
-#define trackPoint_H
+#ifndef dose_trackPoint_H
+#define dose_trackPoint_H
 
 #include "vector.H"
 #include "scalar.H"

@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -32,8 +32,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationConstantExtinction_H
-#define opticalRadiationConstantExtinction_H
+#ifndef optical_constantExtinction_H
+#define optical_constantExtinction_H
 
 #include "extinctionModel.H"
 
@@ -62,10 +62,7 @@ class constantExtinction
         Switch absorption_;
         
         //- Switch of scattering model
-        Switch scattering_;   
-        
-        //- Number of bands
-        label nBands_;
+        Switch scattering_;
 
         //- Absorption coefficients (one per band)
         DynamicList<scalar, 1, 0> ABand_;

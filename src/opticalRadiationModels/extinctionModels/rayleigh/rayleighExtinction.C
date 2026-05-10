@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -75,14 +75,15 @@ Foam::optical::rayleighExtinction::rayleighExtinction
 :
     extinctionModel(dict, mesh),
     coeffsDict_(dict.subDict(typeName + "Coeffs")),
-    nBands_(readLabel(coeffsDict_.lookup("nBands"))),
     wavelengths_(),
     T_(coeffsDict_.lookupOrDefault<scalar>("T", 288.15)),
     p_(coeffsDict_.lookupOrDefault<scalar>("p", 101325.0)),
     kingFactor_(coeffsDict_.lookupOrDefault<scalar>("kingFactor", 1.05)),
-    sigmaSPerBand_(nBands_, 0.0)
+    sigmaSPerBand_()
 {
-    init(nBands_);
+    // init() sets the inherited nBands_ and resizes ALambda_ / SLambda_.
+    init(readLabel(coeffsDict_.lookup("nBands")));
+    sigmaSPerBand_.setSize(nBands_, 0.0);
 
     coeffsDict_.lookup("wavelengths") >> wavelengths_;
 

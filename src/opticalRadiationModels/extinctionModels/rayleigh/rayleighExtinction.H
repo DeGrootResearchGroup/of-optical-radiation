@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -42,8 +42,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef opticalRadiationRayleighExtinction_H
-#define opticalRadiationRayleighExtinction_H
+#ifndef optical_rayleighExtinction_H
+#define optical_rayleighExtinction_H
 
 #include "extinctionModel.H"
 
@@ -67,9 +67,6 @@ class rayleighExtinction
 
         //- Extinction model dictionary
         dictionary coeffsDict_;
-
-        //- Number of bands
-        label nBands_;
 
         //- Per-band central wavelengths [nm]
         List<scalar> wavelengths_;

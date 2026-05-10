@@ -3,7 +3,7 @@
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     |
     \\  /    A nd           | Copyright (C) 1991-2010 OpenCFD Ltd.
-     \\/     M anipulation  |
+     \\/     M anipulation  | Copyright (C) 2018-2026 DeGroot Research Group
 -------------------------------------------------------------------------------
 License
     This file is part of OpenFOAM.
@@ -57,7 +57,6 @@ Foam::optical::mieExtinction::mieExtinction
 :
     extinctionModel(dict, mesh),
     coeffsDict_(dict.subDict(typeName + "Coeffs")),
-    nBands_(readLabel(coeffsDict_.lookup("nBands"))),
     wavelengths_(),
     radius_(readScalar(coeffsDict_.lookup("radius"))),
     mParticle_(0, 0),
@@ -66,12 +65,17 @@ Foam::optical::mieExtinction::mieExtinction
     (
         coeffsDict_.lookupOrDefault<word>("numberDensityField", "n")
     ),
-    QscaPerBand_(nBands_, 0.0),
-    QabsPerBand_(nBands_, 0.0),
-    sigmaScaPrefactorPerBand_(nBands_, 0.0),
-    sigmaAbsPrefactorPerBand_(nBands_, 0.0)
+    QscaPerBand_(),
+    QabsPerBand_(),
+    sigmaScaPrefactorPerBand_(),
+    sigmaAbsPrefactorPerBand_()
 {
-    init(nBands_);
+    // init() sets the inherited nBands_ and resizes ALambda_ / SLambda_.
+    init(readLabel(coeffsDict_.lookup("nBands")));
+    QscaPerBand_.setSize(nBands_, 0.0);
+    QabsPerBand_.setSize(nBands_, 0.0);
+    sigmaScaPrefactorPerBand_.setSize(nBands_, 0.0);
+    sigmaAbsPrefactorPerBand_.setSize(nBands_, 0.0);
 
     coeffsDict_.lookup("wavelengths") >> wavelengths_;
 
