@@ -193,20 +193,31 @@ void Foam::optical::iesPhotometry::load_()
 
     // Candela values: nH blocks of nV values each.
     // Storage layout matches: candela_[ih*nV + iv].
+    //
+    // Check is.fail() after each read so a truncated or malformed file
+    // fatals at the exact value where parsing stopped. A single
+    // post-loop is.good() check is insufficient here: `>>` on a
+    // truncated stream sets failbit, so the value at the truncation
+    // point and every subsequent slot are silently left at zero
+    // (default-constructed scalar) and the loop completes -- the
+    // resulting "valid" iesPhotometry then misinterprets the
+    // zero-padded tail as legitimate candela values.
     candela_.setSize(nH*nV);
-    for (label ih = 0; ih < nH; ++ih)
+    for (label k = 0; k < nH*nV; ++k)
     {
-        for (label iv = 0; iv < nV; ++iv)
+        is >> candela_[k];
+        if (is.fail())
         {
-            is >> candela_[ih*nV + iv];
+            const label ih = k/nV;
+            const label iv = k - ih*nV;
+            FatalErrorInFunction
+                << "Failed reading candela value at horizontal index "
+                << ih << ", vertical index " << iv
+                << " (flat position " << k << " of " << nH*nV
+                << ") from IES file: " << path_
+                << "; file may be truncated or contain non-numeric data"
+                << exit(FatalError);
         }
-    }
-
-    if (!is.good() && !is.eof())
-    {
-        FatalErrorInFunction
-            << "Failed reading candela values from IES file: " << path_
-            << exit(FatalError);
     }
 
     // Apply candela multiplier and ballast factor (the latter is
@@ -334,8 +345,36 @@ Foam::scalar Foam::optical::iesPhotometry::interpolate
            +       fv *candela_[0*nV + iv + 1];
     }
 
+    // FULL-symmetry seam wrap. For ROTATIONAL/QUADRANT/BILATERAL,
+    // foldHorizontal_ folds hDeg into [horizontal_.first(),
+    // horizontal_.last()] and the standard bracket below works. For
+    // FULL, foldHorizontal_ is a no-op; if the table closes early
+    // (e.g. last horizontal angle at 350 deg instead of 360 deg) then
+    // hFolded can fall in the cyclic [last, 360 + first) gap, and the
+    // standard bracket would extrapolate beyond the last column.
+    // Handle the gap explicitly by interpolating cyclically between
+    // candela_[ih = nH - 1] and candela_[ih = 0], with a horizontal
+    // span of (first + 360 - last).
+    if (symmetry_ == FULL && hFolded > horizontal_.last())
+    {
+        const scalar h0 = horizontal_.last();
+        const scalar h1 = horizontal_.first() + 360.0;
+        const scalar fh = (hFolded - h0)/(h1 - h0);
+        const label ih0 = nH - 1;
+        const label ih1 = 0;
+        const scalar I00 = candela_[ih0*nV + iv    ];
+        const scalar I01 = candela_[ih0*nV + iv + 1];
+        const scalar I10 = candela_[ih1*nV + iv    ];
+        const scalar I11 = candela_[ih1*nV + iv + 1];
+        return
+            (1.0 - fh)*((1.0 - fv)*I00 + fv*I01)
+          +        fh *((1.0 - fv)*I10 + fv*I11);
+    }
+
     // Horizontal bracket. foldHorizontal_ guarantees hFolded lies in
-    // [horizontal_.first(), horizontal_.last()].
+    // [horizontal_.first(), horizontal_.last()] for the
+    // ROTATIONAL/QUADRANT/BILATERAL cases; the FULL seam-wrap case
+    // above handles the hFolded > horizontal_.last() shortfall.
     label ih = 0;
     while (ih < nH - 2 && horizontal_[ih + 1] < hFolded) ++ih;
     const scalar fh =

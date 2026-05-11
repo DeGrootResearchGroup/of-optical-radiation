@@ -63,15 +63,26 @@ def air_refractive_index(lambda_nm: float) -> float:
 
 
 def rayleigh_sigma_s(lambda_nm: float, T: float, p: float, kingF: float) -> float:
-    """Bodhaine 1999: volumetric Rayleigh scattering coefficient in [1/m]."""
+    """Bodhaine 1999: volumetric Rayleigh scattering coefficient in [1/m].
+
+    The per-molecule cross-section uses N_s, the molecular number density
+    at the Peck-Reeder reference state (288.15 K, 101325 Pa), because the
+    refractive-index fit `n(lambda)` returned by `air_refractive_index`
+    is defined at that state. Bulk sigma_s = N(T, p) * sigma_per_molecule
+    picks up the local thermodynamics.
+    """
     kB = 1.380649e-23
     pi = math.pi
     n = air_refractive_index(lambda_nm)
     lam_m = lambda_nm * 1.0e-9
+    # Peck-Reeder reference state.
+    T_s = 288.15
+    p_s = 101325.0
+    N_s = p_s / (kB * T_s)
     N = p / (kB * T)
     lr = (n * n - 1.0) / (n * n + 2.0)
-    sigma_R = 24.0 * pi**3 / (lam_m**4 * N**2) * lr * lr * kingF
-    return N * sigma_R
+    sigma_per_molecule = 24.0 * pi**3 / (lam_m**4 * N_s**2) * lr * lr * kingF
+    return N * sigma_per_molecule
 
 
 def read_internal(path: str) -> list:
