@@ -207,7 +207,8 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 `variableExtinctionBox3D`, `scatteringSlab2D`, `scatteringSlab3D`,
 `isotropicSlab2D`, `diffuseReflectionSlab2D`, `rayleighSlab2D`,
 `molecularAbsorptionSlab2D`, `mieScatteringSlab2D`,
-`refractiveCoupledMatch`, `fvModelMatch`, `iesEmitterMatch`.
+`refractiveCoupledMatch`, `fvModelMatch`, `iesEmitterMatch`,
+`cyclicMatch`, `nonConformalCyclicMatch`, `radiationCoupledMatch`.
 
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 `pointInjectionBox`.

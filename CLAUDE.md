@@ -168,7 +168,27 @@ Foam::optical::
     │                                                units (cd vs W/sr)
     │                                                don't matter; uses the
     │                                                iesPhotometry parser)
-    └── refractiveCoupledMixedFvPatchScalarField
+    ├── refractiveCoupledMixedFvPatchScalarField
+    └── radiationCoupledMixedFvPatchScalarField    (transparent coupled BC at
+                                                    a `mappedPatch` between
+                                                    two regions sharing the
+                                                    same refractive index;
+                                                    matched-`n` fast path of
+                                                    `refractiveCoupled`. Per-
+                                                    face O(1) updateCoeffs
+                                                    -- no pixelation, no
+                                                    Fresnel, no n^2 scaling
+                                                    -- vs the original BC's
+                                                    O(nPixelTheta * nPixelPhi
+                                                    * nAngle) per face. Reads
+                                                    `nBands` and `n` (per-
+                                                    band) from the dict and
+                                                    errors at construction
+                                                    if the neighbour patch's
+                                                    `n` differs by more than
+                                                    1e-9 relative, pointing
+                                                    the user at refractive-
+                                                    Coupled instead)
 
   iesPhotometry                   (IES LM-63 Type C parser + bilinear
                                    interpolator; loads the candela table
@@ -243,6 +263,7 @@ and étendue-n² methodology fixes.
 | `src/opticalRadiationModels/derivedFvPatchFields/` | Custom optical boundary conditions |
 | `src/opticalRadiationModels/derivedFvPatchFields/iesEmitter/iesPhotometry.{H,C}` | IES LM-63 Type C parser + interpolator |
 | `src/opticalRadiationModels/derivedFvPatchFields/iesEmitter/iesEmitterMixedFvPatchScalarField.{H,C}` | iesEmitter BC (uses iesPhotometry) |
+| `src/opticalRadiationModels/derivedFvPatchFields/radiationCoupled/radiationCoupledMixedFvPatchScalarField.{H,C}` | Transparent coupled BC at matched-`n` interfaces; matched-index fast path of `refractiveCoupled` |
 | `src/opticalRadiationModels/fvModels/opticalRadiation/opticalRadiation.{H,C}` | fvModel wrapper for embedding in host solvers |
 | `applications/solvers/opticalRadiationFoam/opticalRadiationFoam.C` | Standalone DOM solver entry point |
 | `applications/modules/opticalRadiation/opticalRadiation.{H,C}` | Solver-module form for `foamMultiRun` |
@@ -1087,6 +1108,17 @@ The case suite is split into two trees:
 - **`refractiveCoupledMatch`** — small 2-region 2-D case verifying the
   `refractiveCoupled` BC and the solver-module form via `foamMultiRun`.
   Test-grade replacement for the pedagogical `tutorials/refractiveInterface2D`.
+- **`radiationCoupledMatch`** — sibling of `refractiveCoupledMatch`
+  with the same geometry and 2-region setup but n=1.33 on both sides
+  and the new `radiationCoupled` BC at the interface. Exercises the
+  matched-`n` fast path (no pixelation, no Fresnel, no n² scaling)
+  and the construction-time refractive-index sanity check
+  (manually verified that setting one side's `n` to 1.5 produces a
+  FatalError with a clear message pointing at refractiveCoupled).
+  Validate uses the same `L_0·ω_0` analytical as the refractive
+  case at R=0: both regions show G = L_0·ω_0 = 7.854 W/m² along
+  the beam characteristic. Observed errors ~0.03 % (mediumA),
+  ~0.39 % (mediumB), ~0.41 % cross-interface; 5 % tolerance.
 - **`fvModelMatch`** — same radiation problem as `diffuseSlab2D`,
   but the radiation library is wired into `incompressibleFluid`
   (driven by `foamRun`) via the `opticalRadiation` fvModel. Exercises
@@ -1096,6 +1128,48 @@ The case suite is split into two trees:
 - **`iesEmitterMatch`** — small slab with the `iesEmitter` BC fed a
   synthetic Lambertian-shape IES file. Test-grade replacement for the
   pedagogical `tutorials/iesEmitter2D`.
+- **`cyclicMatch`** — `diffuseSlab2D` geometry split into two blocks
+  at x=0.5 with a `cyclic` patch pair (`transform none`) coupling
+  the interface, matching face counts on both sides. The template
+  `I` field carries `type cyclic` on the interface patches, which
+  propagates to every per-ray `I_<band>_<angle>` via the copy-from-
+  IDefault construction in `ray.C`. The validate script invokes
+  `foamPostProcess -func writeCellCentres` on both cases and keys
+  `G` by cell-centre position (the two-block enumeration differs
+  from the single-block one even though the cell *positions* are
+  identical), then asserts max relative `G` deviation <= 1e-5
+  against `diffuseSlab2D`. Observed ~6e-7 — at the DOM convergence
+  floor (1e-6) amplified by downstream integration through the
+  cyclic-patch matrix-assembly ULP noise; bit-for-bit is not
+  achievable because the cyclic patch contributes off-diagonal
+  matrix entries in a different assembly order than internal faces.
+  Demonstrates that standard OpenFOAM coupled-patch machinery
+  handles DOM's per-ray `fvm::div(Ji, I)` correctly with no custom
+  BC — load-bearing for a future `radiationCoupled` convenience
+  wrapper that replaces `refractiveCoupled` with `n_A = n_B`
+  (which still runs pixelation + Fresnel + n² scaling internally
+  even though all three collapse to no-ops at matched index).
+- **`nonConformalCyclicMatch`** — non-conformal sibling of
+  `cyclicMatch`: `diffuseSlab2D` split at x=0.5 but with DELIBERATELY
+  MISMATCHED y discretisation (10 cells on the left block, 13 on
+  the right). After `blockMesh`, the interface patches AMI_L and
+  AMI_R are fused by `createNonConformalCouples -fields AMI_L AMI_R`
+  into a `nonConformalCyclic` coupled pair with AMI weights computed
+  from face-overlap (44 couplings between the 10/13 face pair, full
+  partition-of-unity coverage on both sides). The `-fields` flag
+  rewrites the I template's interface BCs from the `zeroGradient`
+  placeholder to `nonConformalCyclic` in place, so the per-ray
+  fields inherit it through `ray.C`'s copy construction. Validate
+  averages G(x) over y at each unique x on both cases (the y
+  discretisations differ so cell-by-cell comparison isn't meaningful,
+  but the specular y mirrors make the converged G y-uniform so
+  y-averaging is the right collapse). Observed max relative deviation
+  ~4.5e-7 — same DOM convergence floor as `cyclicMatch`, no
+  measurable AMI-interpolation penalty because partition-of-unity
+  weighted average of a y-uniform field returns the same uniform
+  value exactly. Tolerance set at 1e-4 for margin. This is the
+  load-bearing test for the genuine non-conformal hybrid-mesh story
+  (structured shell meets snappy bulk with mismatched face counts).
 - **`scatteringSlab2D`** — 2-D plane-parallel slab with combined
   absorption and isotropic scattering (κ=σ_s=0.5, ω=0.5), validated
   against a Schwarzschild-Milne integral-equation reference solved

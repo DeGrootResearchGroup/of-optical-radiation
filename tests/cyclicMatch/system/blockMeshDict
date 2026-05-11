@@ -1,0 +1,113 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Same geometry as diffuseSlab2D (1 m x 0.1 m x 0.01 m) but split into
+// two blocks at x = 0.5. The two blocks use DISJOINT vertex IDs at the
+// coincident x = 0.5 plane so blockMesh does not merge the interface
+// into internal faces; instead each side becomes a boundary patch
+// (AMI_L on block 1, AMI_R on block 2) that we declare as a cyclicAMI
+// pair. With matching face counts on both sides the AMI weight per
+// face pair is 1.0 so bit-for-bit agreement with diffuseSlab2D is the
+// expected outcome -- this is a pure plumbing test of whether DOM's
+// per-ray fvm::div correctly couples I across a cyclicAMI patch.
+
+convertToMeters 1;
+
+vertices
+(
+    // Block 1 (left, x in [0, 0.5])
+    (0    0   0)        // 0
+    (0.5  0   0)        // 1
+    (0.5  0.1 0)        // 2
+    (0    0.1 0)        // 3
+    (0    0   0.01)     // 4
+    (0.5  0   0.01)     // 5
+    (0.5  0.1 0.01)     // 6
+    (0    0.1 0.01)     // 7
+    // Block 2 (right, x in [0.5, 1]) -- separate vertices at x = 0.5
+    (0.5  0   0)        // 8
+    (1    0   0)        // 9
+    (1    0.1 0)        // 10
+    (0.5  0.1 0)        // 11
+    (0.5  0   0.01)     // 12
+    (1    0   0.01)     // 13
+    (1    0.1 0.01)     // 14
+    (0.5  0.1 0.01)     // 15
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7)       (50 10 1) simpleGrading (1 1 1)
+    hex (8 9 10 11 12 13 14 15) (50 10 1) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+    radSource
+    {
+        type patch;
+        faces ((0 4 7 3));
+    }
+    radOut
+    {
+        type patch;
+        faces ((9 10 14 13));
+    }
+    sides
+    {
+        type patch;
+        faces
+        (
+            (0 1 5 4)       // block 1, y = 0
+            (2 3 7 6)       // block 1, y = 0.1
+            (8 9 13 12)     // block 2, y = 0
+            (10 11 15 14)   // block 2, y = 0.1
+        );
+    }
+    frontAndBack
+    {
+        type empty;
+        faces
+        (
+            (0 3 2 1)       // block 1, z = 0
+            (4 5 6 7)       // block 1, z = 0.01
+            (8 11 10 9)     // block 2, z = 0
+            (12 13 14 15)   // block 2, z = 0.01
+        );
+    }
+    AMI_L
+    {
+        type            cyclic;
+        neighbourPatch  AMI_R;
+        transform       none;
+        faces ((1 2 6 5));
+    }
+    AMI_R
+    {
+        type            cyclic;
+        neighbourPatch  AMI_L;
+        transform       none;
+        faces ((8 12 15 11));
+    }
+);
+
+mergePatchPairs ();
+
+// ************************************************************************* //
