@@ -67,9 +67,11 @@ void Foam::optical::extinctionModel::init(const label nBands)
   // When constructed as a child of compositeExtinction, the per-band fields
   // are intermediate: registering them would collide with sibling and
   // composite ALambda_<i> / SLambda_<i> names, and writing them would clutter
-  // time directories with quantities the composite already exposes.
+  // time directories with quantities the composite already exposes. The
+  // sentinel key is namespaced + double-underscored to make accidental
+  // user collisions impossible.
   const bool isChild =
-      dict_.lookupOrDefault<bool>("_compositeChild", false);
+      dict_.lookupOrDefault<bool>("__opticalRadiation_compositeChild", false);
   const IOobject::writeOption wOpt =
       isChild ? IOobject::NO_WRITE : IOobject::AUTO_WRITE;
   const bool registerField = !isChild;

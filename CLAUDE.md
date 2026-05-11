@@ -275,7 +275,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Sixteen regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Twenty regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Four pedagogical cases (`uvReactorSozzi2006`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -1087,7 +1087,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Sixteen cases.
+  Twenty cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1119,6 +1119,21 @@ The case suite is split into two trees:
   case at R=0: both regions show G = L_0·ω_0 = 7.854 W/m² along
   the beam characteristic. Observed errors ~0.03 % (mediumA),
   ~0.39 % (mediumB), ~0.41 % cross-interface; 5 % tolerance.
+- **`diffuseRefractiveInterface2D`** — companion to `refractiveCoupledMatch`
+  exercising the BC's `diffuseFraction > 0` branch (the other case
+  uses `diffuseFraction = 0`). Two transparent regions with matched
+  refractive indices `nA = nB = 1.0` (R = 0 identically), `diffuseFraction
+  = 1` on both sides, Lambertian emitter on far-A, black absorber on
+  far-B, specular mirror y-sides. Analytical answer: `G = 2·E = 2 W/m²`
+  uniform in both regions (matched indices + R = 0 reduce the
+  diffuse Lambertizer to a perfect passthrough; the system is
+  equivalent to a single transparent slab between emitter and
+  absorber). Observed: bit-for-bit 2.000 throughout. Validates the
+  `(1/π)·Σ(cos·dΩ)·I` Lambertian integral and the BC's symmetry under
+  (nbg ↔ own) swap. The Fresnel-direction part of the diffuse branch
+  (which is identical to the validated specular branch's `R(θ)`
+  formula) is not exercised by this case because R = 0 there; the
+  audit-by-reciprocity argument carries the rest.
 - **`fvModelMatch`** — same radiation problem as `diffuseSlab2D`,
   but the radiation library is wired into `incompressibleFluid`
   (driven by `foamRun`) via the `opticalRadiation` fvModel. Exercises
