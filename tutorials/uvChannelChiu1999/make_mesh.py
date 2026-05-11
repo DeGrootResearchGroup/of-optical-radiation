@@ -22,23 +22,25 @@ at Southport AWT Plant, Table 1 p.11 and Fig. 2 p.11):
     closest to the LDV-mapped lab flow field, so it is the natural
     default. Other velocities are obtained by editing 0/U.
 
-Mesh topology (first-cut implementation):
+Mesh topology:
 
-  We approximate each lamp as a SQUARE block in the mesh and mask that
-  block out of the structured grid. The exposed faces of the mask form
-  the lampWall patch. This is a deliberate simplification: a proper
-  cylinder requires an O-grid (butterfly) around each lamp stitched
-  into the surrounding mesh, which is non-trivial with 20 lamps in a
-  staggered arrangement. Square lamps overstate the wake drag and
-  shift the wake-turbulence structure compared to true cylinders, but
-  the GROSS dose-distribution structure (Fig. 8b) and the log
-  inactivation vs approach-velocity trend (Fig. 10) should still come
-  through. Replace this with a per-lamp CylBlockStructContainer when
-  the case matters for absolute accuracy.
+  Cartesian background grid (CartBlockStruct) with one block per lamp,
+  masked, surrounded by four neighbouring fluid blocks. Each lamp is a
+  Cylinder geometry (vertical axis along z, since plan view), and the
+  four corner vertices plus four lateral edges of the masked block are
+  projected onto that Cylinder via Vertex.proj_geom / Edge.proj_geom.
+  blockMesh handles the actual searchableCylinder projection at mesh
+  time, so the lamp boundary in the output mesh is a circular arc, not
+  a square. The four corner vertices land on the cylinder at +/- 45 deg
+  (closest point from the square corner to the circle), so the lamp
+  boundary is four 90 deg arcs joined at four diagonal vertices --
+  faceted but visibly round. Increasing the resolution would mean
+  subdividing each lamp block into a 2x2 mask with 8 corner vertices,
+  giving an octagonally-faceted lamp; not done in this first cut.
 
 Run-time path is:
 
-    pip install blockmeshbuilder    # in the OpenFOAM environment
+    pip install git+https://github.com/NauticalMile64/blockmeshbuilder.git
     python3 make_mesh.py            # writes system/blockMeshDict
     blockMesh                       # mesh the block dict
 """
@@ -49,11 +51,18 @@ import sys
 import numpy as np
 
 try:
-    from blockmeshbuilder import BlockMeshDict, CartBlockStruct, BoundaryTag
+    from blockmeshbuilder import (
+        BlockMeshDict,
+        CartBlockStruct,
+        BoundaryTag,
+        Cylinder,
+        Point,
+    )
 except ImportError:
     sys.stderr.write(
         "make_mesh.py: blockmeshbuilder is not installed.\n"
-        "Install with:  pip install blockmeshbuilder\n"
+        "Install with:\n"
+        "  pip install git+https://github.com/NauticalMile64/blockmeshbuilder.git\n"
     )
     sys.exit(1)
 
@@ -72,8 +81,6 @@ LAMP_PITCH_Y    = 0.075         # m  (7.5 cm within a row)
 N_ROWS          = 5
 LAMPS_PER_ROW   = 4
 
-# Target cell size in the bulk; lamp-adjacent blocks get finer cells
-# automatically because they are 2 * LAMP_RADIUS wide.
 TARGET_CELL_SIZE = 0.0025       # m  (~2.5 mm; lamp diameter = 10 cells)
 
 
@@ -81,8 +88,6 @@ TARGET_CELL_SIZE = 0.0025       # m  (~2.5 mm; lamp diameter = 10 cells)
 
 x_lamps = np.arange(N_ROWS) * ROW_PITCH_X    # 0.000, 0.125, 0.250, 0.375, 0.500
 
-# Even rows (indices 0, 2, 4) centred in the channel; odd rows offset by
-# half-pitch upward, matching Fig. 2 of the paper.
 y_centred = (
     (np.arange(LAMPS_PER_ROW) - (LAMPS_PER_ROW - 1) / 2.0) * LAMP_PITCH_Y
 )
@@ -92,14 +97,9 @@ y_odd  = y_centred + LAMP_PITCH_Y / 2.0
 
 # -- Build the block grid --------------------------------------------------
 
-# Vertex coordinates: walls/inlet/outlet plus a pair of vertices either
-# side of each lamp (at lamp_centre +/- LAMP_RADIUS). Use a small
-# rounding tolerance so floating-point near-duplicates from the staggered
-# pattern collapse onto a single vertex.
-
 def unique_sorted(values, tol=1e-9):
     arr = np.sort(np.array(values))
-    out = [arr[0]]
+    out = [float(arr[0])]
     for v in arr[1:]:
         if abs(v - out[-1]) > tol:
             out.append(float(v))
@@ -117,7 +117,6 @@ y_vertices = unique_sorted(
 )
 z_vertices = np.array([0.0, MESH_DEPTH])
 
-# Per-block cell counts: target cell size in each direction.
 ndx = np.maximum(1, np.round(np.diff(x_vertices) / TARGET_CELL_SIZE).astype(int))
 ndy = np.maximum(1, np.round(np.diff(y_vertices) / TARGET_CELL_SIZE).astype(int))
 ndz = 1   # 2-D
@@ -133,10 +132,10 @@ struct = CartBlockStruct(
 )
 
 
-# -- Mask lamp blocks ------------------------------------------------------
+# -- Mask lamp blocks and project the lamp boundary to a Cylinder ---------
 
 def block_index_at(xc, yc):
-    """Find the (ix, iy) block whose centre is closest to (xc, yc)."""
+    """Index (ix, iy) of the block whose centre is closest to (xc, yc)."""
     xmid = (x_vertices[:-1] + x_vertices[1:]) / 2.0
     ymid = (y_vertices[:-1] + y_vertices[1:]) / 2.0
     return int(np.argmin(np.abs(xmid - xc))), int(np.argmin(np.abs(ymid - yc)))
@@ -147,48 +146,74 @@ for row_index, x_row in enumerate(x_lamps):
     y_row = y_odd if row_index % 2 == 1 else y_even
     for y_lamp in y_row:
         lamp_centres.append((x_row, y_lamp))
-        ix, iy = block_index_at(x_row, y_lamp)
-        struct.block_mask[ix, iy, 0] = True
 
-print(f"Masked {len(lamp_centres)} lamp blocks")
+print(f"Projecting {len(lamp_centres)} lamps onto Cylinder geometries")
+
+for lamp_index, (xc, yc) in enumerate(lamp_centres):
+    ix, iy = block_index_at(xc, yc)
+    struct.block_mask[ix, iy, 0] = True
+
+    # Vertical Cylinder centred on the lamp axis. The +/-1 m extent in z
+    # is well beyond the 1-cm-thick mesh, so any vertex in z falls
+    # comfortably inside the cylinder's projection range.
+    cyl = Cylinder(
+        Point((xc, yc, -1.0)),
+        Point((xc, yc, +1.0)),
+        LAMP_RADIUS,
+        name=f'lamp{lamp_index:02d}',
+    )
+
+    # Project the four corner vertices of the masked block (both
+    # z-layers, so 8 baked_vertices) onto the cylinder. blockMesh's
+    # searchableCylinder maps each (x_c +/- r, y_c +/- r) square corner
+    # to the closest point on the cylinder of radius r centred at
+    # (x_c, y_c), which is the 45 deg / 135 deg / 225 deg / 315 deg
+    # position on the circle.
+    for vt in struct.baked_vertices[ix:ix + 2, iy:iy + 2, :].flatten():
+        vt.proj_geom(cyl)
+
+    # Project the four lateral edges of the masked block onto the
+    # cylinder so the boundary follows a 90 deg arc between adjacent
+    # corner vertices, rather than a chord. Two z-layers each, so 8
+    # ProjectionEdges total.
+    for edge in struct.edges[ix, iy,     :, 0]:   # south (x-edge at y=iy)
+        edge.proj_geom(cyl)
+    for edge in struct.edges[ix, iy + 1, :, 0]:   # north (x-edge at y=iy+1)
+        edge.proj_geom(cyl)
+    for edge in struct.edges[ix,     iy, :, 1]:   # west  (y-edge at x=ix)
+        edge.proj_geom(cyl)
+    for edge in struct.edges[ix + 1, iy, :, 1]:   # east  (y-edge at x=ix+1)
+        edge.proj_geom(cyl)
 
 
 # -- Boundary tags ---------------------------------------------------------
 
-inlet  = BoundaryTag('inlet',   type_='patch')
-outlet = BoundaryTag('outlet',  type_='patch')
-walls  = BoundaryTag('walls',   type_='wall')
+inlet  = BoundaryTag('inlet',         type_='patch')
+outlet = BoundaryTag('outlet',        type_='patch')
+walls  = BoundaryTag('walls',         type_='wall')
 front_back = BoundaryTag('frontAndBack', type_='empty')
 
-# x-min face (inlet) and x-max face (outlet)
-struct.boundary_tags[0,  :, :, 0] = inlet
-struct.boundary_tags[-1, :, :, 0] = outlet
-
-# y-min and y-max faces (channel walls). The paper treats these as
-# rigid walls; in plan view the bottom and top are the water surface and
-# channel floor, but we collapse the depth dimension anyway.
-struct.boundary_tags[:, 0,  :, 1] = walls
-struct.boundary_tags[:, -1, :, 1] = walls
-
-# z-min and z-max faces are the 2-D empty pair
-struct.boundary_tags[:, :, 0,  2] = front_back
-struct.boundary_tags[:, :, -1, 2] = front_back
+struct.boundary_tags[0,  :, :, 0] = inlet         # leftmost x face
+struct.boundary_tags[-1, :, :, 0] = outlet        # rightmost x face
+struct.boundary_tags[:, 0,  :, 1] = walls         # bottom y face
+struct.boundary_tags[:, -1, :, 1] = walls         # top y face
+struct.boundary_tags[:, :, 0,  2] = front_back    # back z face
+struct.boundary_tags[:, :, -1, 2] = front_back    # front z face
 
 
 # -- Write the dict --------------------------------------------------------
 
 here = os.path.dirname(os.path.abspath(__file__))
-case_dir = here
-system_dir = os.path.join(case_dir, 'system')
 
 block_mesh_dict = BlockMeshDict(metric='m')
 struct.write(block_mesh_dict)
 
-# Faces exposed by masked lamp blocks pick up the default tag.
+# Faces exposed by masked lamp blocks pick up the default tag; the
+# Cylinder projections above curve them into arcs.
 block_mesh_dict.write_file(
-    case_dir,
+    here,
     run_blockMesh=False,
     default_boundary_tag=BoundaryTag('lampWall', type_='wall'),
 )
 
-print(f"Wrote {os.path.join(system_dir, 'blockMeshDict')}")
+print(f"Wrote {os.path.join(here, 'system', 'blockMeshDict')}")

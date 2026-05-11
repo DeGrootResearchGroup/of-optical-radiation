@@ -46,24 +46,19 @@ single cell in z. Lamps span the full water depth in the real reactor;
 in our plan-view mesh they appear as cylindrical obstructions extending
 through the depth.
 
-## What's a first cut
+## Mesh topology
 
-The mesh approximates each lamp as a **square** of side `2 × lamp_radius`
-masked out of a structured Cartesian grid. This is far simpler than a
-proper O-grid butterfly around each cylinder and is the main accuracy
-limitation of this case in its current form. Wakes off square corners
-are stronger and more isotropic than wakes off cylinders, which shifts
-the recirculation patterns immediately downstream of each lamp. The
-gross dose-distribution structure and log-inactivation vs
-approach-velocity trend should still come through, but absolute numbers
-should be expected to drift several tens of percent from the paper
-values.
-
-To upgrade: replace the `block_mask` lamp blocks in `make_mesh.py` with
-per-lamp `CylBlockStructContainer`s mated to the surrounding Cartesian
-background. This is mechanical with `blockMeshBuilder` but requires
-careful per-lamp neighbor-stitching when the staggered pattern means
-adjacent lamps in different rows touch each other's O-grids.
+Cartesian background grid (`CartBlockStruct`) with one block per lamp
+masked out, surrounded by four neighbouring fluid blocks. Each lamp is
+a `Cylinder` geometry whose axis is vertical (along z, since plan
+view), and the four corner vertices plus four lateral edges of the
+masked block are projected onto that cylinder via
+`Vertex.proj_geom` / `Edge.proj_geom`. blockMesh handles the actual
+`searchableCylinder` projection at mesh time, so the lamp boundary in
+the output is four 90 deg arcs joined at four diagonal vertices --
+faceted but visibly round. For smoother lamps, subdivide each lamp
+block into a 2x2 mask so the cylinder is approximated by 8 arcs
+instead of 4; that's a one-line change to `make_mesh.py`.
 
 ## Quick run
 
@@ -98,6 +93,6 @@ From Fig. 10 of the paper:
 |  8       | 3.5 – 4.5            | ≈ 4.0                          |
 
 The `validate` script passes if the series-event n=3 log reduction lands
-in [1.0, 3.5] at the 24 cm/s default — a generous window that absorbs
-the square-lamp mesh approximation. Tighten the window once the mesh
-has been upgraded to circular lamps.
+in [1.0, 3.5] at the 24 cm/s default. The window is wide on first
+shipment; tighten once the case has been run on real hardware and we
+know the actual repeatability of the dose statistics.

@@ -14,9 +14,10 @@ At V = 24 cm/s (the default in 0/U) the paper reports:
 The series-event-n=3 prediction is computed here directly from the
 dose distribution (the radiationDose function object only supports
 Chick-Watson n=1, so the higher-order kinetics live offline). The
-test condition is whether the n=3 number lands in [1.0, 3.5], which
-is generous enough to absorb the square-lamp mesh approximation in
-the first cut of make_mesh.py.
+test condition is whether the n=3 number lands in [1.0, 3.5], a
+generous window on first shipment that absorbs the 4-arc faceted-
+cylinder mesh approximation. Tighten once we know the actual
+repeatability of the dose statistics on this geometry.
 """
 
 import csv
@@ -122,7 +123,7 @@ def main():
     if escaped < 0.8 * total:
         failures.append(
             f"escape fraction = {escaped / total:.2f} (< 0.80; "
-            f"square-lamp wakes may be trapping particles)"
+            f"particles may be trapping in wake recirculations)"
         )
     if not (1.0 <= log_red_n3 <= 3.5):
         failures.append(
