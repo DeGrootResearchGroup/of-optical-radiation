@@ -32,20 +32,19 @@ import math
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import find_latest_time
+
 
 CASE = os.path.dirname(os.path.abspath(__file__))
 
 
 def find_csv(fo_name):
     base = os.path.join(CASE, "postProcessing", fo_name)
-    if not os.path.isdir(base):
+    latest = find_latest_time(base)
+    if latest is None:
         return None
-    times = sorted(
-        ((float(t), t) for t in os.listdir(base) if t.replace(".", "", 1).isdigit())
-    )
-    if not times:
-        return None
-    p = os.path.join(base, times[-1][1], "doseDistribution.csv")
+    p = os.path.join(latest, "doseDistribution.csv")
     return p if os.path.isfile(p) else None
 
 

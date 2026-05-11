@@ -13,9 +13,11 @@ serves as the cross-case match: cyclic-coupled vs single-region
 should agree to within roundoff.
 """
 import os
-import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIFFUSE = os.path.normpath(os.path.join(HERE, "..", "diffuseSlab2D"))
@@ -47,29 +49,12 @@ def ensure_cell_centres(case_dir):
     )
 
 
-def read_field(path):
-    with open(path) as f:
-        txt = f.read()
-    # Try non-uniform first.
-    m = re.search(
-        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
-        txt, re.S,
-    )
-    if m:
-        return list(map(float, m.group(2).split()))
-    # Fallback: uniform.
-    m = re.search(r"internalField\s+uniform\s+([-\d\.eE+]+)\s*;", txt)
-    if m:
-        sys.exit(f"{path} is uniform; cannot compare cell by cell")
-    sys.exit(f"could not parse {path}")
-
-
 def load_case(case_dir):
     ensure_cell_centres(case_dir)
-    G  = read_field(os.path.join(case_dir, "1", "G"))
-    Cx = read_field(os.path.join(case_dir, "1", "Ccx"))
-    Cy = read_field(os.path.join(case_dir, "1", "Ccy"))
-    Cz = read_field(os.path.join(case_dir, "1", "Ccz"))
+    G  = read_internal_scalar_field(os.path.join(case_dir, "1", "G"))
+    Cx = read_internal_scalar_field(os.path.join(case_dir, "1", "Ccx"))
+    Cy = read_internal_scalar_field(os.path.join(case_dir, "1", "Ccy"))
+    Cz = read_internal_scalar_field(os.path.join(case_dir, "1", "Ccz"))
     # Round to 9 decimal places: cells are at 0.01 m spacing so rounding
     # well below that maps coincident centres from the two cases to the
     # same dict key without false positives.

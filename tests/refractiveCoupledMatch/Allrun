@@ -1,10 +1,5 @@
 #!/bin/sh
-cd "${0%/*}" || exit 1
-
-. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
-
-# Clean prior state so runApplication does not skip on stale log.<app>.
-./Allclean > /dev/null 2>&1 || true
+. "$(dirname "$0")/../lib/AllrunPreamble.sh"
 
 # Mesh: single block, then create one cellZone (mediumB), then split
 # into two regions (the unzoned cells become the default region "mediumA").
