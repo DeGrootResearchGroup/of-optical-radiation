@@ -122,21 +122,37 @@ CONV_CELL_SIZES="0.005 0.0025" ./Allrun-convergence   # custom subset
 python3 plot_results.py           # adds 05_convergence_dose.png
 ```
 
-**Wall-function validity limits the useful refinement.** Standard
-k-eps wall functions (`kqRWallFunction`, `epsilonWallFunction`,
-`nutkWallFunction`) require 30 < y+ < 300 at the first off-wall
-cell. On this geometry that gives y+ = 33 at 5 mm, 16 at 2.5 mm,
-and 8 at 1.25 mm. The 5 mm and 2.5 mm results agree to within
-~1 % on log reduction (1.33 vs 1.34, n=1 Chick-Watson), so the
-dose statistics are already mesh-converged in the
-wall-function-valid regime. Refining to 1.25 mm puts the wall
-cell deep inside the buffer layer, the wall functions produce
-non-physical wall stress, and the flow field blows up to |U| ~
-1000 m/s in places (log reduction collapses to 0.15). To run
-properly at 1.25 mm and below, switch the wall treatment to
-`nutUSpaldingWallFunction` (all-y+ Spalding blend) or change the
-turbulence model to k-omega-SST (automatic wall treatment).
-2.5 mm is the recommended production mesh for this geometry.
+**Mesh convergence in the wall-function-valid regime.** The case
+ships with `nutUSpaldingWallFunction` on all walls (the same all-y+
+treatment the Sozzi tutorial uses), so the standard 30 < y+ < 300
+floor doesn't bite. At V = 24 cm/s:
+
+| cell (mm) | y+ at wall | mean D | log_red(n=1) | escape % |
+|-----------|------------|--------|--------------|----------|
+| 5         | 33         | 35.1   | **1.35**     | 100      |
+| 2.5       | 16         | 22.2   | **1.36**     | 100      |
+| 1.25      | 8          |  4.0   | 0.61         |  51      |
+
+5 mm and 2.5 mm agree on log reduction to better than 1 %, so the
+disinfection-relevant integral is mesh-converged in that regime.
+Mean dose still drops with refinement (coarser meshes over-trap
+particles in lamp wakes, inflating the long tail) but that's a
+moment metric, not the kinetics integral.
+
+At 1.25 mm the resolved wake structure is dramatically more
+complex (cells inside the recirculation bubbles instead of
+smearing over them) and trapping behaviour changes: 49 % of
+particles fail to escape within `maxTime = 60 s`. The mean dose
+on the escaping subset is reasonable, but the integrated
+inactivation drops because trapped particles can't contribute
+to outlet statistics. Possible mitigations (none applied here):
+extend `maxTime` to cover the full residence time of trapped
+particles; add a wake-bleed model (slow drift back to the
+mainstream that the 2-D plan-view collapses out of); or use a
+finer-mesh-aware turbulence model (SST k-omega, RSM) that
+handles the buffer layer differently than realizable k-eps.
+2.5 mm is the recommended production mesh until the fine-mesh
+trapping story is properly resolved.
 
 ## Parallel execution
 
