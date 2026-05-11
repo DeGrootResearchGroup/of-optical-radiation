@@ -79,9 +79,11 @@ Foam::optical::compositeExtinction::compositeExtinction
         Info<< "    composite child " << i << ": " << childNames[i] << endl;
 
         // Copy the child sub-dict so we can inject the composite-child flag
-        // (suppresses field registration / AUTO_WRITE in init()).
+        // (suppresses field registration / AUTO_WRITE in init()). The
+        // key name carries the library namespace and a double-underscore
+        // sentinel so a user dictionary entry can't collide with it.
         dictionary childDict(modelsDict.subDict(childNames[i]));
-        childDict.set("_compositeChild", true);
+        childDict.set("__opticalRadiation_compositeChild", true);
 
         models_.set(i, extinctionModel::New(childDict, mesh).ptr());
 

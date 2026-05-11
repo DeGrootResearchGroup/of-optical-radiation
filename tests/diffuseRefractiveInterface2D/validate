@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""
+Validation of the refractiveCoupled BC's diffuse-fraction code path.
+
+Setup
+-----
+Two regions (mediumA, mediumB), 2-D plane-parallel, mirror y-sides.
+Both transparent (kappa = sigma_s = 0) with matched refractive indices
+(n = 1.0 on each side). Far-left of mediumA: Lambertian emitter,
+emissivePower E = 1 W/m^2. Far-right of mediumB: black absorber.
+Interface between regions: refractiveCoupled with diffuseFraction = 1.
+
+Analytical
+----------
+At matched indices the unpolarised Fresnel R(theta) = 0 identically.
+The BC's diffuse branch then reduces to a pure Lambertizer of the
+incident radiance from the neighbour:
+
+    L_out(this_side) = (1/pi) * Sum_outgoing (cos*dOmega) * L_neighbour
+
+With the Lambertian emitter on far-A filling mediumA's rightward
+hemisphere with constant L_w = E/pi, the integral on side B comes out
+to L_out_B = L_w (i.e., the interface re-emits L_w into B). The
+absorber on far-B contributes 0 to mediumB's rightward hemisphere
+back at the interface, so the symmetric integral on side A also gives
+L_out_A = 0 -- which leaves mediumA looking like the single-region
+"emitter + absorber" transparent slab.
+
+End result in either region's bulk (away from the y-walls): one
+hemisphere sees L_w, the other sees 0, so
+
+    G = 2 pi * L_w = 2 E = 2 W/m^2
+
+uniform throughout. The test asserts this and also asserts that the
+two regions agree with each other (the BC must be symmetric).
+"""
+
+import re
+import sys
+
+TOL_BULK     = 0.03   # 3% on the mean
+TOL_UNIFORM  = 0.05   # 5% on min/max spread
+TOL_SYMMETRY = 0.01   # 1% on A vs B agreement
+
+
+def read_internal(path):
+    with open(path) as f:
+        txt = f.read()
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt, re.S,
+    )
+    if not m:
+        sys.exit(f"validate: could not parse {path}")
+    return list(map(float, m.group(2).split()))
+
+
+def cell_stats(values, label):
+    n = len(values)
+    s = sum(values)
+    mean = s/n
+    vmin = min(values)
+    vmax = max(values)
+    print(f"{label}: n = {n}, mean = {mean:.4f}, min = {vmin:.4f}, max = {vmax:.4f}")
+    return mean, vmin, vmax
+
+
+def main():
+    E = 1.0
+    G_expected = 2.0 * E
+
+    GA = read_internal("1/mediumA/G")
+    GB = read_internal("1/mediumB/G")
+
+    print(f"expected: G = 2 * E = {G_expected:.4f}  W/m^2 (uniform)")
+    print()
+
+    mA, minA, maxA = cell_stats(GA, "mediumA")
+    mB, minB, maxB = cell_stats(GB, "mediumB")
+    print()
+
+    errA      = abs(mA - G_expected)/G_expected
+    errB      = abs(mB - G_expected)/G_expected
+    uniformA  = (maxA - minA)/mA if mA > 0 else float("inf")
+    uniformB  = (maxB - minB)/mB if mB > 0 else float("inf")
+    sym       = abs(mA - mB)/max(mA, mB) if max(mA, mB) > 0 else float("inf")
+
+    print(f"  mediumA mean err vs analytical = {errA:.2%}  (tol {TOL_BULK:.0%})")
+    print(f"  mediumB mean err vs analytical = {errB:.2%}  (tol {TOL_BULK:.0%})")
+    print(f"  mediumA spread (max-min)/mean  = {uniformA:.2%}  (tol {TOL_UNIFORM:.0%})")
+    print(f"  mediumB spread (max-min)/mean  = {uniformB:.2%}  (tol {TOL_UNIFORM:.0%})")
+    print(f"  A vs B mean agreement          = {sym:.2%}  (tol {TOL_SYMMETRY:.0%})")
+
+    ok = (
+        errA <= TOL_BULK
+        and errB <= TOL_BULK
+        and uniformA <= TOL_UNIFORM
+        and uniformB <= TOL_UNIFORM
+        and sym <= TOL_SYMMETRY
+    )
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

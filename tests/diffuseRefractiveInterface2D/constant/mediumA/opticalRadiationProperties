@@ -1,0 +1,48 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant/mediumA";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation on;
+radiationModel   DOM;
+
+DOMCoeffs
+{
+    // Higher nPhi than the specular refractiveCoupledMatch test because
+    // the diffuse-fraction path does a discrete Lambertian hemisphere
+    // integral: a coarse ray set is a sparse sample of cos*dOmega -> pi
+    // and produces a corresponding error in L_out at the interface.
+    // 16 rays per slice gives 8 in each hemisphere -- a good Lambertian
+    // approximation while staying cheap.
+    nPhi          16;
+    nTheta        1;
+    convergence   1e-6;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     3;
+    nPixelTheta   1;
+}
+
+extinctionModel constant;
+constantCoeffs
+{
+    nBands           1;
+    absorption       true;
+    absorptionCoeff  (0);
+    scattering       false;
+    scatteringCoeff  (0);
+}
+
+// ************************************************************************* //

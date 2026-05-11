@@ -1,0 +1,71 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0/mediumA";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        // Lambertian emitter, emissivePower 1 W/m^2. The matching
+        // boundary radiance is L_w = E/pi.
+        type            diffuseEmitter;
+        nBands          1;
+        emissivePower   (1);
+        value           uniform 0;
+    }
+
+    sides
+    {
+        // Specular mirrors: extend the slab to effectively infinite
+        // y-extent and reduce the problem to a 1-D plane-parallel
+        // configuration where the analytical answer is uniform.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  1;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    mediumA_to_mediumB
+    {
+        // Matched refractive indices (n=1 on both sides) -> R = 0 for
+        // every angle. With diffuseFraction = 1 the BC reduces to a
+        // pure Lambertizer of the transmitted incident radiance from
+        // the neighbour. Combined with the absorber on far-B, the
+        // expected steady state is G = 2 W/m^2 uniform throughout
+        // (matches a single-region transparent slab between an E = 1
+        // emitter and a black absorber).
+        type            refractiveCoupled;
+        nBands          1;
+        nNbg            (1.0);
+        nOwn            (1.0);
+        diffuseFraction 1;
+        value           uniform 0;
+    }
+
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //
