@@ -103,6 +103,7 @@ SourceFiles
 #include "mixedFvPatchFields.H"
 #include "iesPhotometry.H"
 #include "autoPtr.H"
+#include "HashTable.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -152,6 +153,17 @@ class iesEmitterMixedFvPatchScalarField
         //  faces [W/m^2/sr]. Zero if this ray's direction is not
         //  emitted by the fixture.
         mutable scalar cachedL_;
+
+
+    // Cross-instance phi_table cache
+
+        //- phi_table is shared by all nAngle ray-BC instances on the
+        //  same (patch, band) pair -- it depends only on the patch
+        //  geometry, the IES file, and which band's ray grid is
+        //  enumerated. Computing it once per (patch, band) instead of
+        //  once per ray-BC saves O(nAngle) IES table interpolations
+        //  during BC construction. Key: "<patch_name>_b<iBand>".
+        static HashTable<scalar> phiTableCache_;
 
 
     // Private member functions

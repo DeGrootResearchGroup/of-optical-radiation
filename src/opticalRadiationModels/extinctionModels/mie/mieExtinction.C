@@ -68,7 +68,9 @@ Foam::optical::mieExtinction::mieExtinction
     QscaPerBand_(),
     QabsPerBand_(),
     sigmaScaPrefactorPerBand_(),
-    sigmaAbsPrefactorPerBand_()
+    sigmaAbsPrefactorPerBand_(),
+    sigmaAPerBandDimd_(),
+    sigmaSPerBandDimd_()
 {
     // init() sets the inherited nBands_ and resizes ALambda_ / SLambda_.
     init(readLabel(coeffsDict_.lookup("nBands")));
@@ -76,6 +78,8 @@ Foam::optical::mieExtinction::mieExtinction
     QabsPerBand_.setSize(nBands_, 0.0);
     sigmaScaPrefactorPerBand_.setSize(nBands_, 0.0);
     sigmaAbsPrefactorPerBand_.setSize(nBands_, 0.0);
+    sigmaAPerBandDimd_.setSize(nBands_);
+    sigmaSPerBandDimd_.setSize(nBands_);
 
     coeffsDict_.lookup("wavelengths") >> wavelengths_;
 
@@ -142,6 +146,29 @@ Foam::optical::mieExtinction::mieExtinction
         sigmaScaPrefactorPerBand_[b] = piR2*QscaPerBand_[b];
         sigmaAbsPrefactorPerBand_[b] = piR2*QabsPerBand_[b];
 
+        // Cache the area-dimensioned wrappers so correct() doesn't
+        // construct one per band per call.
+        sigmaAPerBandDimd_.set
+        (
+            b,
+            new dimensionedScalar
+            (
+                "sigmaA",
+                dimLength*dimLength,
+                sigmaAbsPrefactorPerBand_[b]
+            )
+        );
+        sigmaSPerBandDimd_.set
+        (
+            b,
+            new dimensionedScalar
+            (
+                "sigmaS",
+                dimLength*dimLength,
+                sigmaScaPrefactorPerBand_[b]
+            )
+        );
+
         Info<< "    mie band " << b
             << ": lambda = " << wavelengths_[b] << " nm, "
             << "x = " << x
@@ -191,21 +218,8 @@ void Foam::optical::mieExtinction::correct()
 
     forAll(ALambda_, iBand)
     {
-        const dimensionedScalar sigmaA
-        (
-            "sigmaA",
-            dimLength*dimLength,
-            sigmaAbsPrefactorPerBand_[iBand]
-        );
-        const dimensionedScalar sigmaS
-        (
-            "sigmaS",
-            dimLength*dimLength,
-            sigmaScaPrefactorPerBand_[iBand]
-        );
-
-        ALambda_[iBand] = sigmaA*N;
-        SLambda_[iBand] = sigmaS*N;
+        ALambda_[iBand] = sigmaAPerBandDimd_[iBand]*N;
+        SLambda_[iBand] = sigmaSPerBandDimd_[iBand]*N;
     }
 }
 

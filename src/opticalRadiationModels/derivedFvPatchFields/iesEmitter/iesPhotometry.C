@@ -26,6 +26,7 @@ License
 #include "iesPhotometry.H"
 #include "error.H"
 
+#include <algorithm>
 #include <fstream>
 #include <string>
 
@@ -315,7 +316,9 @@ Foam::scalar Foam::optical::iesPhotometry::interpolate
 
     // Vertical bracket. Clamp into the stored range -- IES tables are
     // not extrapolated beyond the published gamma range; the boundary
-    // values are the best available estimate.
+    // values are the best available estimate. The vertical angles are
+    // ascending (enforced at load), so std::lower_bound is O(log nV)
+    // vs the linear scan's O(nV); useful at high resolution.
     label iv;
     scalar fv;
     if (gammaDeg <= vertical_.first())
@@ -330,8 +333,12 @@ Foam::scalar Foam::optical::iesPhotometry::interpolate
     }
     else
     {
-        iv = 0;
-        while (iv < nV - 2 && vertical_[iv + 1] < gammaDeg) ++iv;
+        const scalar* first = vertical_.cdata();
+        const scalar* last  = first + nV;
+        const scalar* it    = std::lower_bound(first, last, gammaDeg);
+        // it points to the first vertical_[k] >= gammaDeg; we want
+        // the LOWER endpoint of the bracket (k-1).
+        iv = static_cast<label>(it - first) - 1;
         fv =
             (gammaDeg - vertical_[iv])
            /(vertical_[iv + 1] - vertical_[iv]);
@@ -375,8 +382,21 @@ Foam::scalar Foam::optical::iesPhotometry::interpolate
     // [horizontal_.first(), horizontal_.last()] for the
     // ROTATIONAL/QUADRANT/BILATERAL cases; the FULL seam-wrap case
     // above handles the hFolded > horizontal_.last() shortfall.
-    label ih = 0;
-    while (ih < nH - 2 && horizontal_[ih + 1] < hFolded) ++ih;
+    // Horizontal angles are ascending (enforced at load), so
+    // std::lower_bound is O(log nH).
+    label ih;
+    {
+        const scalar* first = horizontal_.cdata();
+        const scalar* last  = first + nH;
+        const scalar* it    = std::lower_bound(first, last, hFolded);
+        // Clamp into [0, nH - 2]: lower_bound can return `first`
+        // (hFolded <= horizontal_[0]) or `last` (hFolded > last);
+        // foldHorizontal_ rules the latter out except in the FULL
+        // seam case which we handle above, and the former gives
+        // ih = -1 which we round up to 0.
+        const label idx = static_cast<label>(it - first) - 1;
+        ih = idx < 0 ? 0 : (idx > nH - 2 ? nH - 2 : idx);
+    }
     const scalar fh =
         (hFolded - horizontal_[ih])
        /(horizontal_[ih + 1] - horizontal_[ih]);
