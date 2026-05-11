@@ -63,6 +63,16 @@ class discreteRandomWalk
         //- Eddy lifetime constant: tau_e = Cl * k / epsilon
         scalar Cl_;
 
+        //- Hard upper bound on the eddy lifetime [s]. In stagnant
+        //  zones (eps -> 0 with finite k) the raw `Cl k/eps` is
+        //  unbounded, locking the same fluctuation `u'` onto a
+        //  particle for the entire trajectory; capping at `tauEMax`
+        //  forces a resample on a sensible timescale. Default is a
+        //  generous 100 s: large enough to leave normal flow eddies
+        //  alone (a UV reactor's largest eddies are O(seconds)) but
+        //  finite enough to bound the stagnant degenerate case.
+        scalar tauEMax_;
+
 
 public:
 

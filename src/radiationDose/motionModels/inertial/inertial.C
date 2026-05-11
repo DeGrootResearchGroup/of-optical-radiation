@@ -61,6 +61,22 @@ Foam::dose::inertial::inertial
     brownianActive_(false),
     T_(293.15)
 {
+    // Catch dictionary mistakes at construction so they fatal here
+    // rather than producing a NaN or inf inside the per-particle
+    // advance() during the time loop. mP_ above already needs rhoP_
+    // and dP_ to be positive; tauStokes below needs muF_ > 0; etc.
+    if (rhoP_ <= 0 || dP_ <= 0 || rhoF_ <= 0 || muF_ <= 0)
+    {
+        FatalErrorInFunction
+            << "Inertial motion model requires strictly positive"
+            << " rhoP, dP, rhoF, muF; got"
+            << " rhoP=" << rhoP_
+            << " kg/m^3, dP=" << dP_
+            << " m, rhoF=" << rhoF_
+            << " kg/m^3, muF=" << muF_ << " Pa.s"
+            << exit(FatalError);
+    }
+
     if (dict.found("gravity"))
     {
         const dictionary& gDict = dict.subDict("gravity");
@@ -144,11 +160,15 @@ Foam::dose::inertial::advance
     // Mean velocity over the step (for displacement)
     const vector Vdisp = Veq + (V - Veq)*phi;
 
-    // Brownian kick on V; OU stationary distribution σ²_V = k_B T/m_p
+    // Brownian kick on V; OU stationary distribution σ²_V = k_B T/m_p.
+    // For tiny omega (dt << tau_p), 1 - exp(-2 omega) underflows to 0
+    // in double precision around omega ~ 1e-16; -expm1(-2 omega) keeps
+    // full relative precision down to omega ~ 1e-300, which matters
+    // for sub-microsecond steps on µm aerosols.
     vector Vnew = VdragNew;
     if (brownianActive_)
     {
-        const scalar varV = (kB*T_/mP_)*(1.0 - exp(-2.0*omega));
+        const scalar varV = (kB*T_/mP_)*(-expm1(-2.0*omega));
         const scalar sigV = sqrt(max(varV, scalar(0)));
         Vnew += sigV*xi;
     }

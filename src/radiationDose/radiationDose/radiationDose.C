@@ -86,16 +86,33 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
     escapePatchIDs_.clear();
     forAll(escapePatches, i)
     {
+        // Each rank looks the patch up locally. For mesh boundary
+        // patches (inlet/outlet/walls/etc.) the index is identical on
+        // every rank because OF mirrors the full boundary list on each
+        // decomposed rank (zero-face stubs where the patch isn't
+        // owned). A missing name on a rank therefore means a real
+        // typo, not a decomposition artefact -- but in parallel we
+        // reduce-then-fail so all ranks abort with the same message
+        // instead of just the first one to notice.
         const label patchi =
             mesh_.boundaryMesh().findIndex(escapePatches[i]);
-        if (patchi < 0)
+
+        label maxPatchi = patchi;
+        if (Pstream::parRun())
+        {
+            reduce(maxPatchi, maxOp<label>());
+        }
+        if (maxPatchi < 0)
         {
             FatalErrorInFunction
                 << "escapePatch " << escapePatches[i]
-                << " not found in mesh"
+                << " not found on any rank"
                 << exit(FatalError);
         }
-        escapePatchIDs_.insert(patchi);
+        if (patchi >= 0)
+        {
+            escapePatchIDs_.insert(patchi);
+        }
     }
     maxTime_ = termDict.lookupOrDefault<scalar>("maxTime", 0);
     maxDose_ = termDict.lookupOrDefault<scalar>("maxDose", 0);
@@ -117,6 +134,30 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
 
     const dictionary& outDict = dict.subDict("output");
     kInact_ = outDict.lookupOrDefault<scalarList>("kInact", scalarList());
+    forAll(kInact_, i)
+    {
+        const scalar k = kInact_[i];
+        if (k <= 0)
+        {
+            FatalErrorInFunction
+                << "kInact[" << i << "] = " << k
+                << " cm^2/mJ is not positive. Each entry must be > 0;"
+                << " the dose-response model exp(-k*D) requires it."
+                << exit(FatalError);
+        }
+        // Soft band on typical microbial UV inactivation rate constants
+        // (cm^2/mJ): ~5e-3 for spores up to ~1.5 for highly UV-sensitive
+        // bacteria. A value far outside this band almost certainly
+        // signals a unit mix-up (e.g. m^2/J = 10 cm^2/mJ).
+        if (k < 1e-3 || k > 100)
+        {
+            WarningInFunction
+                << "kInact[" << i << "] = " << k
+                << " cm^2/mJ is well outside the typical microbial"
+                << " range (~5e-3 to 1.5 cm^2/mJ). Check the units."
+                << endl;
+        }
+    }
     writeVtk_ = outDict.lookupOrDefault<Switch>("writeVtk", true);
 
     return true;
@@ -432,19 +473,28 @@ void Foam::functionObjects::radiationDose::writeSummary
 {
     DynamicList<scalar> doses;
     label totalSeeded = 0;
+    label nEscaped = 0, nTimedOut = 0, nStuck = 0, nTerm = 0, nActive = 0;
     forAll(g.origId, r)
     {
         totalSeeded += g.origId[r].size();
         forAll(g.origId[r], i)
         {
-            if
-            (
-                static_cast<dose::dosePathParticle::endReason>
-                    (g.endReason[r][i])
-             == dose::dosePathParticle::endReason::escaped
-            )
+            const auto er = static_cast<dose::dosePathParticle::endReason>
+                (g.endReason[r][i]);
+            switch (er)
             {
-                doses.append(g.dose[r][i]);
+                case dose::dosePathParticle::endReason::escaped:
+                    ++nEscaped;
+                    doses.append(g.dose[r][i]);
+                    break;
+                case dose::dosePathParticle::endReason::timedOut:
+                    ++nTimedOut; break;
+                case dose::dosePathParticle::endReason::stuck:
+                    ++nStuck;    break;
+                case dose::dosePathParticle::endReason::terminated:
+                    ++nTerm;     break;
+                case dose::dosePathParticle::endReason::active:
+                    ++nActive;   break;
             }
         }
     }
@@ -470,11 +520,19 @@ void Foam::functionObjects::radiationDose::writeSummary
     OFstream os(outDir/"summary.dat");
     os  << "# radiationDose summary" << nl
         << "totalSeeded     " << totalSeeded << nl
-        << "escaped         " << N << nl
+        << "escaped         " << nEscaped << nl
+        << "timedOut        " << nTimedOut << nl
+        << "stuck           " << nStuck << nl
+        << "terminated      " << nTerm << nl
+        << "stillActive     " << nActive << nl
         << "meanDose_mJcm2  " << mean << nl
         << "stdevDose_mJcm2 " << stdev << nl
         << "minDose_mJcm2   " << (N > 0 ? minD : 0) << nl
-        << "maxDose_mJcm2   " << maxD << nl;
+        << "maxDose_mJcm2   " << maxD << nl
+        << "# Dose statistics and logReduction lines use the escaped"
+        << " population only (N = " << N << ")." << nl
+        << "# Tracks that timed out, got stuck, or hit maxDose are not"
+        << " representative of reactor throughput and are excluded." << nl;
 
     forAll(kInact_, i)
     {
