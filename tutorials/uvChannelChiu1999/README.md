@@ -81,6 +81,20 @@ inlet vector to 0.08, 0.12, 0.18, 0.24 m/s in turn and re-run. The
 `validate` script reports the log reduction at the operating velocity
 in 0/U; comparing across runs gives you the Fig. 10 plot.
 
+For the demo figures (dose histogram, G contour, U streamlines, sample
+particle trajectories), convert the fields to VTK and run
+`plot_results.py`:
+
+```sh
+foamToVTK -time '<flow_time>,<dom_time>' -fields '(U G k epsilon)'
+pip install matplotlib numpy scipy vtk
+python3 plot_results.py        # writes postProcessing/figures/*.png
+```
+
+`<flow_time>` is the last `runApplication foamRun` time (default 2000)
+and `<dom_time>` is the latestTime after `opticalRadiationFoam`
+(default `<flow_time> + 1`).
+
 ## Validation targets
 
 From Fig. 10 of the paper:
