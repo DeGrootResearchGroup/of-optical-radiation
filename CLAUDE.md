@@ -275,7 +275,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Twenty regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Twenty-one regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Four pedagogical cases (`uvReactorSozzi2006`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -1087,7 +1087,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Twenty cases.
+  Twenty-one cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1143,6 +1143,23 @@ The case suite is split into two trees:
 - **`iesEmitterMatch`** — small slab with the `iesEmitter` BC fed a
   synthetic Lambertian-shape IES file. Test-grade replacement for the
   pedagogical `tutorials/iesEmitter2D`.
+- **`iesHframeOrientation`** — companion to `iesEmitterMatch` that
+  pins down the BC's h-frame sign convention against a non-axisymmetric
+  IES file. The Lambertian IES in `iesEmitterMatch` is rotationally
+  symmetric and would pass unchanged under a CCW↔CW swap of
+  `e2 = fixtureAxis × fixtureUp` in `iesEmitter::hDegFromDir_`. This
+  case uses a FULL-symmetric synthetic IES (last h=315° so no
+  folding) with `F(h) = 5 + 4·sin(h)` — peak at h=90, trough at h=270,
+  symmetric about the (h=0, h=180) axis. Probes in the four cardinal
+  directions of the BC's perpendicular plane (3-D box, fixtureAxis=+x,
+  fixtureUp=+z, so h=0↔+z, h=90↔−y, h=180↔−z, h=270↔+y). Validate
+  asserts the ranking `G_B > G_A = G_C > G_D` (B−y brightest from
+  F(90)=9; D+y dimmest from F(270)=1; A and C tied to floating point
+  by F-symmetry), and contrast `(G_B−G_D)/G_B > 50 %` to guard against
+  accidental symmetrisation. Observed: A=C=0.9358, B=1.3061, D=0.5043,
+  A−C tie at 0 % error, B−D contrast 61.4 %. A sign error in the BC's
+  atan2 or in the `e2` cross product would swap the B/D ranking; a
+  fold-by-symmetry regression would collapse the F asymmetry.
 - **`cyclicMatch`** — `diffuseSlab2D` geometry split into two blocks
   at x=0.5 with a `cyclic` patch pair (`transform none`) coupling
   the interface, matching face counts on both sides. The template
