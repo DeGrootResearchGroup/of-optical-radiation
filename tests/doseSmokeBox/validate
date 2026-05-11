@@ -23,34 +23,21 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import find_latest_time, parse_summary
+
 
 def find_latest(name):
+    """Path of `name` inside the latest postProcessing/radiationDose/<time>/ dir."""
     base = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "postProcessing", "radiationDose",
     )
-    if not os.path.isdir(base):
+    latest = find_latest_time(base)
+    if latest is None:
         return None
-    times = sorted(
-        ((float(t), t) for t in os.listdir(base) if t.replace(".", "", 1).isdigit()),
-    )
-    if not times:
-        return None
-    p = os.path.join(base, times[-1][1], name)
+    p = os.path.join(latest, name)
     return p if os.path.isfile(p) else None
-
-
-def parse_summary(path):
-    out = {}
-    with open(path) as f:
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) >= 2 and not parts[0].startswith("#"):
-                try:
-                    out[parts[0]] = float(parts[-1])
-                except ValueError:
-                    pass
-    return out
 
 
 def check_vtk(path):

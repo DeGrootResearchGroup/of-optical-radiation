@@ -5,3 +5,7 @@
 # Build files
 **/Make/linux*/
 **/lnInclude
+
+# Python bytecode cache from validate-script imports of tests/lib/.
+__pycache__/
+*.pyc

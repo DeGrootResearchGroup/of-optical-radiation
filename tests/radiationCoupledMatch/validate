@@ -29,23 +29,14 @@ radiationCoupled BC skips all of that work explicitly and gets the
 right answer.
 """
 
+import os
 import math
-import re
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
+
 TOLERANCE = 0.05  # 5%
-
-
-def read_internal(path):
-    with open(path) as f:
-        txt = f.read()
-    m = re.search(
-        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
-        txt, re.S,
-    )
-    if not m:
-        sys.exit(f"validate: could not parse {path}")
-    return list(map(float, m.group(2).split()))
 
 
 def main():
@@ -55,8 +46,8 @@ def main():
 
     G_expected = L0 * omega_0  # same on both sides at matched n
 
-    GA = read_internal("1/mediumA/G")
-    GB = read_internal("1/mediumB/G")
+    GA = read_internal_scalar_field("1/mediumA/G")
+    GB = read_internal_scalar_field("1/mediumB/G")
 
     nx = 50
     def cell(grid, x, y, x_offset=0.0):

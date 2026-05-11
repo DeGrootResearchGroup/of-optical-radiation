@@ -35,24 +35,15 @@ uniform throughout. The test asserts this and also asserts that the
 two regions agree with each other (the BC must be symmetric).
 """
 
-import re
+import os
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
 
 TOL_BULK     = 0.03   # 3% on the mean
 TOL_UNIFORM  = 0.05   # 5% on min/max spread
 TOL_SYMMETRY = 0.01   # 1% on A vs B agreement
-
-
-def read_internal(path):
-    with open(path) as f:
-        txt = f.read()
-    m = re.search(
-        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
-        txt, re.S,
-    )
-    if not m:
-        sys.exit(f"validate: could not parse {path}")
-    return list(map(float, m.group(2).split()))
 
 
 def cell_stats(values, label):
@@ -69,8 +60,8 @@ def main():
     E = 1.0
     G_expected = 2.0 * E
 
-    GA = read_internal("1/mediumA/G")
-    GB = read_internal("1/mediumB/G")
+    GA = read_internal_scalar_field("1/mediumA/G")
+    GB = read_internal_scalar_field("1/mediumB/G")
 
     print(f"expected: G = 2 * E = {G_expected:.4f}  W/m^2 (uniform)")
     print()

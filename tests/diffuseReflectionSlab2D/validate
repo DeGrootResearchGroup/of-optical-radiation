@@ -25,9 +25,12 @@ Exits 0 if mean(G) is within tolerance of the analytical value AND
 the field is uniform across cells, 1 otherwise.
 """
 
-import re
+import os
 import statistics
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
 
 E = 1.0           # emissivePower of the source patch (W/m^2)
 RHO = 0.5         # reflectionCoef of the top patch
@@ -36,25 +39,8 @@ TOL_MEAN = 0.05   # mean(G) must be within 5 % of analytical
 TOL_UNIFORMITY = 0.05  # max(|G - mean|) / mean must be below 5 %
 
 
-def read_G(path: str) -> list:
-    with open(path) as f:
-        txt = f.read()
-    m = re.search(
-        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
-        txt,
-        re.S,
-    )
-    if m:
-        return list(map(float, m.group(2).split()))
-    m = re.search(r"internalField\s+uniform\s+([-+0-9.eE]+)", txt)
-    if m:
-        # uniform internalField means a single value applies everywhere
-        return [float(m.group(1))]
-    sys.exit(f"validate: could not parse {path}")
-
-
 def main() -> int:
-    G = read_G("1/G")
+    G = read_internal_scalar_field("1/G")
     if not G:
         sys.exit("validate: empty G field")
 

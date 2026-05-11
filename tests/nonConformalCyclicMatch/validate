@@ -11,9 +11,11 @@ discretisation. Tolerance is set looser than the conformal cyclicMatch
 case to absorb genuine AMI interpolation error at x=0.5.
 """
 import os
-import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIFFUSE = os.path.normpath(os.path.join(HERE, "..", "diffuseSlab2D"))
@@ -41,23 +43,11 @@ def ensure_cell_centres(case_dir):
     )
 
 
-def read_field(path):
-    with open(path) as f:
-        txt = f.read()
-    m = re.search(
-        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
-        txt, re.S,
-    )
-    if not m:
-        sys.exit(f"could not parse {path}")
-    return list(map(float, m.group(2).split()))
-
-
 def y_average_G_by_x(case_dir):
     """Return {x_rounded: mean(G over all cells at this x)}."""
     ensure_cell_centres(case_dir)
-    G  = read_field(os.path.join(case_dir, "1", "G"))
-    Cx = read_field(os.path.join(case_dir, "1", "Ccx"))
+    G  = read_internal_scalar_field(os.path.join(case_dir, "1", "G"))
+    Cx = read_internal_scalar_field(os.path.join(case_dir, "1", "Ccx"))
     if len(G) != len(Cx):
         sys.exit(f"size mismatch in {case_dir}: G={len(G)} Cx={len(Cx)}")
     sums = {}
