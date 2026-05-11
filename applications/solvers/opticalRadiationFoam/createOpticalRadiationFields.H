@@ -1,6 +1,6 @@
     // Initialise scalar fields
 
-    volScalarField I_cal
+    volScalarField I
     (
         IOobject
         (
@@ -17,5 +17,5 @@
     
     autoPtr<optical::radiationModel> radiationModel
     (
-        optical::radiationModel::New(I_cal)
+        optical::radiationModel::New(I)
     );

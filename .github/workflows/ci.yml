@@ -4,6 +4,13 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel an in-flight run when a new commit is pushed to the same PR
+# (or branch). Each PR has its own concurrency group so unrelated PRs
+# don't block one another.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # If a PR touches the Dockerfile, build the image fresh on that
   # PR's commit and use it for testing. Otherwise the image is the

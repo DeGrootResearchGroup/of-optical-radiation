@@ -30,18 +30,49 @@ Checks:
   3. Stdev of escape dose is at floating-point-noise level (<1e-3).
 """
 
+import math
 import os
+import subprocess
 import sys
 
 
-# Physical constants matching the controlDict
-RHO_P = 2000.0
-D_P = 1.0e-4
-RHO_F = 1000.0
-MU_F = 1.0e-3
-G_MAG = 9.81
-G_FLUENCE = 1.0  # W/m^2
-L_FALL = 1.0     # m
+# Particle physics parameters are read from the case dict so this
+# script tracks edits to the motion sub-block; without this, changing
+# (say) rhoP in controlDict would leave the validate silently checking
+# against the old analytical answer. L_FALL and G_FLUENCE are case
+# invariants -- changing them implies a different reference geometry
+# and a new analytical derivation anyway -- so they stay as constants.
+CASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONTROL_DICT = os.path.join(CASE_DIR, "system", "controlDict")
+MOTION = "functions/radiationDose/motion"
+
+
+def fd_scalar(entry):
+    out = subprocess.check_output(
+        ["foamDictionary", "-entry", entry, "-value", CONTROL_DICT],
+        text=True,
+    ).strip()
+    return float(out)
+
+
+def fd_vector(entry):
+    out = subprocess.check_output(
+        ["foamDictionary", "-entry", entry, "-value", CONTROL_DICT],
+        text=True,
+    ).strip()
+    # foamDictionary prints vectors as "( x y z )"
+    return [float(v) for v in out.strip("() ").split()]
+
+
+RHO_P = fd_scalar(f"{MOTION}/rhoP")
+D_P = fd_scalar(f"{MOTION}/dP")
+RHO_F = fd_scalar(f"{MOTION}/rhoF")
+MU_F = fd_scalar(f"{MOTION}/muF")
+G_VEC = fd_vector(f"{MOTION}/gravity/value")
+G_MAG = math.sqrt(sum(c*c for c in G_VEC))
+
+G_FLUENCE = 1.0  # W/m^2; case invariant (uniform G in 0.orig/G)
+L_FALL = 1.0     # m;     case invariant (z extent in blockMeshDict)
 
 TAU_P = RHO_P * D_P * D_P / (18.0 * MU_F)
 A_G = (1.0 - RHO_F / RHO_P) * G_MAG
