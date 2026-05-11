@@ -99,8 +99,18 @@ jobs:
               -w /code \
               photobio-ci:current \
               bash -c '
-                  set -e
+                  # Source bashrc BEFORE turning on set -e. OpenFOAMs
+                  # etc/bashrc has an if/else block whose else branch
+                  # ends in "unalias wmRefresh 2> /dev/null". When
+                  # wmRefresh is not an alias (the typical fresh-shell
+                  # case), unalias returns non-zero, and bash returns
+                  # that through the if statement. Under set -e that
+                  # is fatal and the shell aborts immediately, before
+                  # Allwmake even starts, with no error output. After
+                  # the source completes, our own commands run with
+                  # the usual fail-fast guarantee.
                   source /opt/openfoam13/etc/bashrc
+                  set -e
                   ./Allwmake
                   cd tests && ./Alltest
               '
