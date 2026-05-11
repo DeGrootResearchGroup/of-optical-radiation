@@ -1,0 +1,92 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvReactorSozzi2006: radiation intensity for DOM |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// I is a per-ray fluence-rate field [W/m^2] (radiance integrated over
+// the ray's solid-angle bin). DOM allocates one of these per ray
+// (2*nPhi*nTheta*nBand = 64 here) using this entry as a template.
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    inlet
+    {
+        // Black absorber at the inlet pipe end. Negligible UV escape
+        // through this small opening, and no external UV enters.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    outlet
+    {
+        // Same as inlet: black exit at the outlet pipe end.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    bodyWall
+    {
+        // Reactor housing. Sozzi & Taghipour 2006 treat the body as
+        // absorbing (no specular or diffuse reflection); real polished
+        // stainless steel UV reflectance at 254 nm is ~5-25 % but the
+        // analytical formula assumes 0, so we match that.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    lampWall
+    {
+        // Lambertian emitter. emissivePower is the radiant exitance M
+        // [W/m^2] on the patch surface; the BC sets outgoing radiance to
+        // L = M / pi. Target: same total per-unit-length emission as the
+        // setFluenceRate analytical formula, which assumes a uniform
+        // line source of total power P over arc length L_arc.
+        //
+        //   M = P / (pi * D * L_arc)
+        //     = 35 W / (pi * 0.02 m * 0.80 m)
+        //     = 696.42 W/m^2
+        //
+        // The lampWall patch in the mesh wraps the cylinder PLUS the
+        // hemispherical free tip and the base disc, so the total
+        // emitted flux ends up ~2 % above 35 W. This is within DOM's
+        // angular discretisation tolerance and below the noise floor of
+        // the Sozzi paper's reported numbers; the analytical comparison
+        // shows agreement in the bulk and divergence near end caps
+        // (where the analytical formula is itself wrong, since it
+        // assumes an infinite line source).
+        type            diffuseEmitter;
+        nBands          1;
+        emissivePower   (696.42);
+        value           uniform 0;
+    }
+}
+
+// ************************************************************************* //

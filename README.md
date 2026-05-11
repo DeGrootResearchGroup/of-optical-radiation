@@ -187,6 +187,19 @@ cd tutorials/uvReactorSozzi2006
 ./validate              # check mean dose + log reduction against the paper
 ```
 
+The same case can also be driven by the DOM radiation solver instead
+of the analytical formula, swapping `setFluenceRate` for a real
+discrete-ordinates solve of the RTE on the converged flow:
+
+```sh
+./Allrun-DOM            # mesh + flow solve + opticalRadiationFoam + radiationDose
+./validate              # same paper targets; result should land in the same window
+```
+
+Output goes to the same `postProcessing/radiationDose/` directory, so
+the two paths overwrite each other -- choose one per run, or copy the
+results aside.
+
 ### Run every tutorial
 
 ```sh

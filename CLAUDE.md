@@ -1230,7 +1230,22 @@ radiationDose:
   within a few percent. Runtime: ~43 min for foamRun on a
   workstation, ~90 s for the radiationDose post-process. Marked
   `LONG_RUNNING`; not run by `tutorials/Allrun` unless
-  `RUN_LONG_TUTORIALS=1` is set.
+  `RUN_LONG_TUTORIALS=1` is set. Two drivers ship in the case:
+  `Allrun` solves flow then sets `G` via `setFluenceRate` (the
+  analytical infinite-line formula), and `Allrun-DOM` solves flow
+  then runs `opticalRadiationFoam` (single-band DOM, 64 rays,
+  `constantExtinction` `kappa = 35.67 1/m` matching the analytical
+  `sigmaW`, `diffuseEmitter` on `lampWall` with
+  `emissivePower = P/(pi D L_arc) = 696.42 W/m^2`). The DOM driver
+  uses `system/controlDict.DOM` for the radiation step (Allrun-DOM
+  swaps it in over `system/controlDict` and restores on exit via a
+  shell trap); seeds `0/I` into the latest flow time so
+  `startFrom latestTime` finds it; runs `opticalRadiationFoam` for
+  one outer step with `stopAt nextWrite`; then carries the flow
+  fields forward into the DOM time directory so `radiationDose`
+  sees `U` and `G` in the same time. Same `validate` script grades
+  both paths against the Sozzi paper targets; `postProcessing/`
+  is overwritten between runs.
 - **`refractiveInterface2D`** — full pedagogical version of the
   multi-region refractive-coupling case. `foamMultiRun` with the
   `opticalRadiation` solver module per region; mapped patches and
