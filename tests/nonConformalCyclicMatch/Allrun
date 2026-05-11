@@ -1,0 +1,19 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# Clean prior state so runApplication does not skip on stale log.<app>.
+./Allclean > /dev/null 2>&1 || true
+
+# Restore stock initial fields BEFORE createNonConformalCouples so the
+# utility can read AMI_L / AMI_R as ordinary patches and rewrite their
+# field BCs to nonConformalCyclic in place.
+rm -rf 0
+cp -r 0.orig 0
+
+runApplication blockMesh
+runApplication createNonConformalCouples -fields AMI_L AMI_R
+runApplication opticalRadiationFoam
+
+# ----------------------------------------------------------------------------

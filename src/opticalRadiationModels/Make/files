@@ -34,6 +34,7 @@ derivedFvPatchFields/iesEmitter/iesPhotometry.C
 derivedFvPatchFields/iesEmitter/iesEmitterMixedFvPatchScalarField.C
 derivedFvPatchFields/reflective/reflectiveMixedFvPatchScalarField.C
 derivedFvPatchFields/refractiveCoupled/refractiveCoupledMixedFvPatchScalarField.C
+derivedFvPatchFields/radiationCoupled/radiationCoupledMixedFvPatchScalarField.C
 
 fvModels/opticalRadiation/opticalRadiation.C
 

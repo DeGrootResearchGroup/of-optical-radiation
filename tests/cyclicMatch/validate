@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Position-based G comparison against diffuseSlab2D.
+
+Both cases solve identical physics on geometrically identical cells,
+but cyclicMatch's two-block blockMeshDict enumerates the left and
+right halves separately, so cell *index* differs even though cell
+*position* is the same. We invoke foamPostProcess to write cell
+centres on each case, then key G by (Cx, Cy, Cz) and compare.
+
+Run after diffuseSlab2D/Allrun and cyclicMatch/Allrun have completed.
+This is the case's own validate (called from tests/Alltest) and also
+serves as the cross-case match: cyclic-coupled vs single-region
+should agree to within roundoff.
+"""
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DIFFUSE = os.path.normpath(os.path.join(HERE, "..", "diffuseSlab2D"))
+CYCLIC = HERE
+
+# Tolerance: max |dG| / max |G|. With DOM convergence at 1e-6 (set in
+# constant/opticalRadiationProperties for both cases), the cyclic
+# patch's ULP-level assembly-order differences propagate downstream
+# of the interface and peak around 1e-5 absolute / ~30 max-G near
+# the absorbing back wall -- i.e. ~6e-7 relative on this geometry.
+# 1e-5 relative gives ~16x margin: tight enough to catch any
+# structural regression in cyclic-patch coupling (which would show
+# >> 1 %), loose enough to absorb FP roundoff across architectures.
+TOL = 1e-5
+
+
+def ensure_cell_centres(case_dir):
+    """Invoke foamPostProcess to write Ccx, Ccy, Ccz at time 1 if missing."""
+    if all(os.path.exists(os.path.join(case_dir, "1", f)) for f in ("Ccx", "Ccy", "Ccz")):
+        return
+    subprocess.run(
+        [
+            "foamPostProcess",
+            "-case", case_dir,
+            "-func", "writeCellCentres",
+            "-time", "1",
+        ],
+        check=True,
+    )
+
+
+def read_field(path):
+    with open(path) as f:
+        txt = f.read()
+    # Try non-uniform first.
+    m = re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
+        txt, re.S,
+    )
+    if m:
+        return list(map(float, m.group(2).split()))
+    # Fallback: uniform.
+    m = re.search(r"internalField\s+uniform\s+([-\d\.eE+]+)\s*;", txt)
+    if m:
+        sys.exit(f"{path} is uniform; cannot compare cell by cell")
+    sys.exit(f"could not parse {path}")
+
+
+def load_case(case_dir):
+    ensure_cell_centres(case_dir)
+    G  = read_field(os.path.join(case_dir, "1", "G"))
+    Cx = read_field(os.path.join(case_dir, "1", "Ccx"))
+    Cy = read_field(os.path.join(case_dir, "1", "Ccy"))
+    Cz = read_field(os.path.join(case_dir, "1", "Ccz"))
+    # Round to 9 decimal places: cells are at 0.01 m spacing so rounding
+    # well below that maps coincident centres from the two cases to the
+    # same dict key without false positives.
+    return {
+        (round(x, 9), round(y, 9), round(z, 9)): g
+        for x, y, z, g in zip(Cx, Cy, Cz, G)
+    }
+
+
+def main():
+    a = load_case(DIFFUSE)
+    b = load_case(CYCLIC)
+    if len(a) != len(b):
+        sys.exit(f"size mismatch: diffuseSlab2D {len(a)} cells, cyclicMatch {len(b)} cells")
+
+    max_abs = 0.0
+    scale = 0.0
+    missing = 0
+    for pos, ga in a.items():
+        gb = b.get(pos)
+        if gb is None:
+            missing += 1
+            continue
+        max_abs = max(max_abs, abs(ga - gb))
+        scale = max(scale, abs(ga))
+    if missing:
+        sys.exit(f"{missing} positions present in diffuseSlab2D but not cyclicMatch")
+    max_rel = max_abs / max(scale, 1e-12)
+    print(f"compared {len(a)} cells: max |dG| = {max_abs:.3e}, max rel = {max_rel:.3e}, tol = {TOL:.0e}")
+    if max_rel <= TOL:
+        print("PASS")
+        return 0
+    else:
+        print("FAIL")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

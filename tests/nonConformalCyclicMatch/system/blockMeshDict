@@ -1,0 +1,113 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// diffuseSlab2D geometry (1 m x 0.1 m x 0.01 m) split into two blocks
+// at x = 0.5. The two blocks have DIFFERENT y discretisations (10 vs
+// 13 cells) so the interface is genuinely non-conformal -- one-to-one
+// face matching is impossible and the AMI weights are non-trivial.
+// `createNonConformalCouples -fields AMI_L AMI_R` (called from Allrun
+// after blockMesh) fuses the two patches into a nonConformalCyclic
+// coupled pair and rewrites the I template's interface BCs.
+//
+// With specular y mirrors at y = 0 and y = 0.1, the converged DOM
+// problem is effectively 1-D in x, so the validate script compares
+// y-averaged G(x) profiles -- robust to y-discretisation differences
+// and isolates the AMI-interpolation error at x = 0.5.
+
+convertToMeters 1;
+
+vertices
+(
+    // Block 1 (left, x in [0, 0.5]), 10 cells in y
+    (0    0   0)        // 0
+    (0.5  0   0)        // 1
+    (0.5  0.1 0)        // 2
+    (0    0.1 0)        // 3
+    (0    0   0.01)     // 4
+    (0.5  0   0.01)     // 5
+    (0.5  0.1 0.01)     // 6
+    (0    0.1 0.01)     // 7
+    // Block 2 (right, x in [0.5, 1]), 13 cells in y -- DELIBERATELY
+    // mismatched so the AMI_L/AMI_R interface is non-conformal.
+    (0.5  0   0)        // 8
+    (1    0   0)        // 9
+    (1    0.1 0)        // 10
+    (0.5  0.1 0)        // 11
+    (0.5  0   0.01)     // 12
+    (1    0   0.01)     // 13
+    (1    0.1 0.01)     // 14
+    (0.5  0.1 0.01)     // 15
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7)       (50 10 1) simpleGrading (1 1 1)
+    hex (8 9 10 11 12 13 14 15) (50 13 1) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+    radSource
+    {
+        type patch;
+        faces ((0 4 7 3));
+    }
+    radOut
+    {
+        type patch;
+        faces ((9 10 14 13));
+    }
+    sides
+    {
+        type patch;
+        faces
+        (
+            (0 1 5 4)
+            (2 3 7 6)
+            (8 9 13 12)
+            (10 11 15 14)
+        );
+    }
+    frontAndBack
+    {
+        type empty;
+        faces
+        (
+            (0 3 2 1)
+            (4 5 6 7)
+            (8 11 10 9)
+            (12 13 14 15)
+        );
+    }
+    AMI_L
+    {
+        type patch;
+        faces ((1 2 6 5));
+    }
+    AMI_R
+    {
+        type patch;
+        faces ((8 12 15 11));
+    }
+);
+
+mergePatchPairs ();
+
+// ************************************************************************* //

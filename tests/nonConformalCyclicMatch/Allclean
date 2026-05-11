@@ -1,0 +1,13 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+. "$WM_PROJECT_DIR/bin/tools/CleanFunctions"
+
+cleanCase
+rm -rf 0
+
+# createNonConformalCouples writes topology changes into constant/fvMesh;
+# cleanCase doesn't know about this directory, so clear it explicitly.
+rm -rf constant/fvMesh
+
+# ----------------------------------------------------------------------------
