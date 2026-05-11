@@ -20,7 +20,7 @@ Foam::dose::seedingModel::New
 {
     const word modelType(dict.lookup("type"));
 
-    Info<< "Selecting seeding model " << modelType << endl;
+    Info<< "radiationDose: selecting seeding model " << modelType << endl;
 
     dictionaryConstructorTable::iterator cstrIter =
         dictionaryConstructorTablePtr_->find(modelType);

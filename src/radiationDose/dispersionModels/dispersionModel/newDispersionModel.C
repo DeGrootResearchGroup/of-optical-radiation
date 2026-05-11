@@ -20,7 +20,7 @@ Foam::dose::dispersionModel::New
 {
     const word modelType(dict.lookup("type"));
 
-    Info<< "Selecting dispersion model " << modelType << endl;
+    Info<< "radiationDose: selecting dispersion model " << modelType << endl;
 
     dictionaryConstructorTable::iterator cstrIter =
         dictionaryConstructorTablePtr_->find(modelType);

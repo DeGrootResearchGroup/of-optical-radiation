@@ -16,7 +16,7 @@ Foam::dose::dragModel::New(const dictionary& dict)
 {
     const word modelType(dict.lookup("type"));
 
-    Info<< "Selecting drag model " << modelType << endl;
+    Info<< "radiationDose: selecting drag model " << modelType << endl;
 
     dictionaryConstructorTable::iterator cstrIter =
         dictionaryConstructorTablePtr_->find(modelType);

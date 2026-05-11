@@ -144,6 +144,17 @@ public:
 
     // Member Functions
 
+        //- Static requiredFields. Inertial motion's parameters
+        //  (rhoP, dP, gravity, drag model, ...) are scalars/sub-
+        //  dicts, not registered fields. Registered in the dispatch
+        //  table at static-init time so radiationDose's fields()
+        //  doesn't need to construct a throwaway inertial+drag stack
+        //  just to learn that the answer is "none".
+        static wordList requiredFields(const dictionary&)
+        {
+            return wordList();
+        }
+
         virtual bool needsBrownianSample() const
         {
             return brownianActive_;

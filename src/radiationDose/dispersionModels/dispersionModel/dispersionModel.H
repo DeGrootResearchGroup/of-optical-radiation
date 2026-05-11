@@ -25,12 +25,15 @@ Description
 #ifndef dose_dispersionModel_H
 #define dose_dispersionModel_H
 
+#include "HashTable.H"
 #include "autoPtr.H"
 #include "dictionary.H"
 #include "fvMesh.H"
+#include "perTrackState.H"
 #include "randomGenerator.H"
 #include "runTimeSelectionTables.H"
 #include "vector.H"
+#include "wordList.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -62,15 +65,13 @@ public:
     // Public Classes
 
         //- Per-track state slot. Each concrete model defines its own
-        //  derived State (e.g. discreteRandomWalk::DRWState carries the
-        //  current eddy fluctuation and remaining lifetime). Models with
-        //  no per-track state use this base class directly; the track
-        //  carries one State pointer.
-        class State
-        {
-        public:
-            virtual ~State() = default;
-        };
+        //  derived state (deriving from dose::perTrackState, e.g.
+        //  discreteRandomWalk::DRWState carries the current eddy
+        //  fluctuation and remaining lifetime). Models with no per-
+        //  track state use this base directly. Aliased rather than
+        //  redeclared so motionModel::State and dispersionModel::State
+        //  name the same polymorphic base.
+        using State = perTrackState;
 
 
     //- Runtime type information
@@ -108,10 +109,35 @@ public:
     virtual ~dispersionModel();
 
 
+    // Static dispatch parallel to New() -- inspecting the model's
+    // field requirements without instantiating it. The instance form
+    // of requiredFields() below is still available for callers that
+    // already have a model; the static form is the cheaper path for
+    // a function-object that only needs to know which fields to
+    // request from the host before building anything.
+
+        //- Signature of a per-type requiredFields(dict) helper.
+        using requiredFieldsFn = wordList(*)(const dictionary&);
+
+        //- Look up the concrete type from `dict["type"]` and call
+        //  its registered static requiredFields(dict). Fatal if no
+        //  type was registered for that name.
+        static wordList requiredFields(const dictionary& dict);
+
+        //- Registration RAII. Each concrete model's .C creates one
+        //  static instance to plumb itself into requiredFieldsTable_.
+        struct addRequiredFields
+        {
+            addRequiredFields(const word& type, requiredFieldsFn fn);
+        };
+
+
     // Member Functions
 
         //- Names of fields the model needs loaded into the registry
-        //  (e.g. k, epsilon for DRW). Default: none.
+        //  (e.g. k, epsilon for DRW). Default: none. Concrete models
+        //  override; the override usually delegates to the model's
+        //  static requiredFields(dict_).
         virtual wordList requiredFields() const
         {
             return wordList();

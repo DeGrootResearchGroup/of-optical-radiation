@@ -98,6 +98,19 @@ public:
 
     // Member Functions
 
+        //- Static requiredFields. Reads the dict's optional k /
+        //  epsilon entries (defaulting to "k" / "epsilon") and returns
+        //  the names DRW will look up in the registry. Registered in
+        //  the base class's dispatch table at static-init time.
+        static wordList requiredFields(const dictionary& dict)
+        {
+            return wordList
+            ({
+                dict.lookupOrDefault<word>("k", "k"),
+                dict.lookupOrDefault<word>("epsilon", "epsilon")
+            });
+        }
+
         virtual wordList requiredFields() const
         {
             return wordList({kName_, epsilonName_});

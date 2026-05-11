@@ -58,6 +58,14 @@ public:
 
     // Member Functions
 
+        //- Static requiredFields. The tracer needs no extra fields
+        //  (it consumes U + dispersion fluctuation passed in by the
+        //  caller). Registered in the dispatch table.
+        static wordList requiredFields(const dictionary&)
+        {
+            return wordList();
+        }
+
         virtual stepResult advance
         (
             State& /*state*/,

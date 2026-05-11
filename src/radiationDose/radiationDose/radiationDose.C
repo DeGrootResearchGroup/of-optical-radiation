@@ -128,17 +128,19 @@ Foam::wordList Foam::functionObjects::radiationDose::fields() const
     DynamicList<word> f;
     f.append(UName_);
     f.append(GName_);
-    // Probe the dispersion and motion models for any extra fields they
-    // need (e.g. k, epsilon for DRW). Done with throw-away instances —
-    // the models themselves are rebuilt fresh in execute().
-    autoPtr<dose::dispersionModel> dispProbe =
-        dose::dispersionModel::New(dispersionDict_, mesh_);
-    const wordList dispExtra = dispProbe->requiredFields();
+
+    // Static dispatch: each concrete dispersion / motion model
+    // registers a wordList(*)(const dictionary&) at static-init time,
+    // and the base class's requiredFields(dict) looks it up by type
+    // name. No throwaway model is constructed -- in particular, the
+    // inertial motion model doesn't need to build its drag-model
+    // sub-tree just to tell us it needs no extra fields.
+    const wordList dispExtra =
+        dose::dispersionModel::requiredFields(dispersionDict_);
     forAll(dispExtra, i) { f.append(dispExtra[i]); }
 
-    autoPtr<dose::motionModel> motProbe =
-        dose::motionModel::New(motionDict_, mesh_);
-    const wordList motExtra = motProbe->requiredFields();
+    const wordList motExtra =
+        dose::motionModel::requiredFields(motionDict_);
     forAll(motExtra, i) { f.append(motExtra[i]); }
 
     return wordList(f);
