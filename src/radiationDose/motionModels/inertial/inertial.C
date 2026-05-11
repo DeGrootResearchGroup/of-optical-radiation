@@ -18,6 +18,15 @@ namespace dose
 {
     defineTypeNameAndDebug(inertial, 0);
     addToRunTimeSelectionTable(motionModel, inertial, dictionary);
+
+    namespace
+    {
+        const motionModel::addRequiredFields _inertialReqFields
+        (
+            "inertial",
+            &inertial::requiredFields
+        );
+    }
 }
 }
 

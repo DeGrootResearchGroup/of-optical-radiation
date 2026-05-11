@@ -19,6 +19,18 @@ namespace dose
 {
     defineTypeNameAndDebug(discreteRandomWalk, 0);
     addToRunTimeSelectionTable(dispersionModel, discreteRandomWalk, dictionary);
+
+    // Register the static requiredFields helper so the base class's
+    // dispatcher (dispersionModel::requiredFields(dict)) can find it
+    // without instantiating a throwaway DRW model.
+    namespace
+    {
+        const dispersionModel::addRequiredFields _drwReqFields
+        (
+            "discreteRandomWalk",
+            &discreteRandomWalk::requiredFields
+        );
+    }
 }
 }
 

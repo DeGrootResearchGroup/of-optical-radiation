@@ -39,9 +39,11 @@ Description
 #ifndef dose_motionModel_H
 #define dose_motionModel_H
 
+#include "HashTable.H"
 #include "autoPtr.H"
 #include "dictionary.H"
 #include "fvMesh.H"
+#include "perTrackState.H"
 #include "randomGenerator.H"
 #include "runTimeSelectionTables.H"
 #include "vector.H"
@@ -72,13 +74,11 @@ public:
     // Public Classes
 
         //- Per-track state slot. Concrete models override with their
-        //  own derived State; models with no per-track memory use the
-        //  base directly.
-        class State
-        {
-        public:
-            virtual ~State() = default;
-        };
+        //  own derived state (deriving from dose::perTrackState);
+        //  models with no per-track memory use this base directly.
+        //  Aliased rather than redeclared so motionModel::State and
+        //  dispersionModel::State name the same polymorphic base.
+        using State = perTrackState;
 
         //- Result of one outer-step velocity update.
         struct stepResult
@@ -123,10 +123,32 @@ public:
     virtual ~motionModel();
 
 
+    // Static dispatch parallel to New() -- see dispersionModel.H for
+    // the rationale (avoids instantiating a throwaway model just to
+    // query its field requirements).
+
+        //- Signature of a per-type requiredFields(dict) helper.
+        using requiredFieldsFn = wordList(*)(const dictionary&);
+
+        //- Look up the concrete type from `dict["type"]` and call
+        //  its registered static requiredFields(dict). Fatal if no
+        //  type was registered for that name.
+        static wordList requiredFields(const dictionary& dict);
+
+        //- Registration RAII. Each concrete model's .C creates one
+        //  static instance to plumb itself into the dispatch table.
+        struct addRequiredFields
+        {
+            addRequiredFields(const word& type, requiredFieldsFn fn);
+        };
+
+
     // Member Functions
 
         //- Names of fields the model needs loaded into the registry.
-        //  Default: none.
+        //  Default: none. Concrete models override; the override
+        //  usually delegates to the model's static
+        //  requiredFields(dict_).
         virtual wordList requiredFields() const
         {
             return wordList();

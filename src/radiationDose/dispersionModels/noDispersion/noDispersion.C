@@ -17,6 +17,15 @@ namespace dose
 {
     defineTypeNameAndDebug(noDispersion, 0);
     addToRunTimeSelectionTable(dispersionModel, noDispersion, dictionary);
+
+    namespace
+    {
+        const dispersionModel::addRequiredFields _noneReqFields
+        (
+            "none",
+            &noDispersion::requiredFields
+        );
+    }
 }
 }
 

@@ -20,7 +20,7 @@ Foam::dose::motionModel::New
 {
     const word modelType(dict.lookup("type"));
 
-    Info<< "Selecting motion model " << modelType << endl;
+    Info<< "radiationDose: selecting motion model " << modelType << endl;
 
     dictionaryConstructorTable::iterator cstrIter =
         dictionaryConstructorTablePtr_->find(modelType);
