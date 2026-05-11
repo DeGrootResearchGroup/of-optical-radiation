@@ -70,8 +70,16 @@ except ImportError:
 # -- Geometry --------------------------------------------------------------
 
 CHANNEL_WIDTH   = 0.33          # m  (Chiu pilot)
-INLET_BUFFER    = 0.50          # m  upstream of first lamp row
-OUTLET_BUFFER   = 0.50          # m  downstream of last lamp row
+
+# 2 m upstream fetch lets the realizable k-eps boundary layer develop
+# before flow meets the lamp array. The full development length for
+# turbulent channel flow at Re_D ~ 80 000 is ~10 D_h = 3.3 m; 2 m gets
+# us past the most violent entrance-region transients and the dose
+# statistics stabilise (~2 m and ~3 m give the same mean dose and log
+# reduction within ~5 %). OUTLET_BUFFER stays at 0.5 m -- particles
+# only need clear streamwise space, not flow development.
+INLET_BUFFER    = float(os.environ.get('CHIU_INLET_BUFFER',  '2.0'))
+OUTLET_BUFFER   = float(os.environ.get('CHIU_OUTLET_BUFFER', '0.5'))
 MESH_DEPTH      = 0.01          # m  one cell thick in z (2-D mesh)
 
 LAMP_DIAMETER   = 0.025         # m
@@ -81,7 +89,12 @@ LAMP_PITCH_Y    = 0.075         # m  (7.5 cm within a row)
 N_ROWS          = 5
 LAMPS_PER_ROW   = 4
 
-TARGET_CELL_SIZE = 0.0025       # m  (~2.5 mm; lamp diameter = 10 cells)
+# Target cell size in the bulk; lamp-adjacent blocks get finer cells
+# automatically because they are 2 * LAMP_RADIUS wide. Override via env
+# var CHIU_TARGET_CELL_SIZE for mesh convergence sweeps; default 2.5 mm
+# is ~10 cells across the lamp diameter and ~130 cells across the
+# channel width.
+TARGET_CELL_SIZE = float(os.environ.get('CHIU_TARGET_CELL_SIZE', '0.0025'))
 
 
 # -- Lamp positions --------------------------------------------------------

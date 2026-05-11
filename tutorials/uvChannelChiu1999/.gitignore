@@ -5,6 +5,8 @@ constant/polyMesh/
 log.*
 postProcessing/
 VTK/
+convergence/
+processor*/
 
 # Defensive: Allrun-DOM stages a controlDict swap that should clean
 # itself up but the bak file would be a poisoned source if it lingered.

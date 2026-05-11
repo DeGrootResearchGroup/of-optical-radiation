@@ -95,6 +95,72 @@ python3 plot_results.py        # writes postProcessing/figures/*.png
 and `<dom_time>` is the latestTime after `opticalRadiationFoam`
 (default `<flow_time> + 1`).
 
+## Upstream fetch and mesh resolution
+
+`make_mesh.py` defaults to a 2 m upstream fetch
+(`CHIU_INLET_BUFFER`) so the realizable k-eps boundary layer is
+substantially developed before the flow meets the lamp array. The
+full development length at Re_D ~ 80 000 is ~10 D_h ~ 3.3 m; 2 m gets
+us past the entrance transients and the dose statistics stabilise
+(~2 m and ~3 m fetches agree to within ~5 %). Override the buffer
+via:
+
+```sh
+CHIU_INLET_BUFFER=1.5 python3 make_mesh.py
+```
+
+The bulk target cell size is set by `CHIU_TARGET_CELL_SIZE`
+(default 2.5 mm, ~10 cells across the lamp diameter). Halving gives
+4x more cells in 2-D; the `Allrun-convergence` driver runs a
+three-point sweep (5 / 2.5 / 1.25 mm) and archives the dose stats
+under `convergence/cell_<size>mm/` (outside `postProcessing/` so it
+survives `Allclean`):
+
+```sh
+./Allrun-convergence              # runs 5.0, 2.5, 1.25 mm by default
+CONV_CELL_SIZES="0.005 0.0025" ./Allrun-convergence   # custom subset
+python3 plot_results.py           # adds 05_convergence_dose.png
+```
+
+**Wall-function validity limits the useful refinement.** Standard
+k-eps wall functions (`kqRWallFunction`, `epsilonWallFunction`,
+`nutkWallFunction`) require 30 < y+ < 300 at the first off-wall
+cell. On this geometry that gives y+ = 33 at 5 mm, 16 at 2.5 mm,
+and 8 at 1.25 mm. The 5 mm and 2.5 mm results agree to within
+~1 % on log reduction (1.33 vs 1.34, n=1 Chick-Watson), so the
+dose statistics are already mesh-converged in the
+wall-function-valid regime. Refining to 1.25 mm puts the wall
+cell deep inside the buffer layer, the wall functions produce
+non-physical wall stress, and the flow field blows up to |U| ~
+1000 m/s in places (log reduction collapses to 0.15). To run
+properly at 1.25 mm and below, switch the wall treatment to
+`nutUSpaldingWallFunction` (all-y+ Spalding blend) or change the
+turbulence model to k-omega-SST (automatic wall treatment).
+2.5 mm is the recommended production mesh for this geometry.
+
+## Parallel execution
+
+The 1.25 mm mesh is ~625 k cells which is slow to solve serial
+(~25 min flow + ~10 min DOM + ~10 min dose on the box this was
+developed on). Set `CHIU_NPROC > 1` to decompose the case and run
+flow + DOM on multiple MPI ranks; the dose tracker stays serial
+because radiationDose's parallel-particle-handoff is single-rank
+OMP today (per CLAUDE.md):
+
+```sh
+CHIU_NPROC=8 ./Allrun-DOM             # 8-way MPI flow + DOM
+CHIU_NPROC=8 ./Allrun-convergence     # parallel sweep
+```
+
+The driver runs `decomposePar` once at the top, uses `runParallel`
+for `foamRun` and `opticalRadiationFoam`, then `reconstructPar
+-latestTime` before handing off to the serial dose tracker. The DOM
+step writes ASCII output because the `diffuseEmitter` BC's
+`emissivePower` `DynamicList` doesn't round-trip cleanly through
+binary `reconstructPar`. Inside the OpenFOAM Docker image (root
+user), `OMPI_ALLOW_RUN_AS_ROOT[=_CONFIRM]` is set automatically by
+Allrun-DOM so mpirun proceeds.
+
 ## Validation targets
 
 From Fig. 10 of the paper:

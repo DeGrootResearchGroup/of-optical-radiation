@@ -1,0 +1,56 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+set -e
+
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# Run the Chiu case at three bulk cell sizes and archive each result
+# under postProcessing/convergence/cell_<size_mm>mm/. Default sweep is
+# 5.0 -> 2.5 -> 1.25 mm (factor-of-2 refinement, 4x cells per step in
+# 2-D); override the list via CONV_CELL_SIZES if needed.
+#
+# Each result is archived as:
+#   postProcessing/convergence/cell_<size_mm>mm/doseDistribution.csv
+#   postProcessing/convergence/cell_<size_mm>mm/summary.dat
+#   postProcessing/convergence/cell_<size_mm>mm/checkMesh.txt
+#
+# plot_results.py adds an overlay of all three to
+# postProcessing/figures/05_convergence_dose.png after the sweep.
+
+CONV_CELL_SIZES="${CONV_CELL_SIZES:-0.005 0.0025 0.00125}"
+
+# Archive root lives OUTSIDE postProcessing/ so that the Allrun-DOM
+# call inside the loop (which starts with ./Allclean and wipes
+# postProcessing/) doesn't blow away results we just archived.
+ARCHIVE_ROOT="convergence"
+mkdir -p "$ARCHIVE_ROOT"
+
+for SIZE in $CONV_CELL_SIZES; do
+    SIZE_MM=$(awk "BEGIN { printf \"%g\", $SIZE * 1000 }")
+    SLOT="$ARCHIVE_ROOT/cell_${SIZE_MM}mm"
+    echo
+    echo "=================================================================="
+    echo " mesh convergence sweep: cell size $SIZE_MM mm  ($SIZE m)"
+    echo "=================================================================="
+
+    # Allrun-DOM does its own Allclean; no need to clean here first.
+    CHIU_TARGET_CELL_SIZE=$SIZE ./Allrun-DOM
+
+    # Now that the run is done, allocate the archive slot (after
+    # Allclean has finished blowing away postProcessing/) and copy
+    # the dose stats + mesh check log into it.
+    rm -rf "$SLOT"
+    mkdir -p "$SLOT"
+    LATEST_DOSE=$(find postProcessing/radiationDose -mindepth 1 -maxdepth 1 \
+                  -type d | sort | tail -1)
+    cp "$LATEST_DOSE/doseDistribution.csv" "$SLOT/"
+    cp "$LATEST_DOSE/summary.dat"          "$SLOT/"
+    cp log.checkMesh                       "$SLOT/checkMesh.txt"
+
+    echo
+    echo " archived: $SLOT"
+done
+
+echo
+echo "Sweep complete. Run python3 plot_results.py to produce"
+echo "postProcessing/figures/05_convergence_dose.png ."

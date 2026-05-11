@@ -274,6 +274,100 @@ def figure_trajectories(case_dir, out_path, sample_size=150, seed=0):
     return out_path
 
 
+def figure_convergence_dose(case_dir, out_path):
+    """Overlay dose distributions from a mesh-convergence sweep.
+
+    Reads convergence/cell_*mm/doseDistribution.csv (written by
+    Allrun-convergence; the path is outside postProcessing/ so that
+    Allclean's per-iteration wipe doesn't blow it away) and plots a
+    smoothed histogram per mesh.
+    """
+    sweep_root = os.path.join(case_dir, "convergence")
+    if not os.path.isdir(sweep_root):
+        return None
+
+    runs = []
+    for d in sorted(os.listdir(sweep_root)):
+        csv_path = os.path.join(sweep_root, d, "doseDistribution.csv")
+        if not os.path.isfile(csv_path):
+            continue
+        match = d.replace("cell_", "").replace("mm", "")
+        try:
+            size_mm = float(match)
+        except ValueError:
+            continue
+        doses = []
+        escaped = 0
+        with open(csv_path) as f:
+            for row in csv.DictReader(f):
+                doses.append(float(row["dose_mJ_cm2"]))
+                if row["endReason"].strip() == "escaped":
+                    escaped += 1
+        runs.append((size_mm, np.array(doses), escaped))
+
+    if len(runs) < 2:
+        return None
+
+    # Sort coarse -> fine
+    runs.sort(key=lambda r: -r[0])
+
+    fig, (ax, ax_tab) = plt.subplots(
+        1, 2, figsize=(12, 4.2),
+        gridspec_kw={"width_ratios": [3, 1.4]},
+    )
+
+    bins = np.linspace(0, 60, 61)
+    centres = 0.5 * (bins[:-1] + bins[1:])
+    colours = plt.cm.viridis(np.linspace(0.15, 0.85, len(runs)))
+    for (size_mm, doses, esc), c in zip(runs, colours):
+        h, _ = np.histogram(doses, bins=bins)
+        ax.plot(centres, h, color=c, lw=1.5,
+                label=f"{size_mm:g} mm  (n={len(doses)}, "
+                      f"$\\overline{{D}}$={doses.mean():.1f})")
+    ax.set_xlabel("Dose, $D$ (mJ/cm$^2$)")
+    ax.set_ylabel("Particles per 1 mJ/cm$^2$ bin")
+    ax.set_title("Mesh-convergence sweep at V = 24 cm/s")
+    ax.grid(alpha=0.3)
+    ax.legend(title="cell size")
+
+    # Summary table on the right axes
+    ax_tab.axis("off")
+    rows = [("cell (mm)", "mean D", "log(N=1)", "log(N=3)", "esc %")]
+    for size_mm, doses, esc in runs:
+        # Local series-event log reduction
+        def log_red(k, n):
+            x = k * doses
+            x = np.clip(x, 0, 700)
+            terms = np.zeros_like(x)
+            fact = 1.0
+            xi = np.ones_like(x)
+            for i in range(n):
+                terms += xi / fact
+                xi *= x
+                fact *= (i + 1)
+            survival = (np.exp(-x) * terms).mean()
+            return -np.log10(max(survival, 1e-30))
+        rows.append((
+            f"{size_mm:g}",
+            f"{doses.mean():.2f}",
+            f"{log_red(0.5887, 1):.2f}",
+            f"{log_red(1.107, 3):.2f}",
+            f"{100*esc/len(doses):.1f}",
+        ))
+    tbl = ax_tab.table(cellText=rows[1:], colLabels=rows[0],
+                       loc='center', cellLoc='center')
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(9)
+    tbl.scale(1.0, 1.4)
+    for k in range(len(rows[0])):
+        tbl[(0, k)].set_facecolor('#e0e0e0')
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
 def main():
     case_dir = os.path.dirname(os.path.abspath(__file__))
     out_dir = os.path.join(case_dir, "postProcessing", "figures")
@@ -284,6 +378,7 @@ def main():
         ("02_G_contour.png",         figure_G_contour),
         ("03_U_streamlines.png",     figure_U_streamlines),
         ("04_trajectories.png",      figure_trajectories),
+        ("05_convergence_dose.png",  figure_convergence_dose),
     ]
 
     wrote = []

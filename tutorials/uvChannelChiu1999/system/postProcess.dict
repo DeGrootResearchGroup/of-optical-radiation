@@ -65,7 +65,10 @@ radiationDose
         // (Chiu Table 2). The series-event n=3 result requires the raw
         // dose distribution and is computed post-hoc in validate.
         kInact          (0.5887);
-        writeVtk        true;
+        // VTK trajectories balloon memory on the fine convergence
+        // mesh (~10k particles x ~thousands of vertices each); leave
+        // off by default and toggle on for the figure-generation run.
+        writeVtk        false;
     }
 }
 

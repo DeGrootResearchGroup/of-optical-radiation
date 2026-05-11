@@ -24,7 +24,10 @@ writeControl    timeStep;
 writeInterval   1;
 purgeWrite      0;
 
-writeFormat     binary;
+// ASCII write: the diffuseEmitter BC's emissivePower DynamicList
+// round-trips cleanly in ASCII but writes the values as a mixed
+// ASCII/binary blob in binary mode that reconstructPar chokes on.
+writeFormat     ascii;
 writePrecision  8;
 writeCompression off;
 
