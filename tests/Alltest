@@ -1,16 +1,24 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Run every regression test in this directory and check the result.
 #
-# - Each case's Allrun is invoked; output goes to stdout (the per-app
-#   logs are still captured in `log.<app>` inside the case directory).
-# - On failure, the relevant case logs are dumped so CI failure
-#   diagnostics aren't empty.
+# - Each case's Allrun is invoked in a worker pool (up to nproc cases
+#   in flight at once); output is captured per-case and replayed in
+#   case order after all Allruns finish, so logs remain readable. The
+#   per-app `log.<app>` files are still written inside each case
+#   directory as usual.
+# - On a case Allrun failure, the relevant case logs are dumped so CI
+#   failure diagnostics aren't empty.
 # - If a case has a `validate` script it is executed; non-zero exit
-#   means failure.
+#   means failure. Validates run sequentially (they are cheap: a few
+#   seconds total) and need the cases' outputs already on disk.
 # - The cross-case checks at the end compare G fields between paired
 #   runs (different code paths solving the same problem; should agree
-#   bit-for-bit or near it).
+#   bit-for-bit or near it). Sequential -- needs all Allruns finished.
+#
+# Concurrency: defaults to `nproc` workers (typically 4 on the
+# ubuntu-latest GitHub runner). Override with ALLTEST_JOBS=N. Set to 1
+# to force serial mode for reproducible per-case output ordering.
 #
 # Exit code: 0 if all checks pass, 1 otherwise.
 #
@@ -26,6 +34,11 @@ if [ -z "${WM_PROJECT_DIR:-}" ]; then
     exit 1
 fi
 
+# Parallel worker count. nproc-on-Linux / sysctl-on-macOS / 4 fallback.
+NJOBS="${ALLTEST_JOBS:-$( (nproc 2>/dev/null) \
+                       || (sysctl -n hw.ncpu 2>/dev/null) \
+                       || echo 4 )}"
+
 overall=0
 
 # Dump all log.* files in a case directory; used on failure so CI
@@ -40,24 +53,77 @@ dump_case_logs() {
     done
 }
 
-# 1) Run every case.
+# 1) Run every case in parallel (up to NJOBS at once). Per-case stdout
+#    is buffered to a tmp file so the final summary is readable
+#    regardless of finish order. Per-app `log.<app>` files inside each
+#    case directory are written as usual by runApplication.
+tmpdir="$(mktemp -d -t alltest.XXXXXX)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+cases=()
 for case_dir in */ ; do
     case_name="${case_dir%/}"
     if [ -x "$case_name/Allrun" ]; then
-        echo "==> running $case_name"
-        if ( cd "$case_name" && ./Allrun ); then
-            echo "    ok"
-        else
-            echo "    FAIL (Allrun returned non-zero)"
-            dump_case_logs "$case_name"
-            overall=1
-        fi
+        cases+=("$case_name")
     fi
 done
 
-# 2) Per-case validation scripts.
-for case_dir in */ ; do
-    case_name="${case_dir%/}"
+if [ "${#cases[@]}" -eq 0 ]; then
+    echo "Alltest: no runnable cases found in $(pwd)" >&2
+    exit 1
+fi
+
+echo "Alltest: running ${#cases[@]} cases with up to $NJOBS workers"
+
+# Each worker writes its case stdout/stderr to
+# "$tmpdir/$case_name.log" and its exit code to "$tmpdir/$case_name.rc".
+run_case() {
+    local case_name="$1"
+    ( cd "$case_name" && ./Allrun ) \
+        > "$tmpdir/$case_name.log" 2>&1
+    echo $? > "$tmpdir/$case_name.rc"
+}
+
+# Chunked-parallel scheduler: launch NJOBS cases, wait for the whole
+# chunk, repeat. Less efficient than a continuously-refilling pool
+# (slow case in a chunk stalls the next chunk) but works on bash 3.2
+# without `wait -n`, and the in-tree cases have similar durations so
+# the stall cost is small.
+total="${#cases[@]}"
+i=0
+while [ "$i" -lt "$total" ]; do
+    pids=()
+    j=0
+    while [ "$j" -lt "$NJOBS" ] && [ "$i" -lt "$total" ]; do
+        run_case "${cases[$i]}" &
+        pids+=($!)
+        i=$((i + 1))
+        j=$((j + 1))
+    done
+    for pid in "${pids[@]}"; do
+        wait "$pid" || true
+    done
+done
+
+# Replay per-case output IN ORDER and tally failures.
+for case_name in "${cases[@]}"; do
+    echo "==> running $case_name"
+    if [ -s "$tmpdir/$case_name.log" ]; then
+        sed 's/^/    /' "$tmpdir/$case_name.log"
+    fi
+    rc=$(cat "$tmpdir/$case_name.rc" 2>/dev/null || echo 1)
+    if [ "$rc" -eq 0 ]; then
+        echo "    ok"
+    else
+        echo "    FAIL (Allrun returned $rc)"
+        dump_case_logs "$case_name"
+        overall=1
+    fi
+done
+
+# 2) Per-case validation scripts (sequential -- cheap, and ordered
+#    output is easier to read on failure).
+for case_name in "${cases[@]}"; do
     if [ -x "$case_name/validate" ]; then
         echo "==> validating $case_name"
         if ( cd "$case_name" && ./validate ); then
