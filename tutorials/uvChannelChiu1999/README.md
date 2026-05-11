@@ -36,7 +36,7 @@ Our model replaces:
 | row pitch (x)                  | 12.5 cm                |
 | lamp pitch within a row (y)    | 7.5 cm                 |
 | number of rows                 | 5                      |
-| lamps per row                  | 4 (staggered ±3.75 cm) |
+| lamps per row                  | 4 (alternating-direction stagger, ±3.75 cm; top-bottom symmetric overall) |
 | approach velocity (default)    | 24 cm/s                |
 | water transmittance @ 254 nm   | 65 %/cm  → κ=43 m⁻¹    |
 | effective lamp UV power        | 24.0 W (26.7 W × 0.90 quartz transmittance; see 0/I header for calibration discussion) |

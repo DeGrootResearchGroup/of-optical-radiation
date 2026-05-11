@@ -14,9 +14,9 @@ at Southport AWT Plant, Table 1 p.11 and Fig. 2 p.11):
         - lamp arc length: 76 cm (full water depth)
         - row pitch (x): 12.5 cm
         - lamp pitch within a row (y): 7.5 cm
-        - odd rows offset by +half-pitch in y (the staggered pattern;
-          this is asymmetric from one channel wall to the other, exactly
-          as drawn in the paper's Fig. 2)
+        - odd rows offset by +/- half-pitch in y, alternating
+          direction so the layout is top-bottom symmetric on
+          average (see y-position comment in code below)
   * The paper uses approach velocities of 8, 12, 18, and 24 cm/s for the
     bioassay validation curve (Fig. 10); the 24 cm/s case is the one
     closest to the LDV-mapped lab flow field, so it is the natural
@@ -104,8 +104,21 @@ x_lamps = np.arange(N_ROWS) * ROW_PITCH_X    # 0.000, 0.125, 0.250, 0.375, 0.500
 y_centred = (
     (np.arange(LAMPS_PER_ROW) - (LAMPS_PER_ROW - 1) / 2.0) * LAMP_PITCH_Y
 )
-y_even = y_centred
-y_odd  = y_centred + LAMP_PITCH_Y / 2.0
+# Pilot interpretation per Chiu et al. Table 1 + page 11 text:
+#   * 4 lamps per row, 7.5 cm within-row pitch, 33 cm channel width.
+#   * Paper text says the pilot "had the same lamp spacing, lamp radius,
+#     and number of rows as the laboratory physical model" but does NOT
+#     redraw the pilot layout (Fig. 2 is the lab, 5 lamps/row).
+#   * To get a symmetric overall layout from the half-pitch stagger,
+#     translate the whole array down by quarter-pitch from the lab's
+#     "even row centered / odd row shifted +half-pitch" convention:
+#         y_even = centred - p/4   (lamps biased slightly toward -y)
+#         y_odd  = centred + p/4   (mirror image)
+#     Row 0's bottom-wall gap then equals row 1's top-wall gap (both
+#     2.125 cm at the outermost lamp edge), and the two row-patterns
+#     are mirror images of each other about the channel centreline.
+y_even = y_centred - LAMP_PITCH_Y / 4.0
+y_odd  = y_centred + LAMP_PITCH_Y / 4.0
 
 
 # -- Build the block grid --------------------------------------------------
@@ -123,10 +136,11 @@ x_vertices = unique_sorted(
     + [xl - LAMP_RADIUS for xl in x_lamps]
     + [xl + LAMP_RADIUS for xl in x_lamps]
 )
+_all_lamp_ys = np.concatenate([y_even, y_odd])
 y_vertices = unique_sorted(
     [-CHANNEL_WIDTH / 2.0, CHANNEL_WIDTH / 2.0]
-    + [yl - LAMP_RADIUS for yl in np.concatenate([y_even, y_odd])]
-    + [yl + LAMP_RADIUS for yl in np.concatenate([y_even, y_odd])]
+    + [yl - LAMP_RADIUS for yl in _all_lamp_ys]
+    + [yl + LAMP_RADIUS for yl in _all_lamp_ys]
 )
 z_vertices = np.array([0.0, MESH_DEPTH])
 
