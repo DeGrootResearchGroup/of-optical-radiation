@@ -194,13 +194,14 @@ void Foam::optical::iesPhotometry::load_()
     // Candela values: nH blocks of nV values each.
     // Storage layout matches: candela_[ih*nV + iv].
     //
-    // The post-loop `is.good() && !is.eof()` check we used to do was
-    // effectively a no-op: `>>` on a truncated stream sets failbit AND
-    // eofbit, so the conjunction is always false. Instead check
-    // is.fail() after each read so a truncated or malformed file
-    // fatals at the exact value where parsing stopped, rather than
-    // silently leaving the remainder of `candela_` at uninitialised /
-    // zero values.
+    // Check is.fail() after each read so a truncated or malformed file
+    // fatals at the exact value where parsing stopped. A single
+    // post-loop is.good() check is insufficient here: `>>` on a
+    // truncated stream sets failbit, so the value at the truncation
+    // point and every subsequent slot are silently left at zero
+    // (default-constructed scalar) and the loop completes -- the
+    // resulting "valid" iesPhotometry then misinterprets the
+    // zero-padded tail as legitimate candela values.
     candela_.setSize(nH*nV);
     for (label k = 0; k < nH*nV; ++k)
     {
