@@ -1,9 +1,9 @@
 #!/bin/sh
 cd "${0%/*}" || exit 1
 
-. "$WM_PROJECT_DIR/bin/tools/CleanFunctions"
+. "$(dirname "$0")/../lib/AllcleanCommon.sh"
 
-cleanCase
-rm -rf 0 postProcessing
+# Function object writes here; cleanCase doesn't know about it.
+rm -rf postProcessing
 
 # ----------------------------------------------------------------------------

@@ -1,10 +1,10 @@
 #!/bin/sh
 cd "${0%/*}" || exit 1
 
-. "$WM_PROJECT_DIR/bin/tools/CleanFunctions"
+. "$(dirname "$0")/../lib/AllcleanCommon.sh"
 
-cleanCase
-rm -rf 0
+# splitMeshRegions writes per-region polyMesh trees; cleanCase only
+# touches the top-level constant/polyMesh.
 rm -rf constant/mediumA/polyMesh constant/mediumB/polyMesh
 
 # ----------------------------------------------------------------------------
