@@ -1,0 +1,14 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+set -e
+
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# Generate system/blockMeshDict via blockMeshBuilder if missing or stale
+# relative to the geometry script.
+if [ ! -f system/blockMeshDict ] || [ make_mesh.py -nt system/blockMeshDict ]; then
+    python3 make_mesh.py
+fi
+
+runApplication blockMesh
+runApplication checkMesh

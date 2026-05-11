@@ -1,0 +1,51 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+set -e
+
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# Driver: mesh + flow + DOM radiation + Lagrangian dose. Mirrors the
+# Sozzi tutorial's Allrun-DOM. Approach velocity defaults to 24 cm/s
+# (set in 0/U); edit 0/U to reproduce the Fig. 10 curve at 8, 12, 18 cm/s.
+
+# Clean prior state so runApplication does not skip on stale log.<app>.
+./Allclean > /dev/null 2>&1 || true
+
+if [ ! -d constant/polyMesh ]; then
+    ./Allmesh
+fi
+
+# Stage 1: steady RANS flow solve.
+runApplication foamRun
+
+# Stage 2: DOM radiation on the converged flow snapshot.
+LATEST=$(foamListTimes -case . -latestTime)
+if [ -z "$LATEST" ]; then
+    echo "Allrun-DOM: no time directory found after foamRun" >&2
+    exit 1
+fi
+echo "Allrun-DOM: flow converged at t=$LATEST; running DOM"
+
+cp 0/I "$LATEST/I"
+
+mv system/controlDict system/controlDict.flow.bak
+cp system/controlDict.DOM system/controlDict
+trap 'mv system/controlDict.flow.bak system/controlDict 2>/dev/null || true' EXIT
+runApplication opticalRadiationFoam
+mv system/controlDict.flow.bak system/controlDict
+trap - EXIT
+
+DOMTIME=$(foamListTimes -case . -latestTime)
+echo "Allrun-DOM: DOM wrote I and G to t=$DOMTIME"
+
+# Stage 3: carry flow fields forward into the DOM time directory.
+for f in U k epsilon nut p; do
+    if [ -f "$LATEST/$f" ] && [ ! -f "$DOMTIME/$f" ]; then
+        cp "$LATEST/$f" "$DOMTIME/"
+    fi
+done
+
+# Stage 4: Lagrangian dose post-process.
+runApplication foamPostProcess -dict system/postProcess.dict -latestTime
+
+echo "Allrun-DOM: done; results in postProcessing/radiationDose/$DOMTIME/"

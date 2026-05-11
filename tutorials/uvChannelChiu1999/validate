@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Validate the Chiu 1999 pilot UV channel case.
+
+Compares the Lagrangian dose distribution against the bioassay
+inactivation curve in Fig. 10 of Chiu, Lyn, Savoye, Blatchley III
+(J. Environ. Eng. 125(1), 1999, p. 7-16).
+
+At V = 24 cm/s (the default in 0/U) the paper reports:
+  * Pilot bioassay log10 reduction in fecal coliform: roughly
+    1.5 to 2.5 (cluster of points in the upper-right of Fig. 10).
+  * Random-walk + series-event n=3 prediction: roughly 2.0.
+  * Chick-Watson n=1 prediction (paper's own k=0.5887 fit): roughly 2.5.
+
+The series-event-n=3 prediction is computed here directly from the
+dose distribution (the radiationDose function object only supports
+Chick-Watson n=1, so the higher-order kinetics live offline). The
+test condition is whether the n=3 number lands in [1.0, 3.5], which
+is generous enough to absorb the square-lamp mesh approximation in
+the first cut of make_mesh.py.
+"""
+
+import csv
+import math
+import os
+import sys
+
+
+PAPER_TARGETS = {
+    # Reading off Fig. 10 of Chiu et al. 1999:
+    24: {"bioassay_logred": (1.5, 2.5), "model_logred_n3": 2.0},
+    18: {"bioassay_logred": (2.0, 3.0), "model_logred_n3": 2.5},
+    12: {"bioassay_logred": (2.5, 3.5), "model_logred_n3": 3.0},
+    8:  {"bioassay_logred": (3.5, 4.5), "model_logred_n3": 4.0},
+}
+
+
+def find_csv():
+    base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "postProcessing", "radiationDose",
+    )
+    if not os.path.isdir(base):
+        return None
+    times = []
+    for t in os.listdir(base):
+        tpath = os.path.join(base, t)
+        if os.path.isdir(tpath):
+            try:
+                times.append((float(t), tpath))
+            except ValueError:
+                continue
+    if not times:
+        return None
+    times.sort()
+    return os.path.join(times[-1][1], "doseDistribution.csv")
+
+
+def series_event_log_reduction(doses, k, n):
+    """log10(N0/N) under series-event kinetics with threshold n.
+
+    Chiu Eq. 13:
+        N(D)/N_T = exp(-k D) * sum_{i=0}^{n-1} (k D)^i / i!
+    Averaging over the seeded particles gives the system-level
+    fraction surviving, from which the log reduction follows.
+    """
+    if not doses:
+        return None
+    survival = 0.0
+    for D in doses:
+        x = k * D
+        if x > 700.0:  # underflow guard
+            term = 0.0
+        else:
+            term = math.exp(-x) * sum(
+                x ** i / math.factorial(i) for i in range(n)
+            )
+        survival += term
+    survival /= len(doses)
+    return -math.log10(max(survival, 1e-30))
+
+
+def main():
+    csv_path = find_csv()
+    if csv_path is None or not os.path.isfile(csv_path):
+        sys.stderr.write(
+            "validate: no postProcessing/radiationDose/<time>/doseDistribution.csv\n"
+            "         Did Allrun-DOM finish successfully?\n"
+        )
+        return 1
+
+    doses = []
+    escaped = 0
+    total = 0
+    with open(csv_path) as f:
+        for row in csv.DictReader(f):
+            total += 1
+            if row["endReason"].strip() == "escaped":
+                escaped += 1
+            doses.append(float(row["dose_mJ_cm2"]))
+
+    if total == 0:
+        sys.stderr.write("validate: doseDistribution.csv has no rows\n")
+        return 1
+
+    mean_dose = sum(doses) / len(doses)
+    min_dose = min(doses)
+    max_dose = max(doses)
+    log_red_n1 = series_event_log_reduction(doses, k=0.5887, n=1)
+    log_red_n3 = series_event_log_reduction(doses, k=1.107, n=3)
+
+    print(f"validate: parsing {csv_path}")
+    print(f"  totalSeeded     = {total}")
+    print(f"  escaped         = {escaped} ({100.0 * escaped / total:.1f}%)")
+    print(f"  meanDose        = {mean_dose:.2f} mJ/cm^2")
+    print(f"  min/max dose    = {min_dose:.2f} / {max_dose:.2f} mJ/cm^2")
+    print(f"  log10(N0/N) Chick-Watson n=1, k=0.5887: {log_red_n1:.2f}")
+    print(f"  log10(N0/N) series-event  n=3, k=1.107: {log_red_n3:.2f}")
+    print("  (paper Fig. 10 at V=24 cm/s: pilot bioassay ~1.5-2.5;"
+          " model n=3 ~2.0)")
+
+    failures = []
+    if escaped < 0.8 * total:
+        failures.append(
+            f"escape fraction = {escaped / total:.2f} (< 0.80; "
+            f"square-lamp wakes may be trapping particles)"
+        )
+    if not (1.0 <= log_red_n3 <= 3.5):
+        failures.append(
+            f"log_red (series-event n=3) = {log_red_n3:.2f} out of [1.0, 3.5]"
+        )
+
+    if failures:
+        print()
+        print("FAIL:")
+        for f_msg in failures:
+            print(f"  - {f_msg}")
+        return 1
+
+    print()
+    print("PASS: log reduction within the Fig. 10 window for V=24 cm/s")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,72 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvChannelChiu1999: radiationDose post-process  |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      postProcess;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+//
+// Run with:
+//   foamPostProcess -dict system/postProcess.dict -latestTime
+//
+
+radiationDose
+{
+    type            radiationDose;
+    libs            ("libradiationDose.so");
+
+    U               U;
+    fluenceRate     G;
+    seed            42;
+
+    seeding
+    {
+        type        patchInjection;
+        patches     (inlet);
+        // Chiu et al. ran 10000 particles for tight dose statistics.
+        nParticles  10000;
+    }
+
+    dispersion
+    {
+        type        discreteRandomWalk;
+        k           k;
+        epsilon     epsilon;
+        Cl          0.15;
+    }
+
+    termination
+    {
+        escapePatches    (outlet);
+        // Plug-flow residence is L_array / U = ~0.5 m / 0.24 m/s = 2 s;
+        // 60 s caps any particle that gets trapped in a wake pocket.
+        maxTime          60;
+        maxDose          0;
+        wallReflection   true;
+    }
+
+    integration
+    {
+        dtMax           0.01;
+        cflMax          0.5;
+        maxOuterSteps   200000;
+    }
+
+    output
+    {
+        // Chick-Watson rate constants for the series-event-n=1 fit
+        // (Chiu Table 2). The series-event n=3 result requires the raw
+        // dose distribution and is computed post-hoc in validate.
+        kInact          (0.5887);
+        writeVtk        true;
+    }
+}
+
+// ************************************************************************* //
