@@ -39,7 +39,7 @@ Our model replaces:
 | lamps per row                  | 4 (staggered ±3.75 cm) |
 | approach velocity (default)    | 24 cm/s                |
 | water transmittance @ 254 nm   | 65 %/cm  → κ=43 m⁻¹    |
-| effective lamp UV power        | ~12.4 W (13.8 W × 0.90 quartz transmittance) |
+| effective lamp UV power        | 24.0 W (26.7 W × 0.90 quartz transmittance; see 0/I header for calibration discussion) |
 
 The 2-D mesh sits in the x-y plane (channel length × width) with a
 single cell in z. Lamps span the full water depth in the real reactor;

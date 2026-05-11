@@ -1007,6 +1007,32 @@ and lost when `--rm` deletes it. Always run `./Allwmake` and
 `./Alltest` in the **same** `docker run` invocation, not separate
 ones.
 
+**For iterative development with multiple runs** (e.g. running a
+tutorial, finding a config error, fixing it, re-running), do NOT use
+`docker run --rm` per-iteration -- the libraries you built last time
+are gone and you waste a full `./Allwmake` (~1-15 min) on every
+attempt. Instead, spin up a persistent named container once and
+`docker exec` into it for each iteration:
+
+```bash
+docker run -d --name <project>-runner -v "$(pwd):/code" -w /code openfoam13 tail -f /dev/null
+docker exec <project>-runner bash -c 'apt-get update -qq && apt-get install -y -qq python3-pip git > /dev/null'
+docker exec <project>-runner bash -c 'source /opt/openfoam13/etc/bashrc && ./Allwmake'   # build once
+# Then iterate:
+docker exec <project>-runner bash -c 'source /opt/openfoam13/etc/bashrc && cd tutorials/<case> && ./Allrun-DOM'
+# ...fix something in the case files (the worktree is bind-mounted so edits are visible)...
+docker exec <project>-runner bash -c 'source /opt/openfoam13/etc/bashrc && cd tutorials/<case> && ./Allrun-DOM'
+# When done:
+docker rm -f <project>-runner
+```
+
+The Dockerfile's `ENTRYPOINT` sources the OpenFOAM bashrc, but
+`docker exec` does NOT use the entrypoint, so each `docker exec` call
+must `source /opt/openfoam13/etc/bashrc` itself. Same for tutorials
+that need Python tooling (e.g. `blockmeshbuilder` for the Chiu case):
+install `python3-pip` + `git` + the package once, then re-use across
+iterations.
+
 Each case's `Allrun` now calls `./Allclean` before doing anything
 else, so the runApplication-skips-on-stale-log gotcha is no longer
 a footgun -- the iteration loop is just:
