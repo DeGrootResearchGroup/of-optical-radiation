@@ -1,0 +1,89 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// 3-D box for the iesEmitter h-frame convention test.
+//
+// x in [0, 0.4] (beam direction = +x, into the box).
+// y in [-0.2, 0.2], z in [-0.2, 0.2] (perpendicular plane, centred
+// on the beam axis so probes can be placed symmetrically in all four
+// cardinal directions of the h-frame).
+//
+// Mesh: 40 x 20 x 20 cells. Cell size 0.01 x 0.02 x 0.02 m. Probe
+// points at +-0.15 in y or z drop cleanly inside specific cells.
+
+convertToMeters 1;
+
+vertices
+(
+    (0    -0.2 -0.2)
+    (0.4  -0.2 -0.2)
+    (0.4   0.2 -0.2)
+    (0    0.2 -0.2)
+    (0   -0.2  0.2)
+    (0.4 -0.2  0.2)
+    (0.4  0.2  0.2)
+    (0    0.2  0.2)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (40 20 20) simpleGrading (1 1 1)
+);
+
+edges ();
+
+boundary
+(
+    radSource
+    {
+        // x=0 face. iesEmitter BC with fixtureAxis = (1, 0, 0) and
+        // fixtureUp = (0, 0, 1). Beams propagate into +x; h = 0 in
+        // the IES file corresponds to a ray whose perpendicular
+        // component points along +fixtureUp = +z.
+        type patch;
+        faces ((0 4 7 3));
+    }
+    farWall
+    {
+        // x=0.4 face. Absorbing.
+        type patch;
+        faces ((1 2 6 5));
+    }
+    sidesYmin
+    {
+        type patch;
+        faces ((0 1 5 4));
+    }
+    sidesYmax
+    {
+        type patch;
+        faces ((3 7 6 2));
+    }
+    sidesZmin
+    {
+        type patch;
+        faces ((0 3 2 1));
+    }
+    sidesZmax
+    {
+        type patch;
+        faces ((4 5 6 7));
+    }
+);
+
+mergePatchPairs ();
+
+// ************************************************************************* //

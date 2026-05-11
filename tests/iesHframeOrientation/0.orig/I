@@ -1,0 +1,98 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        // iesEmitter on the x=0 face, beam direction = +x.
+        // fixtureUp = +z -> h = 0 corresponds to the +z direction in
+        // the BC's perpendicular plane (after the e2 cross product).
+        type            iesEmitter;
+        nBands          1;
+        iesFile         "constant/quadrants.ies";
+        power           (1);                   // W per band
+        fixtureAxis     (1 0 0);
+        fixtureUp       (0 0 1);
+        value           uniform 0;
+    }
+
+    farWall
+    {
+        // Black absorber so rays leaving in +x are extinct (the
+        // h-frame test relies on the back-trace from each probe
+        // landing on the emitter; rays whose back-trace exits a
+        // non-emitter wall must carry zero radiance).
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    sidesYmin
+    {
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    sidesYmax
+    {
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    sidesZmin
+    {
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    sidesZmax
+    {
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+}
+
+// ************************************************************************* //
