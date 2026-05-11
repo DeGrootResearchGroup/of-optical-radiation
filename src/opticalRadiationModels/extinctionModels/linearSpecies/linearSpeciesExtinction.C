@@ -164,6 +164,49 @@ Foam::optical::linearSpeciesExtinction::linearSpeciesExtinction
         forAll(sSpecies_, i) checkDim(sSpecies_[i]);
     }
 
+    // Pre-wrap the absorption / scattering coefficients in
+    // dimensionedScalars so correct() doesn't reconstruct one per
+    // (species, band) on every call. Dimensions are m^2/kg so that
+    // (coeff * mass-concentration) yields a 1/m extinction
+    // coefficient -- consistent with the construction-time dimension
+    // check on the species fields above.
+    aCoeffsDimd_.setSize(nAbsorbing_);
+    forAll(aCoeffs_, i)
+    {
+        aCoeffsDimd_.set(i, new PtrList<dimensionedScalar>(nBands_));
+        forAll(aCoeffs_[i], b)
+        {
+            aCoeffsDimd_[i].set
+            (
+                b,
+                new dimensionedScalar
+                (
+                    "a",
+                    dimLength*dimLength/dimMass,
+                    aCoeffs_[i][b]
+                )
+            );
+        }
+    }
+    sCoeffsDimd_.setSize(nScattering_);
+    forAll(sCoeffs_, i)
+    {
+        sCoeffsDimd_.set(i, new PtrList<dimensionedScalar>(nBands_));
+        forAll(sCoeffs_[i], b)
+        {
+            sCoeffsDimd_[i].set
+            (
+                b,
+                new dimensionedScalar
+                (
+                    "s",
+                    dimLength*dimLength/dimMass,
+                    sCoeffs_[i][b]
+                )
+            );
+        }
+    }
+
     // Correct the extinction coefficient fields
     correct();
 }
@@ -195,12 +238,9 @@ void Foam::optical::linearSpeciesExtinction::correct()
         }
         for (label i = 0; i < nAbsorbing_; i++)
         {
-            const dimensionedScalar a
-            (
-                "a", dimLength*dimLength/dimMass, aCoeffs_[i][iBand]
-            );
             ALambda_[iBand] +=
-                a*mesh().lookupObject<volScalarField>(aSpecies_[i]);
+                aCoeffsDimd_[i][iBand]
+               *mesh().lookupObject<volScalarField>(aSpecies_[i]);
         }
     }
 
@@ -213,12 +253,9 @@ void Foam::optical::linearSpeciesExtinction::correct()
         }
         for (label i = 0; i < nScattering_; i++)
         {
-            const dimensionedScalar s
-            (
-                "s", dimLength*dimLength/dimMass, sCoeffs_[i][iBand]
-            );
             SLambda_[iBand] +=
-                s*mesh().lookupObject<volScalarField>(sSpecies_[i]);
+                sCoeffsDimd_[i][iBand]
+               *mesh().lookupObject<volScalarField>(sSpecies_[i]);
         }
     }
 }

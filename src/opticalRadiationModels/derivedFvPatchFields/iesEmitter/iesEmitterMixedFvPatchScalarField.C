@@ -41,6 +41,11 @@ using namespace Foam::constant::mathematical;
 // any IES distribution that is well-behaved at grazing.
 static const Foam::scalar IES_MIN_COS = 1e-3;
 
+
+// Static member definition. See header for rationale.
+Foam::HashTable<Foam::scalar>
+Foam::optical::iesEmitterMixedFvPatchScalarField::phiTableCache_;
+
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
 Foam::optical::iesEmitterMixedFvPatchScalarField::
@@ -275,21 +280,37 @@ void Foam::optical::iesEmitterMixedFvPatchScalarField::updateCoeffs()
         //   sum_d L_d * Omega_d * A_proj(d) == P
         // with A_proj(d) = A_patch * (d.n_avg)+, exactly when L_d is
         // formed as I_table/cos (see header derivation).
+        //
+        // Phi_table is identical across all nAngle ray-BC instances
+        // on a given (patch, band), so consult the cross-instance
+        // cache first. Key is patch name + band index. The cache is
+        // populated lazily on the first BC instance to reach this
+        // point for a given (patch, band); subsequent instances reuse.
         const label nAngle = dom.nAngle();
-        scalar phiTable = 0.0;
-        for (label iAngle = 0; iAngle < nAngle; ++iAngle)
+        const word cacheKey = patch().name() + "_b" + Foam::name(iBand);
+        scalar phiTable;
+        if (phiTableCache_.found(cacheKey))
         {
-            const ray& rj = dom.IRay(iBand*nAngle + iAngle);
-            const scalar cosIn = rj.d() & nAvgInDomain;
-            if (cosIn > IES_MIN_COS)
+            phiTable = phiTableCache_[cacheKey];
+        }
+        else
+        {
+            phiTable = 0.0;
+            for (label iAngle = 0; iAngle < nAngle; ++iAngle)
             {
-                const scalar Ij = ies_->interpolate
-                (
-                    gammaDegFromDir_(rj.d()),
-                    hDegFromDir_(rj.d())
-                );
-                phiTable += Ij*rj.omega();
+                const ray& rj = dom.IRay(iBand*nAngle + iAngle);
+                const scalar cosIn = rj.d() & nAvgInDomain;
+                if (cosIn > IES_MIN_COS)
+                {
+                    const scalar Ij = ies_->interpolate
+                    (
+                        gammaDegFromDir_(rj.d()),
+                        hDegFromDir_(rj.d())
+                    );
+                    phiTable += Ij*rj.omega();
+                }
             }
+            phiTableCache_.insert(cacheKey, phiTable);
         }
 
         // This ray's contribution.
