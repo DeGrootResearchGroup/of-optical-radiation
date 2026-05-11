@@ -23,7 +23,12 @@ set -e
 # a per-pid wait. The trap on EXIT kills any still-running children
 # so a stage-1 failure doesn't leave wmake processes orphaned.
 
-trap 'kill $(jobs -p) 2>/dev/null' EXIT
+# `kill $(jobs -p)` with an empty jobs list errors out (no args), and
+# bash's `set -e` propagates that error code through the EXIT trap on
+# script success, masking the actual exit status with 2. Swallow the
+# kill failure -- we only care about killing surviving children, and
+# the trap's exit code shouldn't override the script's own.
+trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 
 wait_or_die()
 {
