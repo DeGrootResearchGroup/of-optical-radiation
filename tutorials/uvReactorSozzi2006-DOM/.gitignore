@@ -6,6 +6,7 @@ constant/polyMesh/
 log.*
 postProcessing/
 VTK/
+system/controlDict.flow.bak
 
 # Time directories (numeric/decimal, except 0/ which is initial cond.)
 [1-9]*[0-9]/

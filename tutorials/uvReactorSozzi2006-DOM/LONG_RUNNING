@@ -1,0 +1,17 @@
+This case is excluded from the default Alltest run because it takes
+several minutes (snappyHexMesh + RANS solve + radiationDose
+post-process) - too long for CI on every pull request.
+
+To run it locally, either invoke its Allrun directly:
+
+    ./Allrun
+    ./Allrun-postProcess
+    ./validate
+
+or set RUN_LONG_TESTS=1 when calling the Alltest harness:
+
+    cd tutorials
+    RUN_LONG_TESTS=1 ./Alltest
+
+The marker file's presence (any name, any content) is what tells
+Alltest to skip the case. Remove it to opt the case back in.

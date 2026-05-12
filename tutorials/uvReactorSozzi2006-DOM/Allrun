@@ -4,11 +4,14 @@ set -e
 
 . "$WM_PROJECT_DIR/bin/tools/RunFunctions"
 
-# Variant of Allrun that uses the discrete-ordinates radiation solver
-# to compute the fluence-rate field G, instead of the analytical
-# infinite-line-source formula written by setFluenceRate. The flow
-# solve, mesh, and radiationDose post-process are identical to Allrun;
-# only the source of G differs.
+# DOM-driven version of the Sozzi & Taghipour 2006 L-shape annular
+# reactor tutorial. The flow solve, mesh, and radiationDose post-
+# process are identical to the analytical-G sibling tutorial
+# (../uvReactorSozzi2006); the source of G is the only difference.
+# Here we run opticalRadiationFoam on the converged flow snapshot
+# and use its DOM-computed G field to drive the Lagrangian dose
+# tracker, where the sibling case uses setFluenceRate's analytical
+# infinite-line formula.
 
 # Clean prior state so runApplication does not skip on stale log.<app>.
 ./Allclean > /dev/null 2>&1 || true
@@ -17,23 +20,23 @@ if [ ! -d constant/polyMesh ]; then
     ./Allmesh
 fi
 
-# Stage 1: steady RANS flow solve (same as Allrun).
+# Stage 1: steady RANS flow solve.
 runApplication foamRun
 
 # Stage 2: DOM radiation on the converged flow snapshot.
 LATEST=$(foamListTimes -case . -latestTime)
 if [ -z "$LATEST" ]; then
-    echo "Allrun-DOM: no time directory found after foamRun" >&2
+    echo "Allrun: no time directory found after foamRun" >&2
     exit 1
 fi
-echo "Allrun-DOM: flow converged at t=$LATEST; running DOM"
+echo "Allrun: flow converged at t=$LATEST; running DOM"
 
 # Seed the per-ray I template into the flow's latest time so
 # opticalRadiationFoam (startFrom latestTime) finds it on disk.
 cp 0/I "$LATEST/I"
 
 # Swap to the DOM controlDict, run, swap back. The flow controlDict
-# is restored on exit so subsequent re-runs of Allrun keep working.
+# is restored on exit so subsequent re-runs keep working.
 mv system/controlDict system/controlDict.flow.bak
 cp system/controlDict.DOM system/controlDict
 trap 'mv system/controlDict.flow.bak system/controlDict 2>/dev/null || true' EXIT
@@ -42,7 +45,7 @@ mv system/controlDict.flow.bak system/controlDict
 trap - EXIT
 
 DOMTIME=$(foamListTimes -case . -latestTime)
-echo "Allrun-DOM: DOM wrote I and G to t=$DOMTIME"
+echo "Allrun: DOM wrote I and G to t=$DOMTIME"
 
 # Stage 3: bring flow fields forward so radiationDose sees U and G in
 # the same time directory.
@@ -60,4 +63,4 @@ runApplication foamPostProcess -dict system/postProcess.dict -latestTime
 # that the dose tracker already writes.
 runApplication foamToVTK -time "$LATEST,$DOMTIME" -fields "(U G k epsilon p)"
 
-echo "Allrun-DOM: done; results in postProcessing/radiationDose/$DOMTIME/"
+echo "Allrun: done; results in postProcessing/radiationDose/$DOMTIME/"

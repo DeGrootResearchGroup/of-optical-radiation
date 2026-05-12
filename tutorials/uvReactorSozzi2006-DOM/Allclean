@@ -5,5 +5,8 @@ cd "${0%/*}" || exit 1
 
 cleanCase
 rm -rf postProcessing constant/polyMesh constant/triSurface
+# Defensive: Allrun-DOM swaps system/controlDict for the DOM step and
+# restores it on exit; clean up if a crash leaked the backup.
+rm -f system/controlDict.flow.bak
 
 # ----------------------------------------------------------------------------

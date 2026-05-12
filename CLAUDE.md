@@ -255,7 +255,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
 | `tests/` | Sixteen regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
-| `tutorials/` | Four pedagogical cases (`uvReactorSozzi2006`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
+| `tutorials/` | Five pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
 | `Allwmake` | Builds both libraries + standalone solver + module + setFluenceRate in one shot |
@@ -1235,43 +1235,63 @@ radiationDose:
   and the dictionary parser.
 ### `tutorials/`
 
-- **`uvReactorSozzi2006`** — Sozzi & Taghipour 2006 L-shape annular
-  reactor at 25 GPM (water, 70% UV transmissivity per cm, 35 W lamp,
-  80 cm arc). Geometry comes from a STEP file processed via gmsh's
-  OpenCASCADE backend (boolean `(body ∪ inlet ∪ outlet) − lamp`),
-  meshed with snappyHexMesh (~365 k cells, max non-orth 49°,
-  watertight). Steady RANS solve with realizable k-ε via foamRun's
-  `incompressibleFluid` solver. Analytical `G` set by setFluenceRate.
-  radiationDose post-process with DRW dispersion (`Cl = 0.15`),
-  `wallReflection = true`. Flow converges at iter ~516 via the
-  fvSolution `residualControl` thresholds; 10008 particles are
-  injected on that snapshot (matching the paper's sample size).
-  Result: **10008/10008 escaped**, mean dose
-  **70.28 mJ/cm²** (paper: 68 — within 3.4 %), min dose 28.7,
-  max dose 397 (paper: ~270), log reduction at
-  `kInact = 0.1 cm²/mJ` = **2.05** (paper: 1.87). The
-  near-lamp particles dominate `maxDose` and are sensitive to
-  the boundary-face values of G; the mean dose and log reduction
-  are dominated by bulk particles and reproduce the paper to
-  within a few percent. Runtime: ~43 min for foamRun on a
-  workstation, ~90 s for the radiationDose post-process. Marked
+- **`uvReactorSozzi2006`** / **`uvReactorSozzi2006-DOM`** — Sozzi &
+  Taghipour 2006 L-shape annular reactor at 25 GPM (water, 70% UV
+  transmissivity per cm, 35 W lamp, 80 cm arc). Both cases share
+  the same geometry, mesh, flow solve and dose post-process; the
+  only difference is the source of the fluence-rate field `G`.
+  Shipped as two sibling tutorials so both `G` fields can be on
+  disk simultaneously for side-by-side comparison in ParaView (the
+  earlier single-case layout used `Allrun` vs `Allrun-DOM` in one
+  directory, but the two paths shared `postProcessing/` and
+  overwrote each other -- not great for comparison).
+
+  Geometry comes from a STEP file processed via gmsh's OpenCASCADE
+  backend (boolean `(body ∪ inlet ∪ outlet) − lamp`), meshed with
+  snappyHexMesh (~365 k cells, max non-orth 49°, watertight).
+  Steady RANS solve with realizable k-ε via foamRun's
+  `incompressibleFluid` solver. radiationDose post-process with
+  DRW dispersion (`Cl = 0.15`), `wallReflection = true`. Flow
+  converges at iter ~516 via the fvSolution `residualControl`
+  thresholds; 10008 particles are injected on that snapshot
+  (matching the paper's sample size). Both cases marked
   `LONG_RUNNING`; not run by `tutorials/Allrun` unless
-  `RUN_LONG_TUTORIALS=1` is set. Two drivers ship in the case:
-  `Allrun` solves flow then sets `G` via `setFluenceRate` (the
-  analytical infinite-line formula), and `Allrun-DOM` solves flow
+  `RUN_LONG_TUTORIALS=1` is set. Runtime: ~43 min for foamRun, ~90
+  s for the radiationDose post-process. Each case's `Allrun`
+  finishes with a `foamToVTK` stage so ParaView can read the case
+  via the legacy VTK output without needing the OpenFOAMReader.
+
+  `uvReactorSozzi2006` (analytical) — `Allrun` solves flow then
+  sets `G` via `setFluenceRate` (Sozzi 2006 eq. 3, infinite-line
+  source). Result: **10008/10008 escaped**, mean dose **70.28
+  mJ/cm²** (paper: 68 — within 3.4 %), min 28.7, max 397 (paper
+  ~270), log reduction at `kInact = 0.1 cm²/mJ` = **2.05** (paper
+  1.87). The near-lamp particles dominate `maxDose` and are
+  sensitive to the boundary-face values of G; the mean and log
+  reduction are dominated by bulk particles and reproduce the
+  paper within a few percent.
+
+  `uvReactorSozzi2006-DOM` (DOM-driven) — `Allrun` solves flow
   then runs `opticalRadiationFoam` (single-band DOM, 64 rays,
   `constantExtinction` `kappa = 35.67 1/m` matching the analytical
-  `sigmaW`, `diffuseEmitter` on `lampWall` with
-  `emissivePower = P/(pi D L_arc) = 696.42 W/m^2`). The DOM driver
-  uses `system/controlDict.DOM` for the radiation step (Allrun-DOM
-  swaps it in over `system/controlDict` and restores on exit via a
-  shell trap); seeds `0/I` into the latest flow time so
-  `startFrom latestTime` finds it; runs `opticalRadiationFoam` for
-  one outer step with `stopAt nextWrite`; then carries the flow
-  fields forward into the DOM time directory so `radiationDose`
-  sees `U` and `G` in the same time. Same `validate` script grades
-  both paths against the Sozzi paper targets; `postProcessing/`
-  is overwritten between runs.
+  `sigmaW`, `diffuseEmitter` on `lampWall` with `emissivePower =
+  P/(pi D L_arc) = 696.42 W/m^2`). Uses `system/controlDict.DOM`
+  for the radiation step (swapped in over `system/controlDict` and
+  restored on exit via a shell trap); seeds `0/I` into the latest
+  flow time so `startFrom latestTime` finds it; runs for one outer
+  step with `stopAt nextWrite`; then carries the flow fields
+  forward into the DOM time directory so `radiationDose` sees `U`
+  and `G` in the same time. Result: mean dose **64.45 mJ/cm²**
+  (paper: 68, 5 % low), max ~290, log reduction **1.39** (paper
+  1.87). The lower log reduction vs the analytical sibling is
+  real physics: DOM correctly attenuates the per-chord path
+  through the medium and accounts for end-cap emission, where the
+  infinite-line formula spreads 35 W uniformly along the arc with
+  no end effects. Both bracket the paper's 1.87.
+
+  Each case has its own `validate` script with a targeted
+  log-reduction window: `[1.6, 2.3]` for analytical, `[1.2, 1.7]`
+  for DOM.
 - **`refractiveInterface2D`** — full pedagogical version of the
   multi-region refractive-coupling case. `foamMultiRun` with the
   `opticalRadiation` solver module per region; mapped patches and
@@ -1316,14 +1336,15 @@ silently skip its cross-case diff.
 
 ### Long-running cases (tutorials)
 
-Tutorials with a `LONG_RUNNING` marker (currently just Sozzi) are
-skipped by `tutorials/Allrun` and `tutorials/Allclean` by default.
-Set `RUN_LONG_TUTORIALS=1` to include them:
+Tutorials with a `LONG_RUNNING` marker (currently both Sozzi cases:
+`uvReactorSozzi2006` and `uvReactorSozzi2006-DOM`) are skipped by
+`tutorials/Allrun` and `tutorials/Allclean` by default. Set
+`RUN_LONG_TUTORIALS=1` to include them:
 
 ```sh
 cd tutorials
 ./Allrun                           # short tutorials only
-RUN_LONG_TUTORIALS=1 ./Allrun      # include Sozzi
+RUN_LONG_TUTORIALS=1 ./Allrun      # include both Sozzi cases
 ```
 
 Run a single tutorial directly with `cd tutorials/<name> && ./Allrun`
