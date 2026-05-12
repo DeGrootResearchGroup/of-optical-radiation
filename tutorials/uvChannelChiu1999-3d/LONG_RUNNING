@@ -1,0 +1,20 @@
+3-D Chiu UV channel case. ~7 M cells, expected runtime:
+
+  * blockMesh + checkMesh:                       ~30 s
+  * foamRun (parallel, 8 cores, ~2000 iters):    ~2-3 hours
+  * opticalRadiationFoam (parallel, 8 cores):    ~30-60 min
+  * reconstructPar:                              ~2 min
+  * foamPostProcess radiationDose (serial,       ~30-60 min
+    10 k particles):
+  * Total wall-clock with 8-core MPI:            ~3-5 hours
+
+Not run by tutorials/Allrun unless RUN_LONG_TUTORIALS=1 is set.
+
+Quick run:
+
+    cd tutorials/uvChannelChiu1999-3d
+    CHIU_NPROC=8 ./Allrun-DOM
+    python3 ../uvChannelChiu1999/plot_results.py   # ad-hoc; the 2-D
+                                                    # plot script
+                                                    # doesn't handle
+                                                    # 3-D output yet

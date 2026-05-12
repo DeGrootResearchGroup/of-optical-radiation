@@ -1,0 +1,16 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+. "$WM_PROJECT_DIR/bin/tools/CleanFunctions"
+
+cleanCase
+rm -rf postProcessing constant/polyMesh
+rm -f system/blockMeshDict system/controlDict.flow.bak
+rm -rf processor*
+# Note: convergence/ is intentionally NOT removed by Allclean.
+# Allrun-convergence is a multi-iteration sweep that archives the
+# per-mesh dose stats there; preserving it across Allclean runs lets
+# you re-plot 05_convergence_dose.png without re-running the sweep.
+# Use `rm -rf convergence/` by hand to wipe a prior sweep.
+
+# ----------------------------------------------------------------------------
