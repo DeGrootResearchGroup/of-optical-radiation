@@ -65,10 +65,13 @@ radiationDose
         // (Chiu Table 2). The series-event n=3 result requires the raw
         // dose distribution and is computed post-hoc in validate.
         kInact          (0.5887);
-        // VTK trajectories balloon memory on the fine convergence
-        // mesh (~10k particles x ~thousands of vertices each); leave
-        // off by default and toggle on for the figure-generation run.
-        writeVtk        false;
+        // Per-particle trajectory VTK output (one polyline per track,
+        // coloured by accumulated dose). Can be heavy on memory at
+        // very fine meshes -- the trajectory accumulator stores every
+        // vertex per particle. With ~10 k particles times a few
+        // thousand steps each the buffer can hit ~1-2 GB before
+        // writeVtk dumps it; turn off via `writeVtk false` if it OOMs.
+        writeVtk        true;
     }
 }
 

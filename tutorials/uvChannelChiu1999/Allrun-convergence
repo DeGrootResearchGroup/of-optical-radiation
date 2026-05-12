@@ -54,9 +54,21 @@ for SIZE in $CONV_CELL_SIZES; do
         # Drop the generated blockMeshDict (parent's mesh may be a
         # different cell size). Allrun-DOM will regenerate it.
         rm -f "$SUBCASE/system/blockMeshDict"
+
+        # Bake the subcase's cell size into its make_mesh.py default
+        # so the subcase is self-contained: a later ./Allrun-DOM
+        # inside the subcase doesn't depend on CHIU_TARGET_CELL_SIZE
+        # being set in the parent shell.
+        sed -i.bak "s|CHIU_TARGET_CELL_SIZE', '0\\.0025'|CHIU_TARGET_CELL_SIZE', '$SIZE'|" \
+            "$SUBCASE/make_mesh.py"
+        rm -f "$SUBCASE/make_mesh.py.bak"
     fi
 
     cd "$SUBCASE"
+    # Pass CHIU_TARGET_CELL_SIZE explicitly too as belt-and-suspenders
+    # (the subcase's make_mesh.py defaults to the right value, but
+    # if a user has already exported CHIU_TARGET_CELL_SIZE in their
+    # shell we want this sweep to use $SIZE, not their override).
     CHIU_TARGET_CELL_SIZE=$SIZE ./Allrun-DOM
     cd "$PARENT_DIR"
 

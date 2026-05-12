@@ -94,7 +94,7 @@ LAMPS_PER_ROW   = 4
 # var CHIU_TARGET_CELL_SIZE for mesh convergence sweeps; default 2.5 mm
 # is ~10 cells across the lamp diameter and ~130 cells across the
 # channel width.
-TARGET_CELL_SIZE = float(os.environ.get('CHIU_TARGET_CELL_SIZE', '0.0025'))
+TARGET_CELL_SIZE = float(os.environ.get('CHIU_TARGET_CELL_SIZE', '0.005'))
 
 
 # -- Lamp positions --------------------------------------------------------

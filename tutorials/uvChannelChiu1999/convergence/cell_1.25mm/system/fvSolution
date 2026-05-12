@@ -45,7 +45,13 @@ solvers
 
 PIMPLE
 {
-    nNonOrthogonalCorrectors 0;
+    // 2 non-orthogonal correctors so the pressure solve compensates
+    // for the wedge cells around each lamp (cylinder-projected
+    // corners produce ~45 deg face skewness). 0 correctors is enough
+    // for the 5 mm and 2.5 mm meshes but the 1.25 mm wake structure
+    // amplifies the orthogonality error and the flow blows up
+    // without this.
+    nNonOrthogonalCorrectors 2;
     nCorrectors             2;
 
     // Conservative LTS Courant cap. The wake structure at finer

@@ -57,10 +57,12 @@ LAMPS_PER_ROW = 4
 
 
 def lamp_centres():
+    # Must match make_mesh.py: symmetric quarter-pitch shift so the
+    # two row-patterns are mirror images of each other about y=0.
     x_lamps = np.arange(N_ROWS) * ROW_PITCH_X
     y_centred = (np.arange(LAMPS_PER_ROW) - (LAMPS_PER_ROW - 1) / 2.0) * LAMP_PITCH_Y
-    y_even = y_centred
-    y_odd  = y_centred + LAMP_PITCH_Y / 2.0
+    y_even = y_centred - LAMP_PITCH_Y / 4.0
+    y_odd  = y_centred + LAMP_PITCH_Y / 4.0
     out = []
     for ix, xc in enumerate(x_lamps):
         for yc in (y_odd if ix % 2 == 1 else y_even):
@@ -156,9 +158,9 @@ def figure_dose_distribution(case_dir, out_path):
 
 
 def figure_G_contour(case_dir, out_path):
-    vtk_paths = sorted(glob.glob(
-        os.path.join(case_dir, "VTK", "uvChannelChiu1999_*.vtk")),
-        key=lambda p: int(os.path.basename(p).split("_")[1].split(".")[0]),
+    vtk_paths = sorted(
+        glob.glob(os.path.join(case_dir, "VTK", "*_*.vtk")),
+        key=lambda p: int(os.path.basename(p).rsplit("_", 1)[1].split(".")[0]),
     )
     if not vtk_paths:
         return None
@@ -192,9 +194,9 @@ def figure_G_contour(case_dir, out_path):
 
 
 def figure_U_streamlines(case_dir, out_path):
-    vtk_paths = sorted(glob.glob(
-        os.path.join(case_dir, "VTK", "uvChannelChiu1999_*.vtk")),
-        key=lambda p: int(os.path.basename(p).split("_")[1].split(".")[0]),
+    vtk_paths = sorted(
+        glob.glob(os.path.join(case_dir, "VTK", "*_*.vtk")),
+        key=lambda p: int(os.path.basename(p).rsplit("_", 1)[1].split(".")[0]),
     )
     # Pick the earliest time that has U (the flow snapshot, before the
     # DOM step bumped the time forward).
@@ -248,8 +250,13 @@ def figure_trajectories(case_dir, out_path, sample_size=150, seed=0):
     sample = [trajs[i] for i in indices]
     all_doses = np.concatenate([d for _, d in sample])
     pos = all_doses[all_doses > 0]
-    vmin = float(pos.min()) if pos.size else 0.1
-    vmax = float(all_doses.max())
+    # LogNorm requires strictly positive bounds. Fall back to a
+    # sensible default range if every sampled vertex has zero dose.
+    if pos.size and pos.max() > pos.min():
+        vmin = float(pos.min())
+        vmax = float(pos.max())
+    else:
+        vmin, vmax = 0.1, 100.0
 
     fig, ax = plt.subplots(figsize=(11, 4))
     for pts, dose in sample:
@@ -376,41 +383,53 @@ def figure_convergence_dose(case_dir, out_path):
 
 
 def main():
+    # The parent case dir is a template; the actual run artefacts live
+    # in the convergence subcases. Single-case figures (01-04) read
+    # from convergence/cell_2.5mm/ by default; the convergence overlay
+    # (fig 05) reads all subcases. Override the single-case mesh via
+    #     PLOT_CASE_DIR=convergence/cell_1.25mm python3 plot_results.py
     case_dir = os.path.dirname(os.path.abspath(__file__))
     out_dir = os.path.join(case_dir, "postProcessing", "figures")
     os.makedirs(out_dir, exist_ok=True)
 
+    single_case_rel = os.environ.get(
+        'PLOT_CASE_DIR', os.path.join('convergence', 'cell_2.5mm')
+    )
+    single_case_dir = os.path.join(case_dir, single_case_rel)
+    print(f"Single-case figures (01-04) plotting from: {single_case_dir}")
+
     builders = [
-        ("01_dose_distribution.png", figure_dose_distribution),
-        ("02_G_contour.png",         figure_G_contour),
-        ("03_U_streamlines.png",     figure_U_streamlines),
-        ("04_trajectories.png",      figure_trajectories),
-        ("05_convergence_dose.png",  figure_convergence_dose),
+        ("01_dose_distribution.png", figure_dose_distribution, single_case_dir),
+        ("02_G_contour.png",         figure_G_contour,         single_case_dir),
+        ("03_U_streamlines.png",     figure_U_streamlines,     single_case_dir),
+        ("04_trajectories.png",      figure_trajectories,      single_case_dir),
+        # Convergence overlay reads the whole sweep, not one case.
+        ("05_convergence_dose.png",  figure_convergence_dose,  case_dir),
     ]
 
     wrote = []
-    for fname, builder in builders:
+    for fname, builder, src_dir in builders:
         out_path = os.path.join(out_dir, fname)
         try:
-            result = builder(case_dir, out_path)
+            result = builder(src_dir, out_path)
         except Exception as e:
             sys.stderr.write(f"plot_results: {fname}: {type(e).__name__}: {e}\n")
             continue
         if result is None:
             sys.stderr.write(
-                f"plot_results: {fname}: required inputs not found; "
-                f"have you run Allrun-DOM and foamToVTK?\n"
+                f"plot_results: {fname}: required inputs not found in "
+                f"{src_dir}\n"
             )
             continue
         wrote.append(result)
 
     if not wrote:
         sys.stderr.write(
-            "plot_results: no figures produced. Run, in order:\n"
-            "  ./Allrun-DOM\n"
-            "  foamToVTK -time '<flow_time>,<dom_time>' "
+            "plot_results: no figures produced. Make sure the subcase\n"
+            f"at {single_case_dir} has been run end-to-end, including\n"
+            "    foamToVTK -time '<flow_time>,<dom_time>' "
             "-fields '(U G k epsilon)'\n"
-            "  python3 plot_results.py\n"
+            "from inside the subcase. Then rerun this script.\n"
         )
         return 1
 

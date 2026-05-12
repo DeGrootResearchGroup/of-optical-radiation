@@ -122,43 +122,39 @@ CONV_CELL_SIZES="0.005 0.0025" ./Allrun-convergence   # custom subset
 python3 plot_results.py           # adds 05_convergence_dose.png
 ```
 
-**Mesh convergence in the wall-function-valid regime.** The case
-ships with `nutUSpaldingWallFunction` on all walls (the same all-y+
-treatment the Sozzi tutorial uses) so the standard 30 < y+ < 300
-floor doesn't bite, and `maxCo = 0.5` in fvSolution to damp out a
-buffer-layer instability that develops on the finer meshes. At
-V = 24 cm/s, with the symmetric quarter-pitch-shifted layout:
+**Mesh convergence.** The case ships with `nutUSpaldingWallFunction`
+on all walls (all-y+ treatment, same as the Sozzi tutorial),
+`maxCo = 0.5`, and `nNonOrthogonalCorrectors = 2` in the PIMPLE loop
+(the cylinder-projected wedge cells around each lamp generate
+non-orthogonal faces; two correctors stabilise the pressure solve
+at the fine end of the sweep). At V = 24 cm/s, with the symmetric
+quarter-pitch-shifted layout:
 
-| cell (mm) | mean D | log_red(n=1) | log_red(n=3) | escape % |
-|-----------|--------|--------------|--------------|----------|
-| 5         | 30.81  | **2.00**     | 1.76         | 100      |
-| 2.5       | 20.33  | **2.04**     | 1.81         | 100      |
-| 1.25      | (see below: numerical instability on this mesh)            |
+| cell (mm) | cells   | mean D | log_red(n=1) | log_red(n=3) | escape % |
+|-----------|---------|--------|--------------|--------------|----------|
+| 5         | 36,762  | 30.8   | **1.99**     | 1.75         | 100      |
+| 2.5       | 157,600 | 20.4   | **2.04**     | 1.81         | 100      |
+| 1.25      | 625,600 | 18.2   | **1.93**     | 1.67         | 100      |
 
-5 mm and 2.5 mm agree on log reduction to ~2 % and both land
-essentially on the paper's Fig. 10 prediction of ~2.0 at V = 24 cm/s.
-Mean dose still drops with refinement (coarser meshes over-trap
-particles in lamp wakes, inflating the long tail) but that's a
-moment metric -- the disinfection integral is mesh-converged.
+All three meshes converge to log reduction 1.93 - 2.04 (~5 %
+scatter, well within the bioassay uncertainty band of [1.5, 2.5] in
+Fig. 10) and all land essentially on the paper's Fig. 10 model
+prediction of ~2.0 at V = 24 cm/s. Mean dose still drops slowly
+with refinement (coarser meshes over-trap particles in lamp wakes,
+inflating the long tail) -- the integral metric is converged but
+the moment metric isn't fully. **2.5 mm is the recommended
+production mesh** -- it captures the main physics with one-quarter
+of the cell count and one-tenth of the wall-clock time of 1.25 mm.
 
-The 1.25 mm refinement (y+ ~ 8 at the wall) drives the realizable
-k-eps model into an unphysical steady state where local U exceeds
-the bulk by ~50x while the wall-function profile is still nominally
-satisfied. The mean dose collapses and ~50 % of particles fail to
-escape. Mitigations that didn't help: switching to
-`nutUSpaldingWallFunction`, halving `maxCo`. Likely fixes (not
-applied):
-
-  * Switch turbulence model to k-omega-SST (automatic buffer-layer
-    treatment, much less sensitive to grid in this y+ range).
-  * Use a near-wall grading topology that keeps wall cells coarse
-    (y+ in valid range) while refining the bulk.
-  * Use a low-Re turbulence model with proper wall-resolved cells
-    (y+ ~ 1) all the way through.
-
-The subcase is preserved at `convergence/cell_1.25mm/` so the
-investigation can pick up from there. **2.5 mm is the recommended
-production mesh** for this geometry as it ships.
+Without the non-orthogonal correctors the 1.25 mm flow blows up
+(local |U| to O(10^2-10^3) m/s, log reduction collapses to 0.1).
+The skewed wedge cells around each cylinder produce mis-resolved
+pressure gradients that the default 0 corrector setting can't fix;
+adding two correctors compensates. The 5 mm and 2.5 mm meshes don't
+need this -- their wedge cells are larger relative to the channel
+scale and the orthogonality error doesn't amplify -- but the value
+is harmless on coarser meshes so the parent fvSolution turns it on
+unconditionally.
 
 ## Parallel execution
 
