@@ -5,6 +5,13 @@ constant/polyMesh/
 0.*
 log.*
 postProcessing/
+VTK/
+system/controlDict.flow.bak
+
+# Time directories (numeric/decimal, except 0/ which is initial cond.)
+[1-9]*[0-9]/
+[1-9]/
+0.*/
 
 # Override parent tutorials/.gitignore (which ignores all */0/) — we
 # track 0/ here because it contains the case boundary conditions and

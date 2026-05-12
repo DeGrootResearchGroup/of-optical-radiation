@@ -36,6 +36,11 @@ divSchemes
     div(phi,k)      Gauss upwind;
     div(phi,epsilon) Gauss upwind;
     div((nuEff*dev2(T(grad(U))))) Gauss linear;
+
+    // DOM ray transport (one finite-volume convection equation per
+    // ray bin per band; the rays' "velocity" is the discrete direction
+    // unit vector, named Ji internally by the radiationModel).
+    div(Ji,Ii_h)    bounded Gauss linearUpwind grad(Ii_h);
 }
 
 laplacianSchemes

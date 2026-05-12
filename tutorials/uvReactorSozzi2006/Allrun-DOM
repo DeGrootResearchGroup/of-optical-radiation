@@ -55,4 +55,9 @@ done
 # Stage 4: Lagrangian dose post-process.
 runApplication foamPostProcess -dict system/postProcess.dict -latestTime
 
+# Stage 5: convert flow + DOM fields to VTK so ParaView can render
+# the G field and velocity streamlines alongside the trajectories.vtk
+# that the dose tracker already writes.
+runApplication foamToVTK -time "$LATEST,$DOMTIME" -fields "(U G k epsilon p)"
+
 echo "Allrun-DOM: done; results in postProcessing/radiationDose/$DOMTIME/"
