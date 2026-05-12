@@ -1,0 +1,72 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvChannelChiu1999: PIMPLE LTS controlDict      |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solver          incompressibleFluid;
+
+startFrom       latestTime;
+startTime       0;
+
+stopAt          endTime;
+endTime         2000;
+deltaT          1;
+
+writeControl    runTime;
+writeInterval   500;
+purgeWrite      2;
+
+writeFormat     binary;
+writePrecision  8;
+writeCompression off;
+timeFormat      general;
+timePrecision   6;
+
+runTimeModifiable true;
+
+functions
+{
+    // Area-averaged pressure on inlet and outlet. The streamwise
+    // pressure-drop integral gives a robust check on flow convergence
+    // independent of the (LTS-normalised) solver residuals.
+    inletPressure
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        executeControl  timeStep;
+        executeInterval 1;
+        writeControl    timeStep;
+        writeInterval   1;
+        writeFields     no;
+        log             yes;
+        patch           inlet;
+        operation       areaAverage;
+        fields          (p);
+    }
+    outletPressure
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        executeControl  timeStep;
+        executeInterval 1;
+        writeControl    timeStep;
+        writeInterval   1;
+        writeFields     no;
+        log             yes;
+        patch           outlet;
+        operation       areaAverage;
+        fields          (p);
+    }
+}
+
+// ************************************************************************* //

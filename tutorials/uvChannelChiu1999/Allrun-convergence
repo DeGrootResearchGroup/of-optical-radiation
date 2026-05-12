@@ -4,53 +4,69 @@ set -e
 
 . "$WM_PROJECT_DIR/bin/tools/RunFunctions"
 
-# Run the Chiu case at three bulk cell sizes and archive each result
-# under postProcessing/convergence/cell_<size_mm>mm/. Default sweep is
-# 5.0 -> 2.5 -> 1.25 mm (factor-of-2 refinement, 4x cells per step in
-# 2-D); override the list via CONV_CELL_SIZES if needed.
+# Run the Chiu case at three bulk cell sizes, each in its own
+# nested subcase under convergence/cell_<size>mm/. Each subcase is a
+# self-contained OpenFOAM case (0/, constant/, system/, Allmesh,
+# Allrun-DOM, etc.) that can be opened independently in ParaView or
+# re-run on its own without touching the parent case.
 #
-# Each result is archived as:
-#   postProcessing/convergence/cell_<size_mm>mm/doseDistribution.csv
-#   postProcessing/convergence/cell_<size_mm>mm/summary.dat
-#   postProcessing/convergence/cell_<size_mm>mm/checkMesh.txt
+# Default sweep is 5.0 -> 2.5 -> 1.25 mm (factor-of-2 refinement, 4x
+# cells per step in 2-D); override the list via CONV_CELL_SIZES.
 #
-# plot_results.py adds an overlay of all three to
-# postProcessing/figures/05_convergence_dose.png after the sweep.
+# Set CHIU_NPROC > 1 (recommended for 2.5 mm and finer) to run flow
+# and DOM in parallel; the dose tracker stays serial.
+#
+# After the sweep, run `python3 plot_results.py` from the parent case
+# to overlay the dose distributions in postProcessing/figures/.
 
 CONV_CELL_SIZES="${CONV_CELL_SIZES:-0.005 0.0025 0.00125}"
+PARENT_DIR=$(pwd)
+ROOT="convergence"
 
-# Archive root lives OUTSIDE postProcessing/ so that the Allrun-DOM
-# call inside the loop (which starts with ./Allclean and wipes
-# postProcessing/) doesn't blow away results we just archived.
-ARCHIVE_ROOT="convergence"
-mkdir -p "$ARCHIVE_ROOT"
+mkdir -p "$ROOT"
+
+# Files we copy from the parent template into each new subcase.
+# blockMeshDict is intentionally NOT copied: each subcase regenerates
+# it via make_mesh.py with its own CHIU_TARGET_CELL_SIZE.
+TEMPLATE_DIRS="0 constant system"
+TEMPLATE_FILES="Allmesh Allrun-DOM Allclean make_mesh.py validate"
 
 for SIZE in $CONV_CELL_SIZES; do
     SIZE_MM=$(awk "BEGIN { printf \"%g\", $SIZE * 1000 }")
-    SLOT="$ARCHIVE_ROOT/cell_${SIZE_MM}mm"
+    SUBCASE="$ROOT/cell_${SIZE_MM}mm"
     echo
     echo "=================================================================="
     echo " mesh convergence sweep: cell size $SIZE_MM mm  ($SIZE m)"
+    echo " subcase: $SUBCASE"
     echo "=================================================================="
 
-    # Allrun-DOM does its own Allclean; no need to clean here first.
-    CHIU_TARGET_CELL_SIZE=$SIZE ./Allrun-DOM
+    if [ ! -d "$SUBCASE" ]; then
+        echo "Allrun-convergence: creating $SUBCASE from parent template..."
+        mkdir -p "$SUBCASE"
+        for d in $TEMPLATE_DIRS; do
+            cp -r "$d" "$SUBCASE/"
+        done
+        for f in $TEMPLATE_FILES; do
+            cp "$f" "$SUBCASE/"
+        done
+        # ParaView marker so the subcase opens directly.
+        touch "$SUBCASE/out.foam"
+        # Drop the generated blockMeshDict (parent's mesh may be a
+        # different cell size). Allrun-DOM will regenerate it.
+        rm -f "$SUBCASE/system/blockMeshDict"
+    fi
 
-    # Now that the run is done, allocate the archive slot (after
-    # Allclean has finished blowing away postProcessing/) and copy
-    # the dose stats + mesh check log into it.
-    rm -rf "$SLOT"
-    mkdir -p "$SLOT"
-    LATEST_DOSE=$(find postProcessing/radiationDose -mindepth 1 -maxdepth 1 \
-                  -type d | sort | tail -1)
-    cp "$LATEST_DOSE/doseDistribution.csv" "$SLOT/"
-    cp "$LATEST_DOSE/summary.dat"          "$SLOT/"
-    cp log.checkMesh                       "$SLOT/checkMesh.txt"
+    cd "$SUBCASE"
+    CHIU_TARGET_CELL_SIZE=$SIZE ./Allrun-DOM
+    cd "$PARENT_DIR"
 
     echo
-    echo " archived: $SLOT"
+    echo "Allrun-convergence: $SUBCASE complete"
 done
 
 echo
-echo "Sweep complete. Run python3 plot_results.py to produce"
-echo "postProcessing/figures/05_convergence_dose.png ."
+echo "Sweep complete. Each subcase under $ROOT/ holds its own"
+echo "0/<time>/, postProcessing/, log.*, etc. Run"
+echo "  python3 plot_results.py"
+echo "to overlay the three dose distributions in"
+echo "  postProcessing/figures/05_convergence_dose.png ."

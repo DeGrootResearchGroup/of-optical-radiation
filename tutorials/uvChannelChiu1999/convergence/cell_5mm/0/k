@@ -1,0 +1,53 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvChannelChiu1999: turbulent kinetic energy    |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      k;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Inlet k from a 5 % turbulence intensity guess at U = 0.24 m/s:
+//   k = 1.5 * (U * TI)^2 = 1.5 * (0.24 * 0.05)^2 = 2.16e-4 m^2/s^2.
+// This is a coarse first guess; the value isn't tuned to the LDV data,
+// just to a reasonable inlet condition for a piped supply.
+
+dimensions      [0 2 -2 0 0 0 0];
+
+internalField   uniform 2.16e-4;
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        value           uniform 2.16e-4;
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    walls
+    {
+        type            kqRWallFunction;
+        value           uniform 2.16e-4;
+    }
+    lampWall
+    {
+        type            kqRWallFunction;
+        value           uniform 2.16e-4;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

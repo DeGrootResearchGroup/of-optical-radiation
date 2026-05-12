@@ -1,0 +1,110 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+set -e
+
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# Driver: mesh + flow + DOM radiation + Lagrangian dose. Mirrors the
+# Sozzi tutorial's Allrun-DOM. Approach velocity defaults to 24 cm/s
+# (set in 0/U); edit 0/U to reproduce the Fig. 10 curve at 8, 12, 18 cm/s.
+#
+# Set CHIU_NPROC > 1 (recommended for the 2.5 mm and finer meshes) to
+# run flow + DOM in parallel via decomposePar/mpirun. The dose tracker
+# always runs serial because radiationDose's parallel-particle-handoff
+# path is single-rank OMP today (per CLAUDE.md). reconstructPar after
+# the DOM solve gives the dose tracker a single-rank mesh + fields.
+
+NPROC=${CHIU_NPROC:-1}
+
+# OpenMPI refuses to run as root by default. The OpenFOAM 13 Docker
+# image happens to run as root; setting these two env vars lets
+# mpirun proceed. They are no-ops on a non-root host.
+export OMPI_ALLOW_RUN_AS_ROOT=1
+export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+
+# Clean prior state so runApplication does not skip on stale log.<app>.
+./Allclean > /dev/null 2>&1 || true
+
+if [ ! -d constant/polyMesh ]; then
+    ./Allmesh
+fi
+
+run_serial_or_parallel() {
+    if [ "$NPROC" -gt 1 ]; then
+        runParallel "$@"
+    else
+        runApplication "$@"
+    fi
+}
+
+if [ "$NPROC" -gt 1 ]; then
+    echo "Allrun-DOM: parallel run with NPROC=$NPROC"
+    foamDictionary -entry numberOfSubdomains -set "$NPROC" \
+        system/decomposeParDict > /dev/null
+    runApplication decomposePar
+fi
+
+# Stage 1: steady RANS flow solve.
+run_serial_or_parallel foamRun
+
+# Stage 2: DOM radiation on the converged flow snapshot.
+if [ "$NPROC" -gt 1 ]; then
+    LATEST=$(foamListTimes -case processor0 -latestTime)
+else
+    LATEST=$(foamListTimes -case . -latestTime)
+fi
+if [ -z "$LATEST" ]; then
+    echo "Allrun-DOM: no time directory found after foamRun" >&2
+    exit 1
+fi
+echo "Allrun-DOM: flow converged at t=$LATEST; running DOM"
+
+if [ "$NPROC" -gt 1 ]; then
+    # Decomposed I template lives in each processor's 0/ dir after
+    # the initial decomposePar (which decomposed 0/I along with the
+    # flow fields). Stage it into the flow's latestTime on each rank.
+    for d in processor*/; do
+        if [ ! -f "$d/$LATEST/I" ]; then
+            cp "$d/0/I" "$d/$LATEST/I"
+        fi
+    done
+else
+    cp 0/I "$LATEST/I"
+fi
+
+mv system/controlDict system/controlDict.flow.bak
+cp system/controlDict.DOM system/controlDict
+trap 'mv system/controlDict.flow.bak system/controlDict 2>/dev/null || true' EXIT
+run_serial_or_parallel opticalRadiationFoam
+mv system/controlDict.flow.bak system/controlDict
+trap - EXIT
+
+if [ "$NPROC" -gt 1 ]; then
+    DOMTIME=$(foamListTimes -case processor0 -latestTime)
+else
+    DOMTIME=$(foamListTimes -case . -latestTime)
+fi
+echo "Allrun-DOM: DOM wrote I and G to t=$DOMTIME"
+
+# Stage 3: carry flow fields forward into the DOM time directory.
+if [ "$NPROC" -gt 1 ]; then
+    for d in processor*/; do
+        for f in U k epsilon nut p; do
+            if [ -f "$d/$LATEST/$f" ] && [ ! -f "$d/$DOMTIME/$f" ]; then
+                cp "$d/$LATEST/$f" "$d/$DOMTIME/"
+            fi
+        done
+    done
+    runApplication reconstructPar -latestTime
+else
+    for f in U k epsilon nut p; do
+        if [ -f "$LATEST/$f" ] && [ ! -f "$DOMTIME/$f" ]; then
+            cp "$LATEST/$f" "$DOMTIME/"
+        fi
+    done
+fi
+
+# Stage 4: Lagrangian dose post-process (always serial).
+runApplication foamPostProcess -dict system/postProcess.dict -latestTime
+
+echo "Allrun-DOM: done; results in postProcessing/radiationDose/$DOMTIME/"

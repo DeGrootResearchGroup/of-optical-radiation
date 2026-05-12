@@ -277,10 +277,10 @@ def figure_trajectories(case_dir, out_path, sample_size=150, seed=0):
 def figure_convergence_dose(case_dir, out_path):
     """Overlay dose distributions from a mesh-convergence sweep.
 
-    Reads convergence/cell_*mm/doseDistribution.csv (written by
-    Allrun-convergence; the path is outside postProcessing/ so that
-    Allclean's per-iteration wipe doesn't blow it away) and plots a
-    smoothed histogram per mesh.
+    Reads convergence/cell_*mm/postProcessing/radiationDose/<time>/
+    doseDistribution.csv (each subcase is a self-contained OpenFOAM
+    case spawned by Allrun-convergence) and plots a smoothed histogram
+    per mesh.
     """
     sweep_root = os.path.join(case_dir, "convergence")
     if not os.path.isdir(sweep_root):
@@ -288,17 +288,24 @@ def figure_convergence_dose(case_dir, out_path):
 
     runs = []
     for d in sorted(os.listdir(sweep_root)):
-        csv_path = os.path.join(sweep_root, d, "doseDistribution.csv")
-        if not os.path.isfile(csv_path):
+        sub_dir = os.path.join(sweep_root, d)
+        if not os.path.isdir(sub_dir):
             continue
         match = d.replace("cell_", "").replace("mm", "")
         try:
             size_mm = float(match)
         except ValueError:
             continue
+        # Find the latest dose CSV in this subcase's postProcessing dir.
+        csv_paths = sorted(glob.glob(os.path.join(
+            sub_dir, "postProcessing", "radiationDose", "*",
+            "doseDistribution.csv",
+        )))
+        if not csv_paths:
+            continue
         doses = []
         escaped = 0
-        with open(csv_path) as f:
+        with open(csv_paths[-1]) as f:
             for row in csv.DictReader(f):
                 doses.append(float(row["dose_mJ_cm2"]))
                 if row["endReason"].strip() == "escaped":

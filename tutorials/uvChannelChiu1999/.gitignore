@@ -5,7 +5,6 @@ constant/polyMesh/
 log.*
 postProcessing/
 VTK/
-convergence/
 processor*/
 
 # Defensive: Allrun-DOM stages a controlDict swap that should clean
@@ -17,3 +16,21 @@ system/controlDict.flow.bak
 # not regenerated content.
 !0/
 !0/*
+
+# Convergence subcases: track the case skeleton (drivers, system/, 0/,
+# constant/{except polyMesh/}) but ignore generated artefacts so the
+# sweep stays runnable from a clean checkout. Each subcase is a
+# full OpenFOAM case under convergence/cell_<size>mm/.
+# Time directories: ignore any numeric/decimal dir name *except* 0/
+# (the initial condition), the OF convention.
+convergence/*/[1-9]*[0-9]/
+convergence/*/[1-9]/
+convergence/*/0.*/
+convergence/*/log.*
+convergence/*/postProcessing/
+convergence/*/VTK/
+convergence/*/processor*/
+convergence/*/constant/polyMesh/
+convergence/*/system/blockMeshDict
+convergence/*/system/controlDict.flow.bak
+convergence/*/system/.*.swp

@@ -1,0 +1,54 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvChannelChiu1999: optical properties for DOM   |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Single-band 254 nm UV from low-pressure mercury arc lamps. Chiu et al.
+// 1999 used a point-source-summation (PSS) intensity model for the same
+// physics; we replace PSS with a true DOM solve of the RTE on the
+// channel mesh. Absorption coefficient is 43 1/m for the pilot system's
+// water (65 % transmittance per cm at 254 nm; alpha_w = 0.43 1/cm).
+// Scattering is neglected for clean treated effluent at 254 nm.
+//
+// nTheta = 1 because the mesh is two-dimensional in the xy plane;
+// nPhi = 16 gives 32 azimuthal directions which is fine enough that
+// the radiation field is not the limiting source of error on this
+// case (the discretisation of the lamp geometry is).
+
+opticalRadiation        on;
+radiationModel          DOM;
+
+DOMCoeffs
+{
+    nPhi          16;
+    nTheta        1;
+    convergence   1e-5;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+}
+
+extinctionModel constant;
+constantCoeffs
+{
+    nBands           1;
+    absorption       true;
+    absorptionCoeff  (43.0);
+    scattering       false;
+    scatteringCoeff  (0);
+}
+
+// ************************************************************************* //

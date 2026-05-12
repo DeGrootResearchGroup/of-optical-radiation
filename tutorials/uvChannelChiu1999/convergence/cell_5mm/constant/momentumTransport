@@ -1,0 +1,34 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvChannelChiu1999: realizable k-eps RAS         |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      momentumTransport;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+simulationType RAS;
+
+RAS
+{
+    // Lyn, Chiu, Blatchley (1999) -- the companion paper to Chiu et al.
+    // -- ran the same staggered UV channel geometry with k-eps in both
+    // standard and renormalisation-group (RNG) form and reported good
+    // agreement with the LDV velocity field. We use realizable k-eps,
+    // which gives the same flavour of accuracy on cylinder-array
+    // wakes and matches the Sozzi 2006 tutorial in this repo.
+    model           realizableKE;
+
+    turbulence      on;
+
+    viscosityModel  Newtonian;
+}
+
+// ************************************************************************* //

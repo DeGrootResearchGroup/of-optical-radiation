@@ -1,0 +1,39 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvChannelChiu1999: controlDict for DOM step    |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     opticalRadiationFoam;
+
+startFrom       latestTime;
+stopAt          nextWrite;
+endTime         1e10;
+deltaT          1;
+
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+
+// ASCII write: the diffuseEmitter BC's emissivePower DynamicList
+// round-trips cleanly in ASCII but writes the values as a mixed
+// ASCII/binary blob in binary mode that reconstructPar chokes on.
+writeFormat     ascii;
+writePrecision  8;
+writeCompression off;
+
+timeFormat      general;
+timePrecision   6;
+
+runTimeModifiable false;
+
+// ************************************************************************* //
