@@ -54,13 +54,11 @@ PIMPLE
     nNonOrthogonalCorrectors 2;
     nCorrectors             2;
 
-    // Conservative LTS Courant cap. The wake structure at finer
-    // meshes (~1.25 mm) develops a buffer-layer instability at the
-    // default maxCo = 1.0 that drives the local |U| to O(10^3) m/s
-    // without breaking the global residual normalisation. maxCo = 0.5
-    // tames it and the 5 mm / 2.5 mm cases still converge in the
-    // endTime = 2000 outer-iteration budget.
-    maxCo                   0.5;
+    // 3-D RANS gets cleaner convergence than 2-D (spanwise
+    // dissipation pathways the 2-D simulation doesn't have), so start
+    // at maxCo = 1.0; tighten only if residuals plateau or local U
+    // blows up.
+    maxCo                   1.0;
     rDeltaTSmoothingCoeff   0.1;
     maxDeltaT               1.0;
 
