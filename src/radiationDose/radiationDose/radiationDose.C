@@ -15,6 +15,31 @@
 #include "meshSearch.H"
 #include "polyBoundaryMesh.H"
 
+#include <cmath>
+#include <limits>
+
+namespace
+{
+    // Clamp values whose magnitude falls below float32's smallest
+    // normal (~1.18e-38) to exactly 0 before VTK emission. ParaView's
+    // legacy-ASCII reader loses sync with the declared array size when
+    // it encounters subnormal floats -- empirically the parser bails
+    // mid-array on the next-array `SCALARS` keyword and the file
+    // becomes unreadable past the first one or two arrays. Dose / time
+    // accumulators routinely produce O(1e-20..1e-45) values in cells
+    // with negligible G (e.g. shadowed seed positions), and those
+    // values would have rounded to 0 once stored as the SCALARS-
+    // declared `float` type anyway -- so this flush-to-zero is
+    // information-preserving for the VTK file format.
+    inline Foam::scalar vtkSafeFloat(const Foam::scalar x)
+    {
+        return
+            std::abs(x) < std::numeric_limits<float>::min()
+          ? Foam::scalar(0)
+          : x;
+    }
+}
+
 // * * * * * * * * * * * * * * * * Static Data * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -667,14 +692,14 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories
         << "LOOKUP_TABLE default" << nl;
     walkVerts
     (
-        [&](label r, label v) { os << g.vertT[r][v] << nl; }
+        [&](label r, label v) { os << vtkSafeFloat(g.vertT[r][v]) << nl; }
     );
 
     os  << "SCALARS dose_mJcm2 float 1" << nl
         << "LOOKUP_TABLE default" << nl;
     walkVerts
     (
-        [&](label r, label v) { os << g.vertD[r][v] << nl; }
+        [&](label r, label v) { os << vtkSafeFloat(g.vertD[r][v]) << nl; }
     );
 
     os  << "SCALARS cell int 1" << nl
@@ -721,7 +746,7 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories
         forAll(g.nVerts[r], i)
         {
             if (g.nVerts[r][i] == 0) continue;
-            os << g.dose[r][i] << nl;
+            os << vtkSafeFloat(g.dose[r][i]) << nl;
         }
     }
 }

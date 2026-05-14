@@ -898,6 +898,23 @@ For each `execute()` call, `write()` emits:
   single-file `.vtk` format rather than XML `.vtp` because it is
   hand-writable without an XML library and ParaView reads either.
 
+  Per-vertex `time_s`, `dose_mJcm2`, and per-cell
+  `finalDose_mJcm2` are flushed to zero in the VTK writer when
+  their magnitude falls below `numeric_limits<float>::min()`
+  (~1.18e-38). Without the flush, particles seeded in essentially-
+  shadowed cells (where the interpolated `G` is `O(1e-20)` from
+  floating-point noise) accumulate float-subnormal dose values
+  for hundreds of steps before reaching the lamp; ParaView's
+  legacy-ASCII reader loses sync with the declared array length
+  when it encounters a subnormal float and bails on the next
+  array's `SCALARS` header with "Unsupported point attribute
+  type: <subnormal value>", making everything past
+  `dose_mJcm2` unreadable (the cell / trackId / endReason /
+  finalDose_mJcm2 scalars all disappear from ParaView's Threshold
+  options). The flush is information-preserving because the VTK
+  reader would round subnormals to zero when storing into the
+  declared `float` arrays anyway.
+
   Optional pre-write dose-range filter via `output.vtkMinDose`
   and `output.vtkMaxDose` (both default `-1`, which disables the
   corresponding bound). A track is written only if its final
