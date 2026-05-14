@@ -113,6 +113,12 @@ class mieExtinction
         //- Pre-multiplied geometric factor pi r^2 Q_abs per band [m^2]
         List<scalar> sigmaAbsPrefactorPerBand_;
 
+        //- The above factors wrapped as dimensionedScalars so correct()
+        //  doesn't reconstruct one per band per call. Same values as
+        //  the *PerBand_ lists, just with the area dimensions attached.
+        PtrList<dimensionedScalar> sigmaAPerBandDimd_;
+        PtrList<dimensionedScalar> sigmaSPerBandDimd_;
+
 public:
 
     //- Runtime type information

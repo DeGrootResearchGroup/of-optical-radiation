@@ -86,7 +86,15 @@ class linearSpeciesExtinction
 
         //- Scattering coefficients (one per species per band)
         DynamicList<DynamicList<scalar, 1, 0> > sCoeffs_;
-       
+
+        //- Absorption / scattering coefficients wrapped as
+        //  dimensionedScalars (m^2/kg). One per (species, band) so
+        //  correct() doesn't reconstruct them on every call. Indexed
+        //  aCoeffsDimd_[iSpecies][iBand]; the outer PtrList holds one
+        //  PtrList per species, the inner one entry per band.
+        PtrList<PtrList<dimensionedScalar>> aCoeffsDimd_;
+        PtrList<PtrList<dimensionedScalar>> sCoeffsDimd_;
+
 public:
 
     //- Runtime type information

@@ -39,9 +39,11 @@ error of the DOM).
 
 import math
 import os
-import re
 import statistics
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
 
 
 TOLERANCE = 0.10
@@ -91,19 +93,6 @@ def reference_G(tau_L: float, omega: float, L_w: float, taus: list,
     return G
 
 
-def read_G(path: str) -> list:
-    with open(path) as f:
-        txt = f.read()
-    m = re.search(
-        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
-        txt,
-        re.S,
-    )
-    if not m:
-        sys.exit(f"validate: could not parse {path}")
-    return list(map(float, m.group(2).split()))
-
-
 def main() -> int:
     EMISSIVE_POWER = 5.0
     KAPPA = 0.5
@@ -116,7 +105,7 @@ def main() -> int:
     omega = SIGMA_S / beta
     tau_L = beta * L
 
-    vals = read_G("1/G")
+    vals = read_internal_scalar_field("1/G")
     if len(vals) != NX * NY * NZ:
         sys.exit(
             f"validate: expected {NX*NY*NZ} cells, got {len(vals)} - "

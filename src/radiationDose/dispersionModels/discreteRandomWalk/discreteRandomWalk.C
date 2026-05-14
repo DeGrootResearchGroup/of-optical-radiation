@@ -10,6 +10,7 @@
 #include "addToRunTimeSelectionTable.H"
 #include "constants.H"
 #include "volFields.H"
+#include "gaussianSample.H"
 
 // * * * * * * * * * * * * * * * * Static Data * * * * * * * * * * * * * * * //
 
@@ -19,6 +20,18 @@ namespace dose
 {
     defineTypeNameAndDebug(discreteRandomWalk, 0);
     addToRunTimeSelectionTable(dispersionModel, discreteRandomWalk, dictionary);
+
+    // Register the static requiredFields helper so the base class's
+    // dispatcher (dispersionModel::requiredFields(dict)) can find it
+    // without instantiating a throwaway DRW model.
+    namespace
+    {
+        const dispersionModel::addRequiredFields _drwReqFields
+        (
+            "discreteRandomWalk",
+            &discreteRandomWalk::requiredFields
+        );
+    }
 }
 }
 
@@ -34,7 +47,8 @@ Foam::dose::discreteRandomWalk::discreteRandomWalk
     dispersionModel(dict, mesh),
     kName_(dict.lookupOrDefault<word>("k", "k")),
     epsilonName_(dict.lookupOrDefault<word>("epsilon", "epsilon")),
-    Cl_(dict.lookupOrDefault<scalar>("Cl", 0.15))
+    Cl_(dict.lookupOrDefault<scalar>("Cl", 0.15)),
+    tauEMax_(dict.lookupOrDefault<scalar>("tauEMax", 100.0))
 {}
 
 
@@ -68,23 +82,12 @@ Foam::vector Foam::dose::discreteRandomWalk::fluctuation
 
     if (s.remaining <= 0 || kVal <= small)
     {
-        // Resample: 3 independent N(0, sigma) components via Box-Muller.
+        // Resample: 3 independent N(0, sigma) components from a shared
+        // Box-Muller triple. sigma = sqrt(2k/3) is the per-component
+        // isotropic-turbulence variance (Gosman-Ioannides 1981).
         const scalar sigma = sqrt(2.0/3.0*kVal);
-
-        const scalar twoPi = constant::mathematical::twoPi;
-        const scalar r1 = max(rng.scalar01(), small);
-        const scalar r2 = rng.scalar01();
-        const scalar r3 = max(rng.scalar01(), small);
-        const scalar r4 = rng.scalar01();
-
-        const scalar mag1 = sqrt(-2.0*log(r1));
-        const scalar z1 = mag1*cos(twoPi*r2);
-        const scalar z2 = mag1*sin(twoPi*r2);
-        const scalar mag3 = sqrt(-2.0*log(r3));
-        const scalar z3 = mag3*cos(twoPi*r4);
-
-        s.uPrime = sigma*vector(z1, z2, z3);
-        s.remaining = Cl_*kVal/epsVal;
+        s.uPrime = sigma*gaussianTriple(rng);
+        s.remaining = min(Cl_*kVal/epsVal, tauEMax_);
     }
 
     s.remaining -= dt;

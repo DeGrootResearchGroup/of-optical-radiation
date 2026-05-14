@@ -1,0 +1,68 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0/mediumA";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        // Collimated beam at 11.25 deg from +x (centre of ray-bin 0
+        // in the nPhi=8 angular discretisation).
+        type            collimatedBeam;
+        nBands          1;
+        beamDirection   (0.98079 0.19509 0);
+        beamRadiance    (10);
+        value           uniform 0;
+    }
+
+    sides
+    {
+        // Black absorbing y-walls (R = 0). Limits the test to the
+        // characteristic-traceable region but keeps the analysis clean.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+
+    mediumA_to_mediumB
+    {
+        // Transparent matched-index coupled interface. radiationCoupled
+        // validates that the neighbour patch's n list matches this side
+        // (within 1e-9 relative) at first updateCoeffs() -- so the
+        // common error of wiring a refractive interface to the
+        // transparent BC is caught loudly. The two sides MUST declare
+        // the same n.
+        type            radiationCoupled;
+        nBands          1;
+        n               (1.33);
+        value           uniform 0;
+    }
+
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

@@ -1,0 +1,14 @@
+#!/bin/sh
+. "$(dirname "$0")/../lib/AllrunPreamble.sh"
+
+# Restore stock initial fields BEFORE createNonConformalCouples so the
+# utility can read AMI_L / AMI_R as ordinary patches and rewrite their
+# field BCs to nonConformalCyclic in place.
+rm -rf 0
+cp -r 0.orig 0
+
+runApplication blockMesh
+runApplication createNonConformalCouples -fields AMI_L AMI_R
+runApplication opticalRadiationFoam
+
+# ----------------------------------------------------------------------------

@@ -15,6 +15,31 @@
 #include "meshSearch.H"
 #include "polyBoundaryMesh.H"
 
+#include <cmath>
+#include <limits>
+
+namespace
+{
+    // Clamp values whose magnitude falls below float32's smallest
+    // normal (~1.18e-38) to exactly 0 before VTK emission. ParaView's
+    // legacy-ASCII reader loses sync with the declared array size when
+    // it encounters subnormal floats -- empirically the parser bails
+    // mid-array on the next-array `SCALARS` keyword and the file
+    // becomes unreadable past the first one or two arrays. Dose / time
+    // accumulators routinely produce O(1e-20..1e-45) values in cells
+    // with negligible G (e.g. shadowed seed positions), and those
+    // values would have rounded to 0 once stored as the SCALARS-
+    // declared `float` type anyway -- so this flush-to-zero is
+    // information-preserving for the VTK file format.
+    inline Foam::scalar vtkSafeFloat(const Foam::scalar x)
+    {
+        return
+            std::abs(x) < std::numeric_limits<float>::min()
+          ? Foam::scalar(0)
+          : x;
+    }
+}
+
 // * * * * * * * * * * * * * * * * Static Data * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -46,7 +71,9 @@ Foam::functionObjects::radiationDose::radiationDose
     dtMax_(0.01),
     cflMax_(0.5),
     maxOuterSteps_(100000),
-    writeVtk_(true)
+    writeVtk_(true),
+    vtkMinDose_(-1),
+    vtkMaxDose_(-1)
 {
     read(dict);
 }
@@ -86,16 +113,33 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
     escapePatchIDs_.clear();
     forAll(escapePatches, i)
     {
+        // Each rank looks the patch up locally. For mesh boundary
+        // patches (inlet/outlet/walls/etc.) the index is identical on
+        // every rank because OF mirrors the full boundary list on each
+        // decomposed rank (zero-face stubs where the patch isn't
+        // owned). A missing name on a rank therefore means a real
+        // typo, not a decomposition artefact -- but in parallel we
+        // reduce-then-fail so all ranks abort with the same message
+        // instead of just the first one to notice.
         const label patchi =
             mesh_.boundaryMesh().findIndex(escapePatches[i]);
-        if (patchi < 0)
+
+        label maxPatchi = patchi;
+        if (Pstream::parRun())
+        {
+            reduce(maxPatchi, maxOp<label>());
+        }
+        if (maxPatchi < 0)
         {
             FatalErrorInFunction
                 << "escapePatch " << escapePatches[i]
-                << " not found in mesh"
+                << " not found on any rank"
                 << exit(FatalError);
         }
-        escapePatchIDs_.insert(patchi);
+        if (patchi >= 0)
+        {
+            escapePatchIDs_.insert(patchi);
+        }
     }
     maxTime_ = termDict.lookupOrDefault<scalar>("maxTime", 0);
     maxDose_ = termDict.lookupOrDefault<scalar>("maxDose", 0);
@@ -117,7 +161,42 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
 
     const dictionary& outDict = dict.subDict("output");
     kInact_ = outDict.lookupOrDefault<scalarList>("kInact", scalarList());
+    forAll(kInact_, i)
+    {
+        const scalar k = kInact_[i];
+        if (k <= 0)
+        {
+            FatalErrorInFunction
+                << "kInact[" << i << "] = " << k
+                << " cm^2/mJ is not positive. Each entry must be > 0;"
+                << " the dose-response model exp(-k*D) requires it."
+                << exit(FatalError);
+        }
+        // Soft band on typical microbial UV inactivation rate constants
+        // (cm^2/mJ): ~5e-3 for spores up to ~1.5 for highly UV-sensitive
+        // bacteria. A value far outside this band almost certainly
+        // signals a unit mix-up (e.g. m^2/J = 10 cm^2/mJ).
+        if (k < 1e-3 || k > 100)
+        {
+            WarningInFunction
+                << "kInact[" << i << "] = " << k
+                << " cm^2/mJ is well outside the typical microbial"
+                << " range (~5e-3 to 1.5 cm^2/mJ). Check the units."
+                << endl;
+        }
+    }
     writeVtk_ = outDict.lookupOrDefault<Switch>("writeVtk", true);
+
+    vtkMinDose_ = outDict.lookupOrDefault<scalar>("vtkMinDose", -1);
+    vtkMaxDose_ = outDict.lookupOrDefault<scalar>("vtkMaxDose", -1);
+    if (vtkMinDose_ >= 0 && vtkMaxDose_ >= 0 && vtkMaxDose_ < vtkMinDose_)
+    {
+        FatalErrorInFunction
+            << "vtkMaxDose (" << vtkMaxDose_ << ") < vtkMinDose ("
+            << vtkMinDose_ << "). Either bound can be disabled by"
+            << " setting it to a negative value."
+            << exit(FatalError);
+    }
 
     return true;
 }
@@ -128,17 +207,19 @@ Foam::wordList Foam::functionObjects::radiationDose::fields() const
     DynamicList<word> f;
     f.append(UName_);
     f.append(GName_);
-    // Probe the dispersion and motion models for any extra fields they
-    // need (e.g. k, epsilon for DRW). Done with throw-away instances —
-    // the models themselves are rebuilt fresh in execute().
-    autoPtr<dose::dispersionModel> dispProbe =
-        dose::dispersionModel::New(dispersionDict_, mesh_);
-    const wordList dispExtra = dispProbe->requiredFields();
+
+    // Static dispatch: each concrete dispersion / motion model
+    // registers a wordList(*)(const dictionary&) at static-init time,
+    // and the base class's requiredFields(dict) looks it up by type
+    // name. No throwaway model is constructed -- in particular, the
+    // inertial motion model doesn't need to build its drag-model
+    // sub-tree just to tell us it needs no extra fields.
+    const wordList dispExtra =
+        dose::dispersionModel::requiredFields(dispersionDict_);
     forAll(dispExtra, i) { f.append(dispExtra[i]); }
 
-    autoPtr<dose::motionModel> motProbe =
-        dose::motionModel::New(motionDict_, mesh_);
-    const wordList motExtra = motProbe->requiredFields();
+    const wordList motExtra =
+        dose::motionModel::requiredFields(motionDict_);
     forAll(motExtra, i) { f.append(motExtra[i]); }
 
     return wordList(f);
@@ -363,8 +444,11 @@ Foam::functionObjects::radiationDose::gatherTracks() const
         g.xEnd[me][k]      = p.position(mesh_);
 
         const DynamicList<dose::trackPoint>& pts = p.points();
+        const bool doseInRange =
+            (vtkMinDose_ < 0 || p.D() >= vtkMinDose_)
+         && (vtkMaxDose_ < 0 || p.D() <= vtkMaxDose_);
         const label nv =
-            (writeVtk_ && pts.size() >= 2) ? pts.size() : 0;
+            (writeVtk_ && pts.size() >= 2 && doseInRange) ? pts.size() : 0;
         g.nVerts[me][k] = nv;
         for (label j = 0; j < nv; ++j)
         {
@@ -430,19 +514,28 @@ void Foam::functionObjects::radiationDose::writeSummary
 {
     DynamicList<scalar> doses;
     label totalSeeded = 0;
+    label nEscaped = 0, nTimedOut = 0, nStuck = 0, nTerm = 0, nActive = 0;
     forAll(g.origId, r)
     {
         totalSeeded += g.origId[r].size();
         forAll(g.origId[r], i)
         {
-            if
-            (
-                static_cast<dose::dosePathParticle::endReason>
-                    (g.endReason[r][i])
-             == dose::dosePathParticle::endReason::escaped
-            )
+            const auto er = static_cast<dose::dosePathParticle::endReason>
+                (g.endReason[r][i]);
+            switch (er)
             {
-                doses.append(g.dose[r][i]);
+                case dose::dosePathParticle::endReason::escaped:
+                    ++nEscaped;
+                    doses.append(g.dose[r][i]);
+                    break;
+                case dose::dosePathParticle::endReason::timedOut:
+                    ++nTimedOut; break;
+                case dose::dosePathParticle::endReason::stuck:
+                    ++nStuck;    break;
+                case dose::dosePathParticle::endReason::terminated:
+                    ++nTerm;     break;
+                case dose::dosePathParticle::endReason::active:
+                    ++nActive;   break;
             }
         }
     }
@@ -468,11 +561,19 @@ void Foam::functionObjects::radiationDose::writeSummary
     OFstream os(outDir/"summary.dat");
     os  << "# radiationDose summary" << nl
         << "totalSeeded     " << totalSeeded << nl
-        << "escaped         " << N << nl
+        << "escaped         " << nEscaped << nl
+        << "timedOut        " << nTimedOut << nl
+        << "stuck           " << nStuck << nl
+        << "terminated      " << nTerm << nl
+        << "stillActive     " << nActive << nl
         << "meanDose_mJcm2  " << mean << nl
         << "stdevDose_mJcm2 " << stdev << nl
         << "minDose_mJcm2   " << (N > 0 ? minD : 0) << nl
-        << "maxDose_mJcm2   " << maxD << nl;
+        << "maxDose_mJcm2   " << maxD << nl
+        << "# Dose statistics and logReduction lines use the escaped"
+        << " population only (N = " << N << ")." << nl
+        << "# Tracks that timed out, got stuck, or hit maxDose are not"
+        << " representative of reactor throughput and are excluded." << nl;
 
     forAll(kInact_, i)
     {
@@ -591,14 +692,14 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories
         << "LOOKUP_TABLE default" << nl;
     walkVerts
     (
-        [&](label r, label v) { os << g.vertT[r][v] << nl; }
+        [&](label r, label v) { os << vtkSafeFloat(g.vertT[r][v]) << nl; }
     );
 
     os  << "SCALARS dose_mJcm2 float 1" << nl
         << "LOOKUP_TABLE default" << nl;
     walkVerts
     (
-        [&](label r, label v) { os << g.vertD[r][v] << nl; }
+        [&](label r, label v) { os << vtkSafeFloat(g.vertD[r][v]) << nl; }
     );
 
     os  << "SCALARS cell int 1" << nl
@@ -631,6 +732,21 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories
         {
             if (g.nVerts[r][i] == 0) continue;
             os << g.endReason[r][i] << nl;
+        }
+    }
+
+    // Per-track final dose. Duplicates the last per-vertex dose_mJcm2
+    // value, but having it as cell data lets ParaView's "Threshold"
+    // filter slice whole tracks (under/over-dosed populations) without
+    // a Cell Data To Point Data conversion or a join against the CSV.
+    os  << "SCALARS finalDose_mJcm2 float 1" << nl
+        << "LOOKUP_TABLE default" << nl;
+    forAll(g.nVerts, r)
+    {
+        forAll(g.nVerts[r], i)
+        {
+            if (g.nVerts[r][i] == 0) continue;
+            os << vtkSafeFloat(g.dose[r][i]) << nl;
         }
     }
 }

@@ -17,6 +17,15 @@ namespace dose
 {
     defineTypeNameAndDebug(tracer, 0);
     addToRunTimeSelectionTable(motionModel, tracer, dictionary);
+
+    namespace
+    {
+        const motionModel::addRequiredFields _tracerReqFields
+        (
+            "tracer",
+            &tracer::requiredFields
+        );
+    }
 }
 }
 

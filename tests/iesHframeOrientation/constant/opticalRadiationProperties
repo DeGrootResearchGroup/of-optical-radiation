@@ -1,0 +1,43 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation on;
+radiationModel   DOM;
+
+DOMCoeffs
+{
+    // 3-D angular discretisation. nPhi=8, nTheta=8 -> 64 rays. The
+    // four cardinal-h probes are placed deep in distinct ray bins.
+    // Higher discretisation than the existing iesEmitterMatch (which
+    // is rotationally symmetric and can run at nPhi=8 nTheta=1) is
+    // required here to resolve the four h-direction lobes separately.
+    nPhi          8;
+    nTheta        8;
+    convergence   1e-6;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+}
+
+extinctionModel transparent;
+transparentCoeffs
+{
+    nBands           1;
+}
+
+// ************************************************************************* //

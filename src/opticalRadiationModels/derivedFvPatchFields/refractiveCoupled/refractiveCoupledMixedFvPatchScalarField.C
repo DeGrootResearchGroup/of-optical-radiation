@@ -135,6 +135,7 @@ refractiveCoupledMixedFvPatchScalarField
         valueFraction() = 1.0;
 
     }
+
 }
 
 
@@ -201,8 +202,15 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
         npTheta = 1;
     }
 
-    // Create a list of scalarField objects to store the other rays
-    PtrList<scalarField> NbrRaySet(nAngle*nBands_);
+    // The cross-coupling (reflection + refraction) at the interface
+    // stays within the BC's own band -- dirToRayId(..., iBand) below
+    // never escapes iBand. So we only need to fetch the neighbour's
+    // patch-internal values for rays in this iBand, not for every
+    // (band, angle) tuple. Index by per-band angle and offset the
+    // rayId before lookup. Saves (nBands - 1) * nAngle fromNeighbour
+    // allocations per face on multi-band cases.
+    PtrList<scalarField> NbrRaySet(nAngle);
+    const label bandOffset = iBand*nAngle;
 
     // Get the coupling information from the mappedPatchBase
     const mappedPatchBase& mpp = mappedPatchBase::getMap(patch().patch());
@@ -210,20 +218,16 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
     const fvMesh& nbrMesh = refCast<const fvMesh>(mpp.nbrMesh());
     const fvPatch& nbrPatch = nbrMesh.boundary()[nbrPatchI];
 
-    // Loop through all rays and store the internal cell values for the patch
-    for (label jBand = 0; jBand < nBands_; jBand++)
+    for (label jAngle = 0; jAngle < nAngle; jAngle++)
     {
-        for (label jAngle = 0; jAngle < nAngle; jAngle++)
-        {
-            label rayI = jAngle + jBand*nAngle;
+        const label rayI = jAngle + bandOffset;
 
-            const refractiveCoupledMixedFvPatchScalarField&
-                nbrField = refCast
-                <const refractiveCoupledMixedFvPatchScalarField>
-                (nbrPatch.lookupPatchField<volScalarField, scalar>(dom.IRay(rayI).I().name()));
+        const refractiveCoupledMixedFvPatchScalarField&
+            nbrField = refCast
+            <const refractiveCoupledMixedFvPatchScalarField>
+            (nbrPatch.lookupPatchField<volScalarField, scalar>(dom.IRay(rayI).I().name()));
 
-            NbrRaySet.set(rayI, mpp.fromNeighbour(nbrField.patchInternalField()));
-        }
+        NbrRaySet.set(jAngle, mpp.fromNeighbour(nbrField.patchInternalField()));
     }
 
     // Store refractive indices for each side, as well as their ratio
@@ -267,7 +271,6 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
         // Case 1: Ray is coming out of wall, or there is overhang -> Calculate radiance at the wall
         if (cosR > 0.0 || overhang)
         {
-            // Note: diffuse radiation code has not been checked at all; use at own risk!
             if (diffuseFraction_ > 0)
             {
                 for (label jAngle = 0; jAngle < nAngle; jAngle++)
@@ -287,8 +290,19 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
 
                         if (cosB*cosB > 1 - 1/(nRatio*nRatio))
                         {
+                            // max(0, .) guards against floating-point
+                            // disagreement between the TIR check above
+                            // and the sqrt argument right at the
+                            // critical angle. They are algebraically
+                            // equivalent but rearranged differently
+                            // and can land on opposite sides of zero
+                            // by one ulp; without the floor a single
+                            // grazing face would taint the patch with
+                            // NaN.
+                            const scalar a =
+                                max(scalar(0), 1 - nRatio*nRatio*(1 - cosB*cosB));
                             vector refracIncidentDir = (sweepDir - cosB*surfNorm)*nRatio
-                                + Foam::sqrt(1 -(nRatio*nRatio)*(1- cosB*cosB))*surfNorm;
+                                + Foam::sqrt(a)*surfNorm;
 
                             scalar cosA = surfNorm & refracIncidentDir;
 
@@ -301,7 +315,7 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
                             // Transmitted radiance picks up an (nB/nA)^2 factor
                             // from solid-angle compression across the interface
                             // (radiance invariant is I/n^2, not I).
-                            diffuse += (NbrRaySet[refracIncidentRay][faceI]*nRatio*nRatio*(1-R) + reflecFace[faceI]*R) *mag(surfNorm & sweepdAve);
+                            diffuse += (NbrRaySet[refracIncidentRay - bandOffset][faceI]*nRatio*nRatio*(1-R) + reflecFace[faceI]*R) *mag(surfNorm & sweepdAve);
 
                         }
                         else
@@ -355,8 +369,12 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
                         // Check that outgoing pixel ray is within the critical angle for refracted rays coming from side A
                         if ((1 - (nRatio*nRatio)*(1 - cosB*cosB)) > 0.0)
                         {
-                            // Calculate direction of refracted radiation
-                            vector refractIncidentDir = (pixelDir - cosB*surfNorm)*nRatio + Foam::sqrt(1 - (nRatio*nRatio)*(1 - cosB*cosB))*surfNorm;
+                            // max(0, .): see grazing-angle note in the
+                            // diffuse path above.
+                            const scalar a =
+                                max(scalar(0), 1 - nRatio*nRatio*(1 - cosB*cosB));
+                            vector refractIncidentDir =
+                                (pixelDir - cosB*surfNorm)*nRatio + Foam::sqrt(a)*surfNorm;
 
                             // Get the ID of the ray in the direction of the refracted incident ray
                             label refractIncidentRay = dom.dirToRayId(refractIncidentDir, iBand);
@@ -427,8 +445,11 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
                             // Check if the the outgoing ray results from refraction
                             if ((1 - (nRatio*nRatio)*(1 - cosB*cosB)) > 0.0)
                             {
-                                // Calculate direction of refracted radiation
-                                vector refractIncidentDir = (reflectDir - cosB*surfNorm)*nRatio + Foam::sqrt(1 - (nRatio*nRatio)*(1 - cosB*cosB))*surfNorm;
+                                // max(0, .): see grazing-angle note above.
+                                const scalar a =
+                                    max(scalar(0), 1 - nRatio*nRatio*(1 - cosB*cosB));
+                                vector refractIncidentDir =
+                                    (reflectDir - cosB*surfNorm)*nRatio + Foam::sqrt(a)*surfNorm;
 
                                 // Cosine of the refracted incident ray with the
                                 // surface normal -- exact continuous value.
@@ -489,8 +510,11 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
                             // no energy will be transferred across the interface
                             if ((1 - (1 - cosA*cosA)/(nRatio*nRatio)) > 0.0)
                             {
-                                // Calculate direction and ID of refracted ray
-                                vector refractDir = (pixelDir - cosA*surfNorm)/nRatio + Foam::sqrt(1 - (1 - cosA*cosA)/(nRatio*nRatio))*surfNorm;
+                                // max(0, .): see grazing-angle note above.
+                                const scalar a =
+                                    max(scalar(0), 1 - (1 - cosA*cosA)/(nRatio*nRatio));
+                                vector refractDir =
+                                    (pixelDir - cosA*surfNorm)/nRatio + Foam::sqrt(a)*surfNorm;
                                 label refractRay = dom.dirToRayId(refractDir, iBand);
 
                                 // Accumulate the specular flux only if the outgoing ray matches this ray
@@ -512,7 +536,7 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
                                     // Accumulate the specular flux. Transmitted
                                     // radiance picks up an (nB/nA)^2 factor from
                                     // solid-angle compression across the interface.
-                                    specular += NbrRaySet[iRay][faceI]*nRatio*nRatio*(1-R)*(intDirOmega & surfNorm);
+                                    specular += NbrRaySet[iRay - bandOffset][faceI]*nRatio*nRatio*(1-R)*(intDirOmega & surfNorm);
                                 }
                             }
                         }

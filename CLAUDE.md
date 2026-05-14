@@ -168,7 +168,27 @@ Foam::optical::
     │                                                units (cd vs W/sr)
     │                                                don't matter; uses the
     │                                                iesPhotometry parser)
-    └── refractiveCoupledMixedFvPatchScalarField
+    ├── refractiveCoupledMixedFvPatchScalarField
+    └── radiationCoupledMixedFvPatchScalarField    (transparent coupled BC at
+                                                    a `mappedPatch` between
+                                                    two regions sharing the
+                                                    same refractive index;
+                                                    matched-`n` fast path of
+                                                    `refractiveCoupled`. Per-
+                                                    face O(1) updateCoeffs
+                                                    -- no pixelation, no
+                                                    Fresnel, no n^2 scaling
+                                                    -- vs the original BC's
+                                                    O(nPixelTheta * nPixelPhi
+                                                    * nAngle) per face. Reads
+                                                    `nBands` and `n` (per-
+                                                    band) from the dict and
+                                                    errors at construction
+                                                    if the neighbour patch's
+                                                    `n` differs by more than
+                                                    1e-9 relative, pointing
+                                                    the user at refractive-
+                                                    Coupled instead)
 
   iesPhotometry                   (IES LM-63 Type C parser + bilinear
                                    interpolator; loads the candela table
@@ -243,6 +263,7 @@ and étendue-n² methodology fixes.
 | `src/opticalRadiationModels/derivedFvPatchFields/` | Custom optical boundary conditions |
 | `src/opticalRadiationModels/derivedFvPatchFields/iesEmitter/iesPhotometry.{H,C}` | IES LM-63 Type C parser + interpolator |
 | `src/opticalRadiationModels/derivedFvPatchFields/iesEmitter/iesEmitterMixedFvPatchScalarField.{H,C}` | iesEmitter BC (uses iesPhotometry) |
+| `src/opticalRadiationModels/derivedFvPatchFields/radiationCoupled/radiationCoupledMixedFvPatchScalarField.{H,C}` | Transparent coupled BC at matched-`n` interfaces; matched-index fast path of `refractiveCoupled` |
 | `src/opticalRadiationModels/fvModels/opticalRadiation/opticalRadiation.{H,C}` | fvModel wrapper for embedding in host solvers |
 | `applications/solvers/opticalRadiationFoam/opticalRadiationFoam.C` | Standalone DOM solver entry point |
 | `applications/modules/opticalRadiation/opticalRadiation.{H,C}` | Solver-module form for `foamMultiRun` |
@@ -254,8 +275,8 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Sixteen regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
-| `tutorials/` | Five pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
+| `tests/` | Twenty-one regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
 | `Allwmake` | Builds both libraries + standalone solver + module + setFluenceRate in one shot |
@@ -861,16 +882,49 @@ For each `execute()` call, `write()` emits:
 - `postProcessing/<name>/<time>/trajectories.vtk` — legacy ASCII
   VTK PolyData with one polyline per track. Per-vertex point-data:
   `time_s`, `dose_mJcm2`, `cell`. Per-track cell-data: `trackId`,
-  `endReason` (integer index keyed by `endReasonNames`). ParaView
-  reads this directly; colour by dose for streamline-style plots,
-  threshold on `endReason` to isolate (e.g.) escaped tracks. Tracks
-  with fewer than two vertices (a particle that became `stuck`
-  before its first successful step) are skipped — VTK lines need
-  at least two points and the trajectory carries no information.
+  `endReason` (integer index keyed by `endReasonNames`),
+  `finalDose_mJcm2` (the last per-vertex `dose_mJcm2` value
+  duplicated as cell data so ParaView's `Threshold` filter can
+  slice whole tracks by final dose -- under-dosed,
+  over-dosed, or any range -- without joining against the CSV
+  or running Cell Data To Point Data). ParaView reads this
+  directly; colour by dose for streamline-style plots, threshold
+  on `endReason` to isolate (e.g.) escaped tracks. Tracks with
+  fewer than two vertices (a particle that became `stuck` before
+  its first successful step) are skipped — VTK lines need at
+  least two points and the trajectory carries no information.
   Toggled by `output.writeVtk` (default `true`); disable for very
   large runs where the file size is a concern. We use the legacy
   single-file `.vtk` format rather than XML `.vtp` because it is
   hand-writable without an XML library and ParaView reads either.
+
+  Per-vertex `time_s`, `dose_mJcm2`, and per-cell
+  `finalDose_mJcm2` are flushed to zero in the VTK writer when
+  their magnitude falls below `numeric_limits<float>::min()`
+  (~1.18e-38). Without the flush, particles seeded in essentially-
+  shadowed cells (where the interpolated `G` is `O(1e-20)` from
+  floating-point noise) accumulate float-subnormal dose values
+  for hundreds of steps before reaching the lamp; ParaView's
+  legacy-ASCII reader loses sync with the declared array length
+  when it encounters a subnormal float and bails on the next
+  array's `SCALARS` header with "Unsupported point attribute
+  type: <subnormal value>", making everything past
+  `dose_mJcm2` unreadable (the cell / trackId / endReason /
+  finalDose_mJcm2 scalars all disappear from ParaView's Threshold
+  options). The flush is information-preserving because the VTK
+  reader would round subnormals to zero when storing into the
+  declared `float` arrays anyway.
+
+  Optional pre-write dose-range filter via `output.vtkMinDose`
+  and `output.vtkMaxDose` (both default `-1`, which disables the
+  corresponding bound). A track is written only if its final
+  dose `D` satisfies `vtkMinDose <= D <= vtkMaxDose`; the CSV
+  and summary always reflect the full seeded population. Useful
+  when 10⁵-particle runs would produce a VTK file that crashes
+  ParaView before it could even be filtered. For interactive
+  filtering when the full file fits comfortably, prefer
+  ParaView's `Threshold` filter on `finalDose_mJcm2` -- you can
+  change the bounds without re-running the simulation.
 
 ### Known limitations
 
@@ -1092,7 +1146,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Sixteen cases.
+  Twenty-one cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1113,6 +1167,32 @@ The case suite is split into two trees:
 - **`refractiveCoupledMatch`** — small 2-region 2-D case verifying the
   `refractiveCoupled` BC and the solver-module form via `foamMultiRun`.
   Test-grade replacement for the pedagogical `tutorials/refractiveInterface2D`.
+- **`radiationCoupledMatch`** — sibling of `refractiveCoupledMatch`
+  with the same geometry and 2-region setup but n=1.33 on both sides
+  and the new `radiationCoupled` BC at the interface. Exercises the
+  matched-`n` fast path (no pixelation, no Fresnel, no n² scaling)
+  and the construction-time refractive-index sanity check
+  (manually verified that setting one side's `n` to 1.5 produces a
+  FatalError with a clear message pointing at refractiveCoupled).
+  Validate uses the same `L_0·ω_0` analytical as the refractive
+  case at R=0: both regions show G = L_0·ω_0 = 7.854 W/m² along
+  the beam characteristic. Observed errors ~0.03 % (mediumA),
+  ~0.39 % (mediumB), ~0.41 % cross-interface; 5 % tolerance.
+- **`diffuseRefractiveInterface2D`** — companion to `refractiveCoupledMatch`
+  exercising the BC's `diffuseFraction > 0` branch (the other case
+  uses `diffuseFraction = 0`). Two transparent regions with matched
+  refractive indices `nA = nB = 1.0` (R = 0 identically), `diffuseFraction
+  = 1` on both sides, Lambertian emitter on far-A, black absorber on
+  far-B, specular mirror y-sides. Analytical answer: `G = 2·E = 2 W/m²`
+  uniform in both regions (matched indices + R = 0 reduce the
+  diffuse Lambertizer to a perfect passthrough; the system is
+  equivalent to a single transparent slab between emitter and
+  absorber). Observed: bit-for-bit 2.000 throughout. Validates the
+  `(1/π)·Σ(cos·dΩ)·I` Lambertian integral and the BC's symmetry under
+  (nbg ↔ own) swap. The Fresnel-direction part of the diffuse branch
+  (which is identical to the validated specular branch's `R(θ)`
+  formula) is not exercised by this case because R = 0 there; the
+  audit-by-reciprocity argument carries the rest.
 - **`fvModelMatch`** — same radiation problem as `diffuseSlab2D`,
   but the radiation library is wired into `incompressibleFluid`
   (driven by `foamRun`) via the `opticalRadiation` fvModel. Exercises
@@ -1122,6 +1202,65 @@ The case suite is split into two trees:
 - **`iesEmitterMatch`** — small slab with the `iesEmitter` BC fed a
   synthetic Lambertian-shape IES file. Test-grade replacement for the
   pedagogical `tutorials/iesEmitter2D`.
+- **`iesHframeOrientation`** — companion to `iesEmitterMatch` that
+  pins down the BC's h-frame sign convention against a non-axisymmetric
+  IES file. The Lambertian IES in `iesEmitterMatch` is rotationally
+  symmetric and would pass unchanged under a CCW↔CW swap of
+  `e2 = fixtureAxis × fixtureUp` in `iesEmitter::hDegFromDir_`. This
+  case uses a FULL-symmetric synthetic IES (last h=315° so no
+  folding) with `F(h) = 5 + 4·sin(h)` — peak at h=90, trough at h=270,
+  symmetric about the (h=0, h=180) axis. Probes in the four cardinal
+  directions of the BC's perpendicular plane (3-D box, fixtureAxis=+x,
+  fixtureUp=+z, so h=0↔+z, h=90↔−y, h=180↔−z, h=270↔+y). Validate
+  asserts the ranking `G_B > G_A = G_C > G_D` (B−y brightest from
+  F(90)=9; D+y dimmest from F(270)=1; A and C tied to floating point
+  by F-symmetry), and contrast `(G_B−G_D)/G_B > 50 %` to guard against
+  accidental symmetrisation. Observed: A=C=0.9358, B=1.3061, D=0.5043,
+  A−C tie at 0 % error, B−D contrast 61.4 %. A sign error in the BC's
+  atan2 or in the `e2` cross product would swap the B/D ranking; a
+  fold-by-symmetry regression would collapse the F asymmetry.
+- **`cyclicMatch`** — `diffuseSlab2D` geometry split into two blocks
+  at x=0.5 with a `cyclic` patch pair (`transform none`) coupling
+  the interface, matching face counts on both sides. The template
+  `I` field carries `type cyclic` on the interface patches, which
+  propagates to every per-ray `I_<band>_<angle>` via the copy-from-
+  IDefault construction in `ray.C`. The validate script invokes
+  `foamPostProcess -func writeCellCentres` on both cases and keys
+  `G` by cell-centre position (the two-block enumeration differs
+  from the single-block one even though the cell *positions* are
+  identical), then asserts max relative `G` deviation <= 1e-5
+  against `diffuseSlab2D`. Observed ~6e-7 — at the DOM convergence
+  floor (1e-6) amplified by downstream integration through the
+  cyclic-patch matrix-assembly ULP noise; bit-for-bit is not
+  achievable because the cyclic patch contributes off-diagonal
+  matrix entries in a different assembly order than internal faces.
+  Demonstrates that standard OpenFOAM coupled-patch machinery
+  handles DOM's per-ray `fvm::div(Ji, I)` correctly with no custom
+  BC — load-bearing for a future `radiationCoupled` convenience
+  wrapper that replaces `refractiveCoupled` with `n_A = n_B`
+  (which still runs pixelation + Fresnel + n² scaling internally
+  even though all three collapse to no-ops at matched index).
+- **`nonConformalCyclicMatch`** — non-conformal sibling of
+  `cyclicMatch`: `diffuseSlab2D` split at x=0.5 but with DELIBERATELY
+  MISMATCHED y discretisation (10 cells on the left block, 13 on
+  the right). After `blockMesh`, the interface patches AMI_L and
+  AMI_R are fused by `createNonConformalCouples -fields AMI_L AMI_R`
+  into a `nonConformalCyclic` coupled pair with AMI weights computed
+  from face-overlap (44 couplings between the 10/13 face pair, full
+  partition-of-unity coverage on both sides). The `-fields` flag
+  rewrites the I template's interface BCs from the `zeroGradient`
+  placeholder to `nonConformalCyclic` in place, so the per-ray
+  fields inherit it through `ray.C`'s copy construction. Validate
+  averages G(x) over y at each unique x on both cases (the y
+  discretisations differ so cell-by-cell comparison isn't meaningful,
+  but the specular y mirrors make the converged G y-uniform so
+  y-averaging is the right collapse). Observed max relative deviation
+  ~4.5e-7 — same DOM convergence floor as `cyclicMatch`, no
+  measurable AMI-interpolation penalty because partition-of-unity
+  weighted average of a y-uniform field returns the same uniform
+  value exactly. Tolerance set at 1e-4 for margin. This is the
+  load-bearing test for the genuine non-conformal hybrid-mesh story
+  (structured shell meets snappy bulk with mismatched face counts).
 - **`scatteringSlab2D`** — 2-D plane-parallel slab with combined
   absorption and isotropic scattering (κ=σ_s=0.5, ω=0.5), validated
   against a Schwarzschild-Milne integral-equation reference solved
@@ -1201,9 +1340,17 @@ radiationDose:
   1e-6 (≈ floating-point noise; we observe 1e-15 in practice),
   and the VTK trajectory file is structurally well-formed
   (sections present, `POINT_DATA` count == `POINTS` count,
-  `CELL_DATA` count == `LINES` count). A regression guard for the
-  unit-conversion factor, trapezoidal-G accumulation, patch-hit
-  classification, and the `.vtk` writer.
+  `CELL_DATA` count == `LINES` count) with every per-line
+  `finalDose_mJcm2` cell-data entry equal to the analytical
+  2.0 mJ/cm² within 1e-6. The case also runs three additional
+  function-object instances exercising the pre-write dose-range
+  filter: `vtkMinDose=1, vtkMaxDose=3` keeps all 1000 tracks;
+  `vtkMinDose=5` drops everything (every track has D=2.0 < 5);
+  `vtkMaxDose=1` likewise drops everything. A regression guard
+  for the unit-conversion factor, trapezoidal-G accumulation,
+  patch-hit classification, the `.vtk` writer (now including
+  the `finalDose_mJcm2` CELL_DATA scalar), and the pre-write
+  dose-range filter at both bounds.
 - **`inertialSettlingBox`** — 0.1 m × 0.1 m × 1 m vertical box,
   particles seeded at the top, escape at the bottom. Uniform `U = 0`
   in still water (`rho_f = 1000, mu_f = 1e-3`), uniform `G = 1 W/m²`,

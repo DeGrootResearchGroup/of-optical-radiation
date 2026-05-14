@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""
+Verify the iesEmitter BC's h-frame sign convention against a
+non-axisymmetric IES table.
+
+Setup
+-----
+3-D box, transparent medium, absorbing far + side walls, iesEmitter
+on the x=0 face. Beam axis fixtureAxis = (1, 0, 0) (into +x), with
+fixtureUp = (0, 0, 1). Per the BC's perpendicular-frame definition
+
+    e1 = fixtureUp                   (h = 0)
+    e2 = fixtureAxis x fixtureUp     (h = 90)
+       = (1,0,0) x (0,0,1) = (0,-1,0)
+
+so a ray whose perpendicular component points along +e2 is mapped to
+stored h = 90. With fixtureUp = +z and e2 = -y, the four cardinal h
+directions in world space are:
+
+    h = 0   <->  +z       (probe A)
+    h = 90  <->  -y       (probe B)
+    h = 180 <->  -z       (probe C)
+    h = 270 <->  +y       (probe D)
+
+The synthetic IES file is FULL-symmetric (last h = 315), so no folding
+is involved -- the four 90-degree stored h values map to four distinct
+world directions and the BC's atan2(dPerp . e2, dPerp . fixtureUp)
+result is consumed verbatim by iesPhotometry.
+
+The IES intensity is F(h) = 5 + 4 sin(h), independent of gamma:
+
+    F(0) = 5      F(90)  = 9      F(180) = 5     F(270) = 1
+    F(45) = 7.83  F(135) = 7.83   F(225) = 2.17  F(315) = 2.17
+
+The F asymmetry distinguishes the BC's handedness:
+  - if h is measured CCW (BC's intent): F is brightest at h = 90,
+    which the BC maps to the -y world direction. Probe B (at -y)
+    is therefore brightest, probe D (at +y) is dimmest.
+  - if the BC accidentally inverts the e2 sign: F(90) ends up at
+    +y and F(270) at -y. Probe B becomes dim, probe D becomes
+    bright.
+
+Probes are placed at gamma ~ 26.6 deg (the geometric ray from the
+emitter centre to the probe) and at one cell off-axis to land cleanly
+in cell centres. Cell ordering is x-fastest, y next, z slowest.
+
+Checks
+------
+  1. Ranking: G_B > G_A = G_C > G_D. The strict equality G_A = G_C
+     is a check that the BC is symmetric in F about the (h=0, h=180)
+     axis -- a sanity test for the e2 cross-product.
+  2. Asymmetry magnitude: (G_B - G_D)/G_B > 0.5 (the IES has F(90):
+     F(270) = 9:1, so the wide-emitter angular dilution would have
+     to reduce the contrast below 50 % for the convention to be
+     undetectable). Observed: ~0.6.
+
+A convention regression -- swap of e2's sign, or atan2's argument
+order in iesEmitter::hDegFromDir_ -- would either flip the B-vs-D
+ranking or destroy the A-C tie.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
+
+
+# Mesh: 40 (x) x 20 (y) x 20 (z), with x in [0, 0.4], y in [-0.2, 0.2],
+# z in [-0.2, 0.2]. Cell centres at x = 0.005 + 0.01*ix etc.
+NX, NY, NZ = 40, 20, 20
+
+
+def cell(GA, ix, iy, iz):
+    return GA[ix + iy*NX + iz*NX*NY]
+
+
+def main():
+    G = read_internal_scalar_field("1/G")
+    if len(G) != NX*NY*NZ:
+        sys.exit(f"validate: expected {NX*NY*NZ} cells, got {len(G)}")
+
+    # Four cardinal-h probes at gamma ~ 26.6 deg. ix = 30 corresponds
+    # to x-centre = 0.305; iy/iz = 17 corresponds to +0.15;
+    # iy/iz = 2 corresponds to -0.15; iy/iz = 10 corresponds to +0.01
+    # (the closest cell centre to 0).
+    GA = cell(G, 30, 10, 17)    # +z lobe
+    GB = cell(G, 30,  2, 10)    # -y lobe
+    GC = cell(G, 30, 10,  2)    # -z lobe
+    GD = cell(G, 30, 17, 10)    # +y lobe
+
+    print(f"probe A  (+z, h ~ 0,   F = 5)   G = {GA:.4f}")
+    print(f"probe B  (-y, h ~ 90,  F = 9)   G = {GB:.4f}")
+    print(f"probe C  (-z, h ~ 180, F = 5)   G = {GC:.4f}")
+    print(f"probe D  (+y, h ~ 270, F = 1)   G = {GD:.4f}")
+    print()
+
+    failures = []
+
+    # 1. Ranking. G_B (h=90, F=9) is brightest; G_D (h=270, F=1) is
+    # dimmest. G_A and G_C should tie (both at F=5 with F symmetric
+    # about the y axis), and both should lie strictly between B and D.
+    if not (GB > GA):
+        failures.append(f"G_B ({GB:.4f}) not > G_A ({GA:.4f})")
+    if not (GA > GD):
+        failures.append(f"G_A ({GA:.4f}) not > G_D ({GD:.4f})")
+    if not (GB > GC):
+        failures.append(f"G_B ({GB:.4f}) not > G_C ({GC:.4f})")
+    if not (GC > GD):
+        failures.append(f"G_C ({GC:.4f}) not > G_D ({GD:.4f})")
+
+    # 2. A-C symmetry. F(0) = F(180) = 5; the visible cones at A and C
+    # are mirror images through the F-symmetry plane, so the integrals
+    # are equal. Allow 1 % tolerance for floating-point + cell-centre
+    # rounding.
+    if max(GA, GC) > 0:
+        symerr = abs(GA - GC)/max(GA, GC)
+    else:
+        symerr = float("inf")
+    if symerr > 0.01:
+        failures.append(
+            f"G_A ({GA:.4f}) vs G_C ({GC:.4f}) symmetry "
+            f"error {symerr:.2%} > 1%"
+        )
+
+    # 3. Asymmetry magnitude. F(90)/F(270) = 9, but the wide-emitter
+    # angular dilution reduces the observed ratio. Require at least
+    # 50 % contrast as a regression guard against accidental
+    # symmetrisation.
+    if GB > 0:
+        contrast = (GB - GD)/GB
+    else:
+        contrast = 0.0
+    if contrast < 0.5:
+        failures.append(
+            f"(G_B - G_D)/G_B = {contrast:.2%} < 50% "
+            f"(IES asymmetry not resolved)"
+        )
+
+    print(f"A vs C symmetry error: {symerr:.2%}  (tol 1%)")
+    print(f"(G_B - G_D)/G_B      : {contrast:.2%}  (tol > 50%)")
+
+    if failures:
+        print("\nFAIL:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+
+    print("\nPASS: iesEmitter h-frame convention agrees with IES table.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -70,6 +70,15 @@ Usage
         {
             kInact          (0.1);      // cm^2/mJ for log-reduction reporting
             writeVtk        true;       // emit trajectories.vtk per execute()
+
+            // Optional pre-write dose filter (inclusive bounds). A track
+            // is written to trajectories.vtk only if its final dose D
+            // satisfies vtkMinDose <= D <= vtkMaxDose. Either bound is
+            // disabled by setting it to a negative value (the default).
+            // CSV and summary are unaffected -- they always reflect the
+            // full seeded population.
+            vtkMinDose      -1;         // mJ/cm^2; <0 disables lower bound
+            vtkMaxDose      -1;         // mJ/cm^2; <0 disables upper bound
         }
     }
     \endverbatim
@@ -141,6 +150,14 @@ class radiationDose
 
         scalarList kInact_;
         Switch writeVtk_;
+
+        //- Optional inclusive bounds on per-track final dose D for
+        //  VTK output. A negative value disables the corresponding
+        //  bound (the default). Filter is applied at gather time --
+        //  trajectories are still accumulated during integration
+        //  because the final dose is only known after the run.
+        scalar vtkMinDose_;
+        scalar vtkMaxDose_;
 
 
     // Private Data — built per execute()

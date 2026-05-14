@@ -25,10 +25,13 @@ interpolation, or renormalisation, breaks this match.
 Assumes ./Allrun has been executed and 1/G is present.
 """
 
+import os
 import math
-import re
 import statistics
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
 
 
 # Same DOM angular tolerance as diffuseSlab2D / fvModelChannel2D.
@@ -41,19 +44,6 @@ def E2(t: float) -> float:
         return 1.0
     n = 10000
     return sum(math.exp(-t / ((k + 0.5) / n)) for k in range(n)) / n
-
-
-def read_G(path: str) -> list:
-    with open(path) as f:
-        txt = f.read()
-    m = re.search(
-        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
-        txt,
-        re.S,
-    )
-    if m:
-        return list(map(float, m.group(2).split()))
-    sys.exit(f"validate: could not parse {path}")
 
 
 def discrete_phi_table(n_phi: int) -> float:
@@ -90,7 +80,7 @@ def main() -> int:
     L_w = POWER_PER_BAND / (A_PATCH * phi_table)
     G_ref_factor = N_BANDS * 2.0 * math.pi * L_w
 
-    vals = read_G("1/G")
+    vals = read_internal_scalar_field("1/G")
     expected = NX * NY
     if len(vals) != expected:
         sys.exit(

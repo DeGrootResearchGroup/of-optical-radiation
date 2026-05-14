@@ -1,16 +1,69 @@
-#!/bin/sh
+#!/bin/bash
 cd "${0%/*}" || exit 1
 set -e
 
-# Libraries
-( cd src/opticalRadiationModels && wmake libso )
-( cd src/radiationDose          && wmake libso )
+# Two parallel build stages.
+#
+# Stage 1: independent libraries / utilities. None depends on any
+# other in stage 1; all only need OpenFOAM core.
+#
+#     libopticalRadiation
+#     libradiationDose
+#     setFluenceRate
+#
+# Stage 2: things that link against libopticalRadiation (so must wait
+# for stage 1 to finish). Independent of each other within the stage.
+#
+#     opticalRadiationFoam
+#     libopticalRadiationModule
+#
+# Bash background jobs + wait. POSIX sh doesn't have `wait -n` so we
+# require bash; OpenFOAM scripts commonly require bash anyway. If any
+# background sub-build fails we exit with that code via `set -e` plus
+# a per-pid wait. The trap on EXIT kills any still-running children
+# so a stage-1 failure doesn't leave wmake processes orphaned.
 
-# Standalone solver
-( cd applications/solvers/opticalRadiationFoam && wmake )
+# `kill $(jobs -p)` with an empty jobs list errors out (no args), and
+# bash's `set -e` propagates that error code through the EXIT trap on
+# script success, masking the actual exit status with 2. Swallow the
+# kill failure -- we only care about killing surviving children, and
+# the trap's exit code shouldn't override the script's own.
+trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 
-# Utilities
-( cd applications/utilities/setFluenceRate && wmake )
+wait_or_die()
+{
+    local pid="$1"
+    local label="$2"
+    if ! wait "$pid"; then
+        echo "Allwmake: FAIL: $label" >&2
+        # set -e will also catch this on the next statement, but
+        # exiting here makes the order deterministic when several
+        # background jobs fail.
+        exit 1
+    fi
+}
 
-# Solver module (loaded by foamMultiRun for multi-region cases)
-( cd applications/modules/opticalRadiation && wmake libso )
+# ---- Stage 1 -------------------------------------------------------
+( cd src/opticalRadiationModels              && wmake libso ) &
+pid_modelLib=$!
+
+( cd src/radiationDose                       && wmake libso ) &
+pid_doseLib=$!
+
+( cd applications/utilities/setFluenceRate   && wmake       ) &
+pid_setFR=$!
+
+wait_or_die $pid_modelLib "libopticalRadiation"
+wait_or_die $pid_doseLib  "libradiationDose"
+wait_or_die $pid_setFR    "setFluenceRate"
+
+# ---- Stage 2 -------------------------------------------------------
+# Both link -lopticalRadiation, so stage 1 must be complete.
+( cd applications/solvers/opticalRadiationFoam && wmake       ) &
+pid_solver=$!
+
+( cd applications/modules/opticalRadiation     && wmake libso ) &
+pid_module=$!
+
+wait_or_die $pid_solver "opticalRadiationFoam"
+wait_or_die $pid_module "libopticalRadiationModule"

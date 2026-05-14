@@ -1,11 +1,5 @@
 #!/bin/sh
-cd "${0%/*}" || exit 1
-
-# Source tutorial run functions
-. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
-
-# Clean prior state so runApplication does not skip on stale log.<app>.
-./Allclean > /dev/null 2>&1 || true
+. "$(dirname "$0")/../lib/AllrunPreamble.sh"
 
 # Restore stock initial fields
 rm -rf 0

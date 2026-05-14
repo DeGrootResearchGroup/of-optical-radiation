@@ -9,9 +9,12 @@ tolerance, 1 otherwise.
 """
 
 import math
-import re
+import os
 import statistics
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_internal_scalar_field
 
 # Tolerance (max allowed relative error at any sampled x station).
 # At nPhi=8, observed peak error in the validated configuration is ~5.4%.
@@ -27,25 +30,6 @@ def E2(t: float) -> float:
     return sum(math.exp(-t / ((k + 0.5) / n)) for k in range(n)) / n
 
 
-def read_G(path: str) -> list:
-    with open(path) as f:
-        txt = f.read()
-    # Try non-uniform list first
-    m = re.search(
-        r"internalField\s+nonuniform\s+List<scalar>\s*\n(\d+)\n\(([^)]+)\)",
-        txt,
-        re.S,
-    )
-    if m:
-        return list(map(float, m.group(2).split()))
-    # Fall back to uniform value
-    m = re.search(r"internalField\s+uniform\s+([-+0-9.eE]+)", txt)
-    if m:
-        # Mesh size unknown without polyMesh inspection; fail loudly.
-        sys.exit("validate: G is uniform; cannot validate against profile")
-    sys.exit(f"validate: could not parse {path}")
-
-
 def main() -> int:
     # Case parameters (must match constant/opticalRadiationProperties and 0.orig/I).
     KAPPA = 1.0
@@ -56,7 +40,7 @@ def main() -> int:
     L_w = EMISSIVE_PER_BAND / math.pi
     G_ref_factor = N_BANDS * 2.0 * math.pi * L_w  # total G(0) reference
 
-    vals = read_G("1/G")
+    vals = read_internal_scalar_field("1/G")
     expected = NX * NY  # 1 cell in z
     if len(vals) != expected:
         sys.exit(

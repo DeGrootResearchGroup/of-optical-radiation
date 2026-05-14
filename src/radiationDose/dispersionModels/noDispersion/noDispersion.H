@@ -52,6 +52,13 @@ public:
 
     // Member Functions
 
+        //- Static requiredFields. noDispersion needs no extra fields.
+        //  Registered in the dispatch table at static-init time.
+        static wordList requiredFields(const dictionary&)
+        {
+            return wordList();
+        }
+
         virtual vector fluctuation
         (
             dispersionModel::State& state,

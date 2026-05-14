@@ -67,6 +67,69 @@ functions
             kInact          (0.1);
         }
     }
+
+    // Three additional instances exercising the pre-write VTK dose-
+    // range filter. Plug flow gives every track dose = 2.0 mJ/cm^2
+    // (deterministic), so the expected outcomes are sharp:
+    //   - "Kept":  vtkMinDose 1, vtkMaxDose 3 -> all 1000 tracks pass.
+    //   - "Over":  vtkMinDose 5                -> 0 tracks pass (all < 5).
+    //   - "Under":                vtkMaxDose 1 -> 0 tracks pass (all > 1).
+    // Each repeats the full function-object config explicitly rather
+    // than using $-expansion: the sub-dict reference syntax overrides
+    // by entry not by deep-merge, so an `output` block with only the
+    // filter keys would lose `kInact`.
+    radiationDoseFilterKept
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+        U               U;
+        fluenceRate     G;
+        seed            42;
+        seeding         { type patchInjection; patches (inlet); nParticles 1000; }
+        dispersion      { type none; }
+        termination     { escapePatches (outlet); maxTime 10; maxDose 0; }
+        integration     { dtMax 0.05; cflMax 0.5; }
+        output
+        {
+            kInact          (0.1);
+            vtkMinDose      1;
+            vtkMaxDose      3;
+        }
+    }
+    radiationDoseFilterOver
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+        U               U;
+        fluenceRate     G;
+        seed            42;
+        seeding         { type patchInjection; patches (inlet); nParticles 1000; }
+        dispersion      { type none; }
+        termination     { escapePatches (outlet); maxTime 10; maxDose 0; }
+        integration     { dtMax 0.05; cflMax 0.5; }
+        output
+        {
+            kInact          (0.1);
+            vtkMinDose      5;
+        }
+    }
+    radiationDoseFilterUnder
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+        U               U;
+        fluenceRate     G;
+        seed            42;
+        seeding         { type patchInjection; patches (inlet); nParticles 1000; }
+        dispersion      { type none; }
+        termination     { escapePatches (outlet); maxTime 10; maxDose 0; }
+        integration     { dtMax 0.05; cflMax 0.5; }
+        output
+        {
+            kInact          (0.1);
+            vtkMaxDose      1;
+        }
+    }
 }
 
 // ************************************************************************* //

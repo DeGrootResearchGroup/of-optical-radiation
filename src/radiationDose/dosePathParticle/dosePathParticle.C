@@ -11,6 +11,7 @@
 #include "constants.H"
 #include "polyBoundaryMesh.H"
 #include "emptyPolyPatch.H"
+#include "gaussianSample.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
@@ -167,19 +168,7 @@ bool Foam::dose::dosePathParticle::move
     vector xi(Zero);
     if (cloud.motion().needsBrownianSample())
     {
-        const scalar twoPi = constant::mathematical::twoPi;
-        const scalar r1 = max(td.rng().scalar01(), small);
-        const scalar r2 = td.rng().scalar01();
-        const scalar r3 = max(td.rng().scalar01(), small);
-        const scalar r4 = td.rng().scalar01();
-        const scalar mag1 = sqrt(-2.0*log(r1));
-        const scalar mag3 = sqrt(-2.0*log(r3));
-        xi = vector
-        (
-            mag1*cos(twoPi*r2),
-            mag1*sin(twoPi*r2),
-            mag3*cos(twoPi*r4)
-        );
+        xi = gaussianTriple(td.rng());
     }
 
     // Provisional advance over the full outer step to discover the
@@ -204,7 +193,51 @@ bool Foam::dose::dosePathParticle::move
 
     if (VdispMag < small)
     {
-        endReason_ = endReason::stuck;
+        // Stationary particle: there's nothing for the inner
+        // trackToAndHitFace loop to do (zero displacement vector), but
+        // a real fluid parcel sitting at rest still soaks up dose if
+        // G > 0 here. Accumulate over the full outer step and honour
+        // the soft-termination thresholds; the particle stays alive
+        // for the next outer step in case U or u' picks back up. CFL
+        // is meaningless without advection -- use dtMax directly.
+        const scalar G_now =
+            max(scalar(0), td.GInterp().interpolate(coordinates(), tetIs));
+        const scalar dosePerSec = G_now*Wm2_s_to_mJcm2;
+        const scalar dtStatic = cloud.dtMax();
+
+        const scalar dtToMaxTime =
+            (cloud.maxTime() > 0) ? cloud.maxTime() - t_ : great;
+        const scalar dtToMaxDose =
+            (cloud.maxDose() > 0 && dosePerSec > small)
+          ? (cloud.maxDose() - D_)/dosePerSec
+          : great;
+        const scalar dtToTerm = min(dtToMaxTime, dtToMaxDose);
+
+        if (dtStatic >= dtToTerm)
+        {
+            if (dtToMaxTime <= dtToMaxDose)
+            {
+                t_ = cloud.maxTime();
+                D_ += dosePerSec*dtToMaxTime;
+                endReason_ = endReason::timedOut;
+            }
+            else
+            {
+                t_ += dtToMaxDose;
+                D_ = cloud.maxDose();
+                endReason_ = endReason::terminated;
+            }
+        }
+        else
+        {
+            t_ += dtStatic;
+            D_ += dosePerSec*dtStatic;
+        }
+
+        if (cloud.storeTrack())
+        {
+            points_.append(trackPoint(position(td.mesh), t_, D_, cell()));
+        }
         return true;
     }
 
@@ -236,6 +269,15 @@ bool Foam::dose::dosePathParticle::move
     // (escape patch, soft-termination via maxTime / maxDose, stuck,
     // etc.), (c) the cloud asks us to stop (keepParticle=false), or
     // (d) a processor transfer is queued.
+
+    // Seed the rolling pre/post tetIndices outside the loop -- the
+    // post-track tetIndices from iteration N is the pre-track value
+    // for iteration N+1, so each iteration only needs one new call
+    // to currentTetIndices instead of two.
+    tetIndices tetIs_pre = currentTetIndices(td.mesh);
+    scalar G_pre =
+        max(scalar(0), td.GInterp().interpolate(coordinates(), tetIs_pre));
+
     while
     (
         stepFraction() < 1
@@ -246,10 +288,6 @@ bool Foam::dose::dosePathParticle::move
     {
         const scalar sfrac = stepFraction();
         const scalar f = 1 - sfrac;
-
-        const tetIndices tetIs_pre = currentTetIndices(td.mesh);
-        const scalar G_pre =
-            max(scalar(0), td.GInterp().interpolate(coordinates(), tetIs_pre));
 
         trackToAndHitFace(f*dt*V_disp_, f, cloud, td);
 
@@ -300,6 +338,13 @@ bool Foam::dose::dosePathParticle::move
             t_ += actualDt;
             D_ += dosePerSec*actualDt;
         }
+
+        // Roll the post tetIndices forward for the next iteration's
+        // pre-track G evaluation. trackToAndHitFace leaves the
+        // particle on the face (one barycentric coord = 0); the next
+        // iteration's pre-track tetIndices is exactly this one.
+        tetIs_pre = tetIs_post;
+        G_pre = G_post;
     }
 
     // Record the end-of-outer-step position. Skipped when the cloud

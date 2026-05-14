@@ -129,14 +129,18 @@ Foam::label Foam::dose::dosePathCloud::runToCompletion
             particles.push_back(&iter());
         }
 
-        // Derive per-thread seeds from the parent. Advancing the
-        // parent here is intentional: it ties (parentSeed, nThreads)
-        // to a unique set of per-thread streams without coupling
-        // their evolution back to the parent state.
+        // Derive per-thread seeds from independent draws against the
+        // parent. Drawing once per thread (rather than seed = base + t)
+        // is the canonical defensive pattern: even if the underlying
+        // generator family has poor mixing for nearby seeds, the parent
+        // stream's spacing between successive uniforms is the actual
+        // seed gap. OF's Mersenne Twister has very strong seed mixing
+        // so the "base + t" form was also fine in practice, but this
+        // costs nothing extra and is the right pattern to copy elsewhere.
         threadRngs.reserve(nThreads);
         for (int t = 0; t < nThreads; ++t)
         {
-            const label seed = label(parentRng.scalar01()*1.0e9) + t;
+            const label seed = label(parentRng.scalar01()*1.0e9);
             threadRngs.emplace_back(randomGenerator::seed(seed));
         }
 
