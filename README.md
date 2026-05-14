@@ -421,7 +421,11 @@ dose without joining against the CSV; for cases where even
 writing the full file is the bottleneck, the pre-write
 `output.vtkMinDose` / `output.vtkMaxDose` bounds drop
 out-of-range tracks before the file is emitted (CSV and summary
-still cover the full population). Single-rank `foamPostProcess` runs OMP-parallelise the
+still cover the full population). For runs where the in-memory
+trajectory accumulation itself is the bottleneck,
+`output.batchSize` splits the integration into chunks and emits
+one numbered VTK plus a `trajectories.pvd` Collection wrapper
+that ParaView opens as a single logical dataset. Single-rank `foamPostProcess` runs OMP-parallelise the
 per-particle iteration across `OMP_NUM_THREADS`; multi-rank MPI
 runs use OF's serial-per-rank path. The developer guide tracks
 the remaining open items, all gated on a real driver case: a

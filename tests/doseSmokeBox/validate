@@ -180,6 +180,102 @@ def main():
                 f"{func} LINES={n} != expected {expected}"
             )
 
+    # Batched variant: batchSize=250 with nSeeded particles. The
+    # expected layout is computed from nSeeded so the test stays
+    # correct even though patchInjection's stochastic face-area
+    # rounding gives ~nominal nParticles (we see ~1003 for the
+    # nParticles=1000 dict on this seed). Expected batch count is
+    # ceil(nSeeded / 250); all batches but the last contain 250
+    # tracks, the last contains the remainder.
+    BATCH_SIZE = 250
+    n_int = int(nSeeded)
+    n_batches = (n_int + BATCH_SIZE - 1) // BATCH_SIZE
+    expected_per_batch = (
+        [BATCH_SIZE] * (n_batches - 1) + [n_int - BATCH_SIZE * (n_batches - 1)]
+    )
+    expected_batch_files = [
+        f"trajectories_{i:05d}.vtk" for i in range(1, n_batches + 1)
+    ]
+    batched_dir_base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "postProcessing", "radiationDoseBatched",
+    )
+    batched_dir = find_latest_time(batched_dir_base) if os.path.isdir(batched_dir_base) else None
+    if batched_dir is None:
+        failures.append("radiationDoseBatched output dir not found")
+    else:
+        observed = sorted(os.listdir(batched_dir))
+        print(f"validate: batched expected {n_batches} batches"
+              f" {expected_per_batch}")
+        print(f"validate: batched files = {observed}")
+        for fn in expected_batch_files:
+            if fn not in observed:
+                failures.append(f"batched: missing {fn}")
+        if "trajectories.pvd" not in observed:
+            failures.append("batched: missing trajectories.pvd")
+        if "trajectories.vtk" in observed:
+            failures.append(
+                "batched: unexpected unsuffixed trajectories.vtk"
+                " (should only appear in non-batched mode)"
+            )
+        # Catch off-by-one: a stray trajectories_{n_batches+1}.vtk
+        # would mean too many batches were written.
+        overflow = f"trajectories_{n_batches + 1:05d}.vtk"
+        if overflow in observed:
+            failures.append(
+                f"batched: unexpected extra batch file {overflow}"
+            )
+
+        per_batch_lines = []
+        for fn in expected_batch_files:
+            p = os.path.join(batched_dir, fn)
+            if os.path.isfile(p):
+                per_batch_lines.append(vtk_line_count(p))
+        print(f"validate: batched LINES per batch = {per_batch_lines}")
+        if per_batch_lines != expected_per_batch:
+            failures.append(
+                f"batched: LINES per batch {per_batch_lines}"
+                f" != expected {expected_per_batch}"
+            )
+
+        # PVD wrapper must list every batch file in sequential part order.
+        pvd_path = os.path.join(batched_dir, "trajectories.pvd")
+        if os.path.isfile(pvd_path):
+            with open(pvd_path) as f:
+                pvd_body = f.read()
+            for i, fn in enumerate(expected_batch_files):
+                if f'part="{i}"' not in pvd_body or f'file="{fn}"' not in pvd_body:
+                    failures.append(
+                        f"batched: pvd missing part={i} / file={fn}"
+                    )
+            # Catch a runaway: pvd shouldn't reference a non-existent part.
+            stale = f'part="{n_batches}"'
+            if stale in pvd_body:
+                failures.append(
+                    f"batched: pvd lists {stale} but only"
+                    f" {n_batches} batches exist (parts 0..{n_batches-1})"
+                )
+
+        # Aggregated summary statistics must match the unbatched run.
+        batched_summary = os.path.join(batched_dir, "summary.dat")
+        if os.path.isfile(batched_summary):
+            bdata = parse_summary(batched_summary)
+            print(
+                f"validate: batched seeded={int(bdata.get('totalSeeded',0))}"
+                f" meanDose={bdata.get('meanDose_mJcm2')}"
+                f" stdevDose={bdata.get('stdevDose_mJcm2')}"
+            )
+            if int(bdata.get("totalSeeded", 0)) != n_int:
+                failures.append(
+                    f"batched: totalSeeded {bdata.get('totalSeeded')}"
+                    f" != {n_int}"
+                )
+            if abs(bdata.get("meanDose_mJcm2", 0) - 2.0) > 1e-3:
+                failures.append(
+                    f"batched: meanDose {bdata.get('meanDose_mJcm2')}"
+                    f" != 2.0 +/- 1e-3"
+                )
+
     if failures:
         print("\nFAIL:")
         for f in failures:

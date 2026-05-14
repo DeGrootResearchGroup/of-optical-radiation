@@ -79,6 +79,20 @@ Usage
             // full seeded population.
             vtkMinDose      -1;         // mJ/cm^2; <0 disables lower bound
             vtkMaxDose      -1;         // mJ/cm^2; <0 disables upper bound
+
+            // Optional batching for the trajectory integration. Each
+            // batch builds a fresh cloud of `batchSize` particles, runs
+            // them to completion, writes one numbered VTK file
+            // (trajectories_00001.vtk, ...), then drops the cloud
+            // before the next batch starts. Peak memory scales as
+            // O(batchSize) instead of O(nParticles). A
+            // trajectories.pvd wrapper indexes all batch files so
+            // ParaView can open the whole population as one dataset.
+            // CSV and summary are aggregated across batches. Setting
+            // batchSize to 0 (the default) or to >= nParticles disables
+            // batching and writes a single unsuffixed trajectories.vtk
+            // with no PVD wrapper (the v1 behaviour bit-for-bit).
+            batchSize       0;          // particles per batch; 0 disables
         }
     }
     \endverbatim
@@ -114,10 +128,16 @@ class radiationDose
 :
     public fvMeshFunctionObject
 {
-    // Forward declaration of the per-rank gathered track payload.
-    // Defined fully in the .C since it's an implementation detail of
-    // the writer pipeline.
+    // Forward declarations of writer-pipeline payloads. Defined fully
+    // in the .C since both are implementation details:
+    //   GatheredTracks   -- per-batch gather result (rank-major,
+    //                       includes per-vertex data; lives only for
+    //                       the duration of writing one batch's VTK).
+    //   AggregatedTracks -- cross-batch accumulator (flat 1-D, summary
+    //                       fields only, plus the per-batch VTK file
+    //                       metadata needed by the PVD wrapper).
     struct GatheredTracks;
+    struct AggregatedTracks;
 
 
     // Private Data — configuration
@@ -159,6 +179,11 @@ class radiationDose
         scalar vtkMinDose_;
         scalar vtkMaxDose_;
 
+        //- Particles per batch (0 disables batching). When enabled,
+        //  the cloud is rebuilt and run once per ceil(nParticles /
+        //  batchSize) batch, with one VTK file emitted per batch.
+        label batchSize_;
+
 
     // Private Data — built per execute()
 
@@ -166,6 +191,12 @@ class radiationDose
         //  and write() so that the writer can iterate the cloud's
         //  particles for the per-track CSV.
         autoPtr<dose::dosePathCloud> cloud_;
+
+        //- Cross-batch accumulator. Allocated on rank 0 only;
+        //  populated incrementally inside execute() as each batch
+        //  completes; consumed by write() to emit aggregated
+        //  CSV/summary and the PVD wrapper.
+        autoPtr<AggregatedTracks> aggregated_;
 
 
     // Private Member Functions
@@ -178,19 +209,46 @@ class radiationDose
         //  nVerts list lets the consumer slice them.
         GatheredTracks gatherTracks() const;
 
-        void writeDoseCsv
+        //- Append a freshly-gathered batch onto aggregated_. No-op
+        //  on non-master ranks (aggregated_ is master-only).
+        void appendBatch
         (
             const GatheredTracks& g,
+            const word& vtkFileName
+        );
+
+        //- Run one batch: build cloud, seed with `seeds`, integrate,
+        //  gather, write the per-batch VTK file, append to the
+        //  cross-batch aggregator. Caller owns batch indexing and
+        //  filename construction.
+        void runBatch
+        (
+            const List<dose::trackPoint>& seeds,
+            const word& vtkFileName,
+            const fileName& outDir,
+            const volVectorField& U,
+            const volScalarField& G,
+            randomGenerator& rng
+        );
+
+        void writeDoseCsv
+        (
+            const AggregatedTracks& a,
             const fileName& outDir
         ) const;
         void writeSummary
         (
-            const GatheredTracks& g,
+            const AggregatedTracks& a,
             const fileName& outDir
         ) const;
         void writeVtkTrajectories
         (
             const GatheredTracks& g,
+            const fileName& outFile
+        ) const;
+        void writePvdWrapper
+        (
+            const AggregatedTracks& a,
             const fileName& outDir
         ) const;
 

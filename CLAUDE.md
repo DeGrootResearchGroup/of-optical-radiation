@@ -915,6 +915,23 @@ For each `execute()` call, `write()` emits:
   reader would round subnormals to zero when storing into the
   declared `float` arrays anyway.
 
+  Optional `output.batchSize` (default `0`, disabled). When set,
+  particles are integrated in chunks of `batchSize` and each chunk
+  writes one numbered VTK file
+  (`trajectories_00001.vtk`, `trajectories_00002.vtk`, ...) plus a
+  single `trajectories.pvd` Collection wrapper that ParaView opens
+  as one logical dataset. Peak in-memory trajectory storage scales
+  as O(batchSize) instead of O(nParticles), so 10⁵-particle runs
+  that would otherwise OOM at gather time complete with peak memory
+  bounded by the user's batch choice. CSV and summary are
+  aggregated across all batches; trackId becomes a global integer
+  index 0..nParticles-1 rather than the `proc.id` format. Single-
+  rank only (the per-rank seed distribution in parallel doesn't
+  compose with global batch slicing); enabling batching in a
+  parallel run is a hard error. A `batchSize >= nParticles` (or
+  `0`) keeps the original single-file `trajectories.vtk` layout
+  with no `.pvd` wrapper.
+
   Optional pre-write dose-range filter via `output.vtkMinDose`
   and `output.vtkMaxDose` (both default `-1`, which disables the
   corresponding bound). A track is written only if its final
@@ -1346,11 +1363,21 @@ radiationDose:
   function-object instances exercising the pre-write dose-range
   filter: `vtkMinDose=1, vtkMaxDose=3` keeps all 1000 tracks;
   `vtkMinDose=5` drops everything (every track has D=2.0 < 5);
-  `vtkMaxDose=1` likewise drops everything. A regression guard
+  `vtkMaxDose=1` likewise drops everything. A fifth instance
+  `radiationDoseBatched` with `batchSize=250` splits the 1000
+  particles into four batches, writes `trajectories_00001..00004.vtk`
+  plus a `trajectories.pvd` wrapper listing them in order, and
+  the validate script asserts that (a) each batch has exactly
+  250 LINES, (b) the PVD file references all four batch files
+  with sequential `part="0..3"` attributes, and (c) the
+  aggregated summary reproduces the unbatched run's
+  totalSeeded=1000 and meanDose=2.0±1e-3. A regression guard
   for the unit-conversion factor, trapezoidal-G accumulation,
   patch-hit classification, the `.vtk` writer (now including
-  the `finalDose_mJcm2` CELL_DATA scalar), and the pre-write
-  dose-range filter at both bounds.
+  the `finalDose_mJcm2` CELL_DATA scalar), the pre-write
+  dose-range filter at both bounds, and the batched-output
+  pipeline (chunked execute(), aggregated CSV/summary, PVD
+  wrapper).
 - **`inertialSettlingBox`** — 0.1 m × 0.1 m × 1 m vertical box,
   particles seeded at the top, escape at the bottom. Uniform `U = 0`
   in still water (`rho_f = 1000, mu_f = 1e-3`), uniform `G = 1 W/m²`,
