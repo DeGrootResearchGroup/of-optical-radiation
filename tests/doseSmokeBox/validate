@@ -27,11 +27,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from foam_field import find_latest_time, parse_summary
 
 
-def find_latest(name):
-    """Path of `name` inside the latest postProcessing/radiationDose/<time>/ dir."""
+def find_latest(name, func="radiationDose"):
+    """Path of `name` inside the latest postProcessing/<func>/<time>/ dir."""
     base = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        "postProcessing", "radiationDose",
+        "postProcessing", func,
     )
     latest = find_latest_time(base)
     if latest is None:
@@ -73,11 +73,46 @@ def check_vtk(path):
     if nCellData != nLines:
         fails.append(f"CELL_DATA={nCellData} != LINES={nLines}")
 
-    for s in ("time_s", "dose_mJcm2", "cell", "trackId", "endReason"):
+    for s in (
+        "time_s", "dose_mJcm2", "cell",
+        "trackId", "endReason", "finalDose_mJcm2",
+    ):
         if f"SCALARS {s} " not in body:
             fails.append(f"missing scalar {s!r}")
 
+    # finalDose_mJcm2 is per-line CELL_DATA. Pull its block and check
+    # all values match the deterministic analytical dose of 2.0
+    # mJ/cm^2 within floating-point tolerance.
+    m = re.search(
+        r"SCALARS finalDose_mJcm2 float 1\s*\nLOOKUP_TABLE default\s*\n"
+        r"((?:[-\d.eE+]+\s*\n)+)",
+        body,
+    )
+    if m is None:
+        fails.append("could not parse finalDose_mJcm2 block")
+    else:
+        vals = [float(v) for v in m.group(1).split()]
+        if len(vals) != nLines:
+            fails.append(
+                f"finalDose_mJcm2 has {len(vals)} entries, expected"
+                f" {nLines} (one per line)"
+            )
+        if vals and max(abs(v - 2.0) for v in vals) > 1e-6:
+            fails.append(
+                f"finalDose_mJcm2 deviates from 2.0 by more than 1e-6"
+                f" (max abs deviation"
+                f" {max(abs(v - 2.0) for v in vals):.3e})"
+            )
+
     return fails
+
+
+def vtk_line_count(path):
+    """Return integer LINES count from a legacy VTK file."""
+    with open(path) as f:
+        body = f.read()
+    m = re.search(r"^LINES\s+(\d+)", body, re.MULTILINE)
+    return int(m.group(1)) if m else None
 
 
 def main():
@@ -123,6 +158,27 @@ def main():
     else:
         print(f"validate: checking {os.path.basename(vtk)}")
         failures.extend(check_vtk(vtk))
+
+    # Pre-write dose-range filter. Three sibling function-object
+    # instances run the same simulation with different vtk{Min,Max}Dose
+    # bounds; their trajectories.vtk LINES counts pin down the filter
+    # semantics. The plug-flow dose is exactly 2.0 mJ/cm^2 everywhere.
+    expected_lines = {
+        "radiationDoseFilterKept":  int(nSeeded),  # [1, 3] keeps all
+        "radiationDoseFilterOver":  0,             # min 5 > 2.0
+        "radiationDoseFilterUnder": 0,             # max 1 < 2.0
+    }
+    for func, expected in expected_lines.items():
+        v = find_latest("trajectories.vtk", func=func)
+        if v is None:
+            failures.append(f"{func}/trajectories.vtk not found")
+            continue
+        n = vtk_line_count(v)
+        print(f"validate: {func} LINES = {n} (expected {expected})")
+        if n != expected:
+            failures.append(
+                f"{func} LINES={n} != expected {expected}"
+            )
 
     if failures:
         print("\nFAIL:")
