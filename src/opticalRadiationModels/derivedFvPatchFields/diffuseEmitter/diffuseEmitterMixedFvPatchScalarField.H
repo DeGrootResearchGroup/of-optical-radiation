@@ -21,6 +21,62 @@ License
     You should have received a copy of the GNU General Public License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
+Class
+    Foam::optical::diffuseEmitterMixedFvPatchScalarField
+
+Description
+    Boundary condition for a Lambertian (diffuse) emitter. Each face on
+    the patch emits radiation with a direction-independent radiance into
+    every ray bin that points away from the wall into the domain. Faces
+    whose surface normal sees the ray direction pointing back into the
+    wall get zero-gradient treatment, so the BC does not interact with
+    radiation arriving at the patch.
+
+    Mathematical model. For each ray d in the angular grid:
+    \verbatim
+        cos_alpha = (-n_face) . d           // n_face points out of domain
+        if cos_alpha > 0:                   // ray points into domain
+            L_d = emissivePower[iBand] / pi
+        else:                               // ray points out of domain
+            zero-gradient
+    \endverbatim
+    The 1/pi factor is the Lambertian normalisation
+    (integral over the outward hemisphere of cos(theta) dOmega = pi), so
+    `emissivePower` is the radiometric flux [W/m^2] emitted by the
+    patch and `L_d` is the resulting radiance [W/m^2/sr] -- units match
+    the radiative-transfer equation that DOM is solving.
+
+    Dictionary entries:
+    \verbatim
+        radSource
+        {
+            type            diffuseEmitter;
+            nBands          2;
+            emissivePower   (5 5);          // W/m^2 per band
+            value           uniform 0;
+        }
+    \endverbatim
+
+    Conventions:
+      - `emissivePower` has length `nBands`. Per-band entries let a
+        single emitter feed a multi-band DOM solve with different
+        intensities in each band (e.g. a UV-C lamp tabulated by
+        emission line).
+      - The patch is treated as a planar Lambertian aperture: the
+        emitted radiance is constant across direction and uniform over
+        every face. For a non-uniform emissivePower (e.g. spatially
+        varying lamp output across a window), pre-split the patch into
+        multiple sub-patches with separate dictionary entries.
+      - This BC has no reflective component: radiation arriving at the
+        patch from the domain is absorbed (zero-gradient on the
+        into-wall hemisphere, set by `valueFraction = 0`). For a
+        purely reflecting wall (no emission), use the `reflective` BC.
+        Combined emit+reflect surfaces are not currently supported in
+        a single BC instance.
+
+SourceFiles
+    diffuseEmitterMixedFvPatchScalarField.C
+
 \*---------------------------------------------------------------------------*/
 
 #ifndef optical_diffuseEmitterMixedFvPatchScalarField_H
