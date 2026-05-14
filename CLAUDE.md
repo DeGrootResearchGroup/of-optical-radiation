@@ -882,16 +882,32 @@ For each `execute()` call, `write()` emits:
 - `postProcessing/<name>/<time>/trajectories.vtk` — legacy ASCII
   VTK PolyData with one polyline per track. Per-vertex point-data:
   `time_s`, `dose_mJcm2`, `cell`. Per-track cell-data: `trackId`,
-  `endReason` (integer index keyed by `endReasonNames`). ParaView
-  reads this directly; colour by dose for streamline-style plots,
-  threshold on `endReason` to isolate (e.g.) escaped tracks. Tracks
-  with fewer than two vertices (a particle that became `stuck`
-  before its first successful step) are skipped — VTK lines need
-  at least two points and the trajectory carries no information.
+  `endReason` (integer index keyed by `endReasonNames`),
+  `finalDose_mJcm2` (the last per-vertex `dose_mJcm2` value
+  duplicated as cell data so ParaView's `Threshold` filter can
+  slice whole tracks by final dose -- under-dosed,
+  over-dosed, or any range -- without joining against the CSV
+  or running Cell Data To Point Data). ParaView reads this
+  directly; colour by dose for streamline-style plots, threshold
+  on `endReason` to isolate (e.g.) escaped tracks. Tracks with
+  fewer than two vertices (a particle that became `stuck` before
+  its first successful step) are skipped — VTK lines need at
+  least two points and the trajectory carries no information.
   Toggled by `output.writeVtk` (default `true`); disable for very
   large runs where the file size is a concern. We use the legacy
   single-file `.vtk` format rather than XML `.vtp` because it is
   hand-writable without an XML library and ParaView reads either.
+
+  Optional pre-write dose-range filter via `output.vtkMinDose`
+  and `output.vtkMaxDose` (both default `-1`, which disables the
+  corresponding bound). A track is written only if its final
+  dose `D` satisfies `vtkMinDose <= D <= vtkMaxDose`; the CSV
+  and summary always reflect the full seeded population. Useful
+  when 10⁵-particle runs would produce a VTK file that crashes
+  ParaView before it could even be filtered. For interactive
+  filtering when the full file fits comfortably, prefer
+  ParaView's `Threshold` filter on `finalDose_mJcm2` -- you can
+  change the bounds without re-running the simulation.
 
 ### Known limitations
 
@@ -1281,9 +1297,17 @@ radiationDose:
   1e-6 (≈ floating-point noise; we observe 1e-15 in practice),
   and the VTK trajectory file is structurally well-formed
   (sections present, `POINT_DATA` count == `POINTS` count,
-  `CELL_DATA` count == `LINES` count). A regression guard for the
-  unit-conversion factor, trapezoidal-G accumulation, patch-hit
-  classification, and the `.vtk` writer.
+  `CELL_DATA` count == `LINES` count) with every per-line
+  `finalDose_mJcm2` cell-data entry equal to the analytical
+  2.0 mJ/cm² within 1e-6. The case also runs three additional
+  function-object instances exercising the pre-write dose-range
+  filter: `vtkMinDose=1, vtkMaxDose=3` keeps all 1000 tracks;
+  `vtkMinDose=5` drops everything (every track has D=2.0 < 5);
+  `vtkMaxDose=1` likewise drops everything. A regression guard
+  for the unit-conversion factor, trapezoidal-G accumulation,
+  patch-hit classification, the `.vtk` writer (now including
+  the `finalDose_mJcm2` CELL_DATA scalar), and the pre-write
+  dose-range filter at both bounds.
 - **`inertialSettlingBox`** — 0.1 m × 0.1 m × 1 m vertical box,
   particles seeded at the top, escape at the bottom. Uniform `U = 0`
   in still water (`rho_f = 1000, mu_f = 1e-3`), uniform `G = 1 W/m²`,

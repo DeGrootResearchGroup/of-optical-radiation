@@ -46,7 +46,9 @@ Foam::functionObjects::radiationDose::radiationDose
     dtMax_(0.01),
     cflMax_(0.5),
     maxOuterSteps_(100000),
-    writeVtk_(true)
+    writeVtk_(true),
+    vtkMinDose_(-1),
+    vtkMaxDose_(-1)
 {
     read(dict);
 }
@@ -159,6 +161,17 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
         }
     }
     writeVtk_ = outDict.lookupOrDefault<Switch>("writeVtk", true);
+
+    vtkMinDose_ = outDict.lookupOrDefault<scalar>("vtkMinDose", -1);
+    vtkMaxDose_ = outDict.lookupOrDefault<scalar>("vtkMaxDose", -1);
+    if (vtkMinDose_ >= 0 && vtkMaxDose_ >= 0 && vtkMaxDose_ < vtkMinDose_)
+    {
+        FatalErrorInFunction
+            << "vtkMaxDose (" << vtkMaxDose_ << ") < vtkMinDose ("
+            << vtkMinDose_ << "). Either bound can be disabled by"
+            << " setting it to a negative value."
+            << exit(FatalError);
+    }
 
     return true;
 }
@@ -406,8 +419,11 @@ Foam::functionObjects::radiationDose::gatherTracks() const
         g.xEnd[me][k]      = p.position(mesh_);
 
         const DynamicList<dose::trackPoint>& pts = p.points();
+        const bool doseInRange =
+            (vtkMinDose_ < 0 || p.D() >= vtkMinDose_)
+         && (vtkMaxDose_ < 0 || p.D() <= vtkMaxDose_);
         const label nv =
-            (writeVtk_ && pts.size() >= 2) ? pts.size() : 0;
+            (writeVtk_ && pts.size() >= 2 && doseInRange) ? pts.size() : 0;
         g.nVerts[me][k] = nv;
         for (label j = 0; j < nv; ++j)
         {
@@ -691,6 +707,21 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories
         {
             if (g.nVerts[r][i] == 0) continue;
             os << g.endReason[r][i] << nl;
+        }
+    }
+
+    // Per-track final dose. Duplicates the last per-vertex dose_mJcm2
+    // value, but having it as cell data lets ParaView's "Threshold"
+    // filter slice whole tracks (under/over-dosed populations) without
+    // a Cell Data To Point Data conversion or a join against the CSV.
+    os  << "SCALARS finalDose_mJcm2 float 1" << nl
+        << "LOOKUP_TABLE default" << nl;
+    forAll(g.nVerts, r)
+    {
+        forAll(g.nVerts[r], i)
+        {
+            if (g.nVerts[r][i] == 0) continue;
+            os << g.dose[r][i] << nl;
         }
     }
 }

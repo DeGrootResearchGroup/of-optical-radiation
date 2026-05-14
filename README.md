@@ -401,7 +401,13 @@ drift-free by construction, parallel particle handoff via
 per-track CSV + summary statistics + a legacy ASCII VTK polyline
 file (`output.writeVtk`, default on; doubles as the trajectory-
 storage switch — disable to bound memory for long-trajectory
-runs). Single-rank `foamPostProcess` runs OMP-parallelise the
+runs). The VTK carries `finalDose_mJcm2` as per-line cell data
+so ParaView's `Threshold` filter can slice whole tracks by final
+dose without joining against the CSV; for cases where even
+writing the full file is the bottleneck, the pre-write
+`output.vtkMinDose` / `output.vtkMaxDose` bounds drop
+out-of-range tracks before the file is emitted (CSV and summary
+still cover the full population). Single-rank `foamPostProcess` runs OMP-parallelise the
 per-particle iteration across `OMP_NUM_THREADS`; multi-rank MPI
 runs use OF's serial-per-rank path. The developer guide tracks
 the remaining open items, all gated on a real driver case: a
