@@ -130,6 +130,29 @@ functions
             vtkMaxDose      1;
         }
     }
+
+    // Batched variant: 250 particles per batch, 1000 total -> 4
+    // batches, expected files trajectories_00001..00004.vtk plus a
+    // trajectories.pvd wrapper referencing all four. CSV and summary
+    // must match the unbatched radiationDose case (same seed + dict
+    // -> bit-for-bit dose distribution).
+    radiationDoseBatched
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+        U               U;
+        fluenceRate     G;
+        seed            42;
+        seeding         { type patchInjection; patches (inlet); nParticles 1000; }
+        dispersion      { type none; }
+        termination     { escapePatches (outlet); maxTime 10; maxDose 0; }
+        integration     { dtMax 0.05; cflMax 0.5; }
+        output
+        {
+            kInact          (0.1);
+            batchSize       250;
+        }
+    }
 }
 
 // ************************************************************************* //

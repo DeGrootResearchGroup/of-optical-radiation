@@ -16,6 +16,7 @@
 #include "polyBoundaryMesh.H"
 
 #include <cmath>
+#include <cstdio>
 #include <limits>
 
 namespace
@@ -37,6 +38,16 @@ namespace
             std::abs(x) < std::numeric_limits<float>::min()
           ? Foam::scalar(0)
           : x;
+    }
+
+    // Zero-padded numeric suffix for per-batch filenames. Five
+    // digits is enough for 99999 batches; at the dictionary default
+    // batchSize of 0 (disabled) the limit doesn't bite.
+    inline Foam::word padIndex(const Foam::label i, const int width = 5)
+    {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%0*ld", width, long(i));
+        return Foam::word(buf);
     }
 }
 
@@ -73,7 +84,8 @@ Foam::functionObjects::radiationDose::radiationDose
     maxOuterSteps_(100000),
     writeVtk_(true),
     vtkMinDose_(-1),
-    vtkMaxDose_(-1)
+    vtkMaxDose_(-1),
+    batchSize_(0)
 {
     read(dict);
 }
@@ -198,6 +210,27 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
             << exit(FatalError);
     }
 
+    batchSize_ = outDict.lookupOrDefault<label>("batchSize", 0);
+    if (batchSize_ < 0)
+    {
+        FatalErrorInFunction
+            << "batchSize must be >= 0 (got " << batchSize_
+            << "). Use 0 to disable batching."
+            << exit(FatalError);
+    }
+    if (batchSize_ > 0 && Pstream::parRun())
+    {
+        // Batching slices the global seed list into chunks, which
+        // doesn't compose with the per-rank seed distribution that
+        // patchInjection / pointInjection produce in parallel.
+        // Single-rank cases (incl. multi-thread OMP) work fine.
+        FatalErrorInFunction
+            << "batchSize > 0 is not supported in parallel runs."
+            << " Run single-rank (OMP threading via OMP_NUM_THREADS"
+            << " still works) or disable batching."
+            << exit(FatalError);
+    }
+
     return true;
 }
 
@@ -226,6 +259,55 @@ Foam::wordList Foam::functionObjects::radiationDose::fields() const
 }
 
 
+// Per-rank gather payload. Per-track scalars are kept as a List per
+// rank; per-vertex data is flattened (concatenated across tracks) and
+// sliced via the matching nVerts list. nVerts[r][i] is 0 for tracks
+// that should not appear in the VTK file (writeVtk_ off, or fewer
+// than 2 vertices); the CSV/summary writers ignore it.
+struct Foam::functionObjects::radiationDose::GatheredTracks
+{
+    // Per-track summary, indexed [proc][trackOnProc]
+    List<List<label>>  origId;
+    List<List<label>>  origProc;
+    List<List<label>>  endReason;
+    List<List<scalar>> tEnd;
+    List<List<scalar>> dose;
+    List<List<vector>> xEnd;
+
+    // Per-track vertex count (0 if the track is excluded from VTK)
+    List<List<label>>  nVerts;
+
+    // Per-vertex data, concatenated across tracks within each rank
+    List<List<vector>> vertX;
+    List<List<scalar>> vertT;
+    List<List<scalar>> vertD;
+    List<List<label>>  vertC;
+
+    // Globally-unique trackId per track, indexed [proc][trackOnProc].
+    // Computed by runBatch() right after gather: equal to the
+    // per-particle origId offset by the running aggregator size at
+    // the start of this batch. Used as the VTK CELL_DATA trackId
+    // scalar and propagated into the AggregatedTracks for the CSV.
+    List<List<label>>  globalTrackId;
+};
+
+
+// Cross-batch accumulator. Flat 1-D, master-only, summary fields plus
+// per-batch VTK filenames. Populated incrementally inside execute()
+// via appendBatch() as each batch finishes; consumed by write() for
+// the aggregated CSV + summary + PVD wrapper.
+struct Foam::functionObjects::radiationDose::AggregatedTracks
+{
+    DynamicList<label>  trackId;     // global seed index
+    DynamicList<label>  endReason;   // integer enum cast
+    DynamicList<scalar> tEnd;
+    DynamicList<scalar> dose;
+    DynamicList<vector> xEnd;
+
+    DynamicList<word>   vtkFile;     // basename of each batch's .vtk
+};
+
+
 bool Foam::functionObjects::radiationDose::execute()
 {
     const volVectorField& U =
@@ -235,15 +317,86 @@ bool Foam::functionObjects::radiationDose::execute()
 
     randomGenerator rng{randomGenerator::seed(randomSeed_)};
 
-    // Build the dispersion and motion models fresh per execute() so
-    // any internal counters / RNG state are reproducible.
+    // Seed all particles up front. The seedingModel returns this
+    // rank's share; with batching enabled we've already verified
+    // single-rank in read(), so this is the full global list.
+    Info<< type() << ": seeding particles..." << endl;
+    const List<dose::trackPoint> allSeeds = seeding_->seed(rng);
+    const label nTotal = allSeeds.size();
+    Info<< type() << ": seeded " << nTotal << " particles" << endl;
+
+    // Decide batching layout. batchSize == 0, or batchSize >= nTotal,
+    // collapses to a single batch keeping the original filename
+    // (trajectories.vtk) and skipping the PVD wrapper.
+    const label effBatch =
+        (batchSize_ <= 0 || batchSize_ >= nTotal) ? nTotal : batchSize_;
+    const label nBatches =
+        (nTotal > 0) ? (nTotal + effBatch - 1) / effBatch : 0;
+    const bool batched = (nBatches > 1);
+
+    fileName outDir;
+    if (Pstream::master())
+    {
+        outDir =
+            time_.globalPath()/"postProcessing"/name()/time_.name();
+        mkDir(outDir);
+        aggregated_.reset(new AggregatedTracks);
+    }
+
+    if (nBatches == 0)
+    {
+        // Edge case: no seeds at all. Empty CSV / summary still get
+        // written from write() against the (empty) aggregator.
+        return true;
+    }
+
+    for (label b = 0; b < nBatches; ++b)
+    {
+        const label start = b*effBatch;
+        const label end   = min(start + effBatch, nTotal);
+        const label n     = end - start;
+
+        const word vtkFile = batched
+            ? word("trajectories_" + padIndex(b + 1) + ".vtk")
+            : word("trajectories.vtk");
+
+        if (batched)
+        {
+            Info<< type() << ": batch " << (b + 1) << "/" << nBatches
+                << " (" << n << " particles, global indices "
+                << start << ".." << (end - 1) << ")" << endl;
+        }
+
+        List<dose::trackPoint> seeds(n);
+        for (label i = 0; i < n; ++i)
+        {
+            seeds[i] = allSeeds[start + i];
+        }
+
+        runBatch(seeds, vtkFile, outDir, U, G, rng);
+    }
+
+    return true;
+}
+
+
+void Foam::functionObjects::radiationDose::runBatch
+(
+    const List<dose::trackPoint>& seeds,
+    const word& vtkFileName,
+    const fileName& outDir,
+    const volVectorField& U,
+    const volScalarField& G,
+    randomGenerator& rng
+)
+{
+    // Build the dispersion and motion models fresh per batch so any
+    // internal counters / RNG state start clean.
     autoPtr<dose::dispersionModel> dispersion =
         dose::dispersionModel::New(dispersionDict_, mesh_);
     autoPtr<dose::motionModel> motion =
         dose::motionModel::New(motionDict_, mesh_);
 
-    // Construct the cloud (or rebuild if execute() is called twice in
-    // one run). The cloud takes ownership of both models.
     cloud_.reset
     (
         new dose::dosePathCloud
@@ -262,13 +415,6 @@ bool Foam::functionObjects::radiationDose::execute()
         )
     );
 
-    // Seed the cloud. The seedingModel returns initial trackPoints
-    // (position + cell index); we use those to construct dosePath-
-    // particles via OpenFOAM's locate-by-tree constructor.
-    Info<< type() << ": seeding particles..." << endl;
-    List<dose::trackPoint> seeds = seeding_->seed(rng);
-    Info<< type() << ": seeded " << seeds.size() << " particles" << endl;
-
     const meshSearch& ms = meshSearch::New(mesh_);
     label nLocateBoundaryHits = 0;
     forAll(seeds, i)
@@ -281,14 +427,8 @@ bool Foam::functionObjects::radiationDose::execute()
                 seeds[i].celli,
                 nLocateBoundaryHits
             );
-        // Per-track dispersion and motion states are owned by the
-        // particle; the cloud's models are the factories.
         p->setDispState(cloud_->dispersion().newState());
         p->setMotionState(cloud_->motion().newState());
-        // Initial trajectory vertex (so the writer reports the seed
-        // position even if the particle never advances). Skipped
-        // when storeTrack is off — see dosePathParticle::move() for
-        // the per-step variant of this same guard.
         if (writeVtk_)
         {
             p->appendPoint(seeds[i]);
@@ -301,13 +441,7 @@ bool Foam::functionObjects::radiationDose::execute()
 
     Info<< type() << ": integrating..." << endl;
     const label nSteps =
-        cloud_->runToCompletion
-        (
-            UInterp,
-            GInterp,
-            rng,
-            maxOuterSteps_
-        );
+        cloud_->runToCompletion(UInterp, GInterp, rng, maxOuterSteps_);
 
     label nEscaped = 0, nTimedOut = 0, nStuck = 0, nTerm = 0, nActive = 0;
     forAllConstIter
@@ -334,61 +468,93 @@ bool Foam::functionObjects::radiationDose::execute()
         << nActive   << " still active (capped by maxOuterSteps)"
         << endl;
 
-    return true;
+    GatheredTracks g = gatherTracks();
+
+    if (Pstream::master())
+    {
+        // Stamp the globally-unique trackId onto each track. The
+        // per-particle origId resets to 0 with every new cloud, so we
+        // recover a globally consistent index by offsetting by the
+        // running aggregator size before appending this batch.
+        const label trackOffset = aggregated_->trackId.size();
+        forAll(g.globalTrackId, r)
+        {
+            const label nr = g.origId[r].size();
+            g.globalTrackId[r].setSize(nr);
+            for (label i = 0; i < nr; ++i)
+            {
+                g.globalTrackId[r][i] = trackOffset + g.origId[r][i];
+            }
+        }
+
+        if (writeVtk_)
+        {
+            writeVtkTrajectories(g, outDir/vtkFileName);
+        }
+        appendBatch(g, vtkFileName);
+    }
+
+    // Drop the cloud before the next batch so its per-particle
+    // trajectory storage is released (the gather already pulled
+    // everything needed for CSV/summary/VTK to rank 0).
+    cloud_.clear();
 }
 
 
-// Per-rank gather payload. Per-track scalars are kept as a List per
-// rank; per-vertex data is flattened (concatenated across tracks) and
-// sliced via the matching nVerts list. nVerts[r][i] is 0 for tracks
-// that should not appear in the VTK file (writeVtk_ off, or fewer
-// than 2 vertices); the CSV/summary writers ignore it.
-struct Foam::functionObjects::radiationDose::GatheredTracks
+void Foam::functionObjects::radiationDose::appendBatch
+(
+    const GatheredTracks& g,
+    const word& vtkFileName
+)
 {
-    // Per-track summary, indexed [proc][trackOnProc]
-    List<List<label>>  origId;
-    List<List<label>>  origProc;
-    List<List<label>>  endReason;
-    List<List<scalar>> tEnd;
-    List<List<scalar>> dose;
-    List<List<vector>> xEnd;
-
-    // Per-track vertex count (0 if the track is excluded from VTK)
-    List<List<label>>  nVerts;
-
-    // Per-vertex data, concatenated across tracks within each rank
-    List<List<vector>> vertX;
-    List<List<scalar>> vertT;
-    List<List<scalar>> vertD;
-    List<List<label>>  vertC;
-};
+    AggregatedTracks& a = aggregated_();
+    forAll(g.origId, r)
+    {
+        const label nr = g.origId[r].size();
+        for (label i = 0; i < nr; ++i)
+        {
+            a.trackId.append(g.globalTrackId[r][i]);
+            a.endReason.append(g.endReason[r][i]);
+            a.tEnd.append(g.tEnd[r][i]);
+            a.dose.append(g.dose[r][i]);
+            a.xEnd.append(g.xEnd[r][i]);
+        }
+    }
+    if (writeVtk_)
+    {
+        a.vtkFile.append(vtkFileName);
+    }
+}
 
 
 bool Foam::functionObjects::radiationDose::write()
 {
-    if (!cloud_.valid())
+    if (!aggregated_.valid())
     {
         return true;
     }
 
-    const GatheredTracks g = gatherTracks();
-
     if (Pstream::master())
     {
         // globalPath() strips the processorN suffix in parallel runs;
-        // in serial it's identical to path(). The summary / CSV / VTK
-        // are already global (rank 0 holds all ranks' data after the
-        // gather), so they belong in the case-root postProcessing
-        // tree, not under any processor directory.
+        // in serial it's identical to path(). aggregated_ is already
+        // global (rank 0 holds all batches' data after each gather),
+        // so the CSV / summary / PVD belong in the case-root
+        // postProcessing tree, not under any processor directory.
         const fileName outDir =
             time_.globalPath()/"postProcessing"/name()/time_.name();
         mkDir(outDir);
 
-        writeDoseCsv(g, outDir);
-        writeSummary(g, outDir);
-        if (writeVtk_)
+        const AggregatedTracks& a = aggregated_();
+        writeDoseCsv(a, outDir);
+        writeSummary(a, outDir);
+
+        // PVD wrapper only when batching produced more than one VTK
+        // file; a single-batch run keeps the original single-file
+        // layout for backward compatibility.
+        if (writeVtk_ && a.vtkFile.size() > 1)
         {
-            writeVtkTrajectories(g, outDir);
+            writePvdWrapper(a, outDir);
         }
     }
     return true;
@@ -411,6 +577,7 @@ Foam::functionObjects::radiationDose::gatherTracks() const
     g.vertT.setSize(nProcs);
     g.vertD.setSize(nProcs);
     g.vertC.setSize(nProcs);
+    g.globalTrackId.setSize(nProcs);
 
     const label me = Pstream::myProcNo();
     const label nLocal = cloud_->size();
@@ -483,60 +650,53 @@ Foam::functionObjects::radiationDose::gatherTracks() const
 
 void Foam::functionObjects::radiationDose::writeDoseCsv
 (
-    const GatheredTracks& g,
+    const AggregatedTracks& a,
     const fileName& outDir
 ) const
 {
     OFstream os(outDir/"doseDistribution.csv");
     os  << "# trackId,endReason,time_s,dose_mJ_cm2,xEnd,yEnd,zEnd" << nl;
-    forAll(g.origId, r)
+    forAll(a.trackId, i)
     {
-        forAll(g.origId[r], i)
-        {
-            const auto er = static_cast<dose::dosePathParticle::endReason>
-                (g.endReason[r][i]);
-            const vector& x = g.xEnd[r][i];
-            os  << g.origProc[r][i] << '.' << g.origId[r][i] << ','
-                << dose::dosePathParticle::endReasonNames[er] << ','
-                << g.tEnd[r][i] << ','
-                << g.dose[r][i] << ','
-                << x.x() << ',' << x.y() << ',' << x.z() << nl;
-        }
+        const auto er = static_cast<dose::dosePathParticle::endReason>
+            (a.endReason[i]);
+        const vector& x = a.xEnd[i];
+        os  << a.trackId[i] << ','
+            << dose::dosePathParticle::endReasonNames[er] << ','
+            << a.tEnd[i] << ','
+            << a.dose[i] << ','
+            << x.x() << ',' << x.y() << ',' << x.z() << nl;
     }
 }
 
 
 void Foam::functionObjects::radiationDose::writeSummary
 (
-    const GatheredTracks& g,
+    const AggregatedTracks& a,
     const fileName& outDir
 ) const
 {
     DynamicList<scalar> doses;
-    label totalSeeded = 0;
+    const label totalSeeded = a.trackId.size();
     label nEscaped = 0, nTimedOut = 0, nStuck = 0, nTerm = 0, nActive = 0;
-    forAll(g.origId, r)
+    forAll(a.trackId, i)
     {
-        totalSeeded += g.origId[r].size();
-        forAll(g.origId[r], i)
+        const auto er = static_cast<dose::dosePathParticle::endReason>
+            (a.endReason[i]);
+        switch (er)
         {
-            const auto er = static_cast<dose::dosePathParticle::endReason>
-                (g.endReason[r][i]);
-            switch (er)
-            {
-                case dose::dosePathParticle::endReason::escaped:
-                    ++nEscaped;
-                    doses.append(g.dose[r][i]);
-                    break;
-                case dose::dosePathParticle::endReason::timedOut:
-                    ++nTimedOut; break;
-                case dose::dosePathParticle::endReason::stuck:
-                    ++nStuck;    break;
-                case dose::dosePathParticle::endReason::terminated:
-                    ++nTerm;     break;
-                case dose::dosePathParticle::endReason::active:
-                    ++nActive;   break;
-            }
+            case dose::dosePathParticle::endReason::escaped:
+                ++nEscaped;
+                doses.append(a.dose[i]);
+                break;
+            case dose::dosePathParticle::endReason::timedOut:
+                ++nTimedOut; break;
+            case dose::dosePathParticle::endReason::stuck:
+                ++nStuck;    break;
+            case dose::dosePathParticle::endReason::terminated:
+                ++nTerm;     break;
+            case dose::dosePathParticle::endReason::active:
+                ++nActive;   break;
         }
     }
 
@@ -598,7 +758,7 @@ void Foam::functionObjects::radiationDose::writeSummary
 void Foam::functionObjects::radiationDose::writeVtkTrajectories
 (
     const GatheredTracks& g,
-    const fileName& outDir
+    const fileName& outFile
 ) const
 {
     // Legacy ASCII VTK PolyData. ParaView reads this directly as
@@ -628,7 +788,7 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories
         }
     }
 
-    OFstream os(outDir/"trajectories.vtk");
+    OFstream os(outFile);
     os.precision(8);
 
     os  << "# vtk DataFile Version 3.0" << nl
@@ -717,7 +877,7 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories
         forAll(g.nVerts[r], i)
         {
             if (g.nVerts[r][i] == 0) continue;
-            os << g.origId[r][i] << nl;
+            os << g.globalTrackId[r][i] << nl;
         }
     }
 
@@ -749,6 +909,32 @@ void Foam::functionObjects::radiationDose::writeVtkTrajectories
             os << vtkSafeFloat(g.dose[r][i]) << nl;
         }
     }
+}
+
+
+void Foam::functionObjects::radiationDose::writePvdWrapper
+(
+    const AggregatedTracks& a,
+    const fileName& outDir
+) const
+{
+    // VTK Collection (.pvd) wrapper. ParaView opens a single .pvd and
+    // pulls in every referenced VTK file as one logical dataset with
+    // a common Threshold target. We use one timestep with multiple
+    // `part` entries (the parallel-partition semantics also serve as
+    // a "load these together" hint for ParaView's reader).
+    OFstream os(outDir/"trajectories.pvd");
+    os  << "<?xml version=\"1.0\"?>" << nl
+        << "<VTKFile type=\"Collection\" version=\"0.1\""
+        << " byte_order=\"LittleEndian\">" << nl
+        << "  <Collection>" << nl;
+    forAll(a.vtkFile, b)
+    {
+        os  << "    <DataSet timestep=\"0\" part=\"" << b
+            << "\" file=\"" << a.vtkFile[b] << "\"/>" << nl;
+    }
+    os  << "  </Collection>" << nl
+        << "</VTKFile>" << nl;
 }
 
 
