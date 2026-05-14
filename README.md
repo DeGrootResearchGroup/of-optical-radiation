@@ -154,12 +154,14 @@ The case suite is split into two trees:
   references (E_2 integrals, Schwarzschild-Milne, Beer-Lambert, etc.)
   plus three bit-for-bit cross-case identity checks. What you re-run
   to catch a regression.
-- **`tutorials/`** -- 4 pedagogical cases run on demand by users.
-  Either drawn from literature (`uvReactorSozzi2006`) or
-  demonstrating an architectural pattern that doesn't exist anywhere
-  else in the repo (`refractiveInterface2D` for multi-region
-  `foamMultiRun`; `fvModelChannel2D` for fvModel embedding into a
-  host solver; `iesEmitter2D` for IES photometric file integration).
+- **`tutorials/`** -- 5 pedagogical cases run on demand by users.
+  Either drawn from literature (`uvReactorSozzi2006` /
+  `uvReactorSozzi2006-DOM` — same paper, analytical vs DOM `G`
+  source) or demonstrating an architectural pattern that doesn't
+  exist anywhere else in the repo (`refractiveInterface2D` for
+  multi-region `foamMultiRun`; `fvModelChannel2D` for fvModel
+  embedding into a host solver; `iesEmitter2D` for IES photometric
+  file integration).
   Each has a small bit-for-bit replacement test under
   `tests/<name>Match` so promoting them to tutorials didn't lose CI
   coverage.
@@ -179,24 +181,35 @@ cd tests/diffuseSlab2D
 ./validate              # check simulated G against 2*pi*L_w*E_2(kappa*x)
 ```
 
-The Sozzi tutorial has the post-process step chained into `Allrun`:
+The Sozzi reactor ships as a pair of sibling tutorials so the
+analytical and DOM `G` paths can both be on disk at once for
+side-by-side comparison in ParaView:
 
 ```sh
-cd tutorials/uvReactorSozzi2006
+cd tutorials/uvReactorSozzi2006        # analytical infinite-line G
 ./Allrun                # mesh + flow solve + setFluenceRate + radiationDose
-./validate              # check mean dose + log reduction against the paper
+./validate              # paper targets; log_red ~2.05
+
+cd ../uvReactorSozzi2006-DOM           # DOM-computed G
+./Allrun                # mesh + flow solve + opticalRadiationFoam + radiationDose
+./validate              # same paper; log_red ~1.39 (chord attenuation + end caps)
 ```
+
+Both cases write a `VTK/` directory at the end of their `Allrun` so
+you can drop both into the same ParaView session and contour the `G`
+field side-by-side.
 
 ### Run every tutorial
 
 ```sh
 cd tutorials
 ./Allrun                          # short tutorials only
-RUN_LONG_TUTORIALS=1 ./Allrun     # include long tutorials (Sozzi, ~45 min)
+RUN_LONG_TUTORIALS=1 ./Allrun     # include long tutorials (both Sozzi cases)
 ```
 
-Tutorials marked with a `LONG_RUNNING` marker file (currently just
-`uvReactorSozzi2006`) are skipped by `tutorials/Allrun` /
+Tutorials marked with a `LONG_RUNNING` marker file (currently
+`uvReactorSozzi2006` and `uvReactorSozzi2006-DOM`) are skipped by
+`tutorials/Allrun` /
 `tutorials/Allclean` by default; set `RUN_LONG_TUTORIALS=1` to
 include them. Run a single tutorial directly with
 `cd tutorials/<name> && ./Allrun` regardless of the marker.
@@ -215,8 +228,9 @@ radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 
 ### What's in `tutorials/`
 
-`uvReactorSozzi2006`, `refractiveInterface2D`, `fvModelChannel2D`,
-`iesEmitter2D`. See each case's `README.md` for a walkthrough.
+`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `refractiveInterface2D`,
+`fvModelChannel2D`, `iesEmitter2D`. See each case's `README.md` for a
+walkthrough.
 
 Each case has its own `README.md` describing the geometry, BCs, and
 expected behaviour.

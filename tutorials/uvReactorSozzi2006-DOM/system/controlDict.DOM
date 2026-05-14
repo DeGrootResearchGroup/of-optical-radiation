@@ -1,0 +1,44 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvReactorSozzi2006: controlDict for DOM step    |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Allrun-DOM swaps this in over system/controlDict for the radiation
+// solve, then swaps the flow controlDict back. opticalRadiationFoam
+// starts from the converged flow's latest time directory (which
+// Allrun-DOM populates with a copy of 0/I), runs one DOM iteration,
+// and writes I and G to startTime + deltaT. DOM's inner iteration
+// (set by DOMCoeffs.maxIter / convergence in opticalRadiationProperties)
+// converges the radiance fields within this single outer time step.
+
+application     opticalRadiationFoam;
+
+startFrom       latestTime;
+stopAt          nextWrite;
+endTime         1e10;
+deltaT          1;
+
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+
+writeFormat     binary;
+writePrecision  8;
+writeCompression off;
+
+timeFormat      general;
+timePrecision   6;
+
+runTimeModifiable false;
+
+// ************************************************************************* //

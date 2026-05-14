@@ -1,0 +1,48 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvReactorSozzi2006: optical properties for DOM  |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Single-band low-pressure mercury arc at 254 nm. The constant
+// absorption coefficient matches the analytical Sozzi formula
+// sigmaW = 35.67 1/m (70 %/cm UV transmittance in clean water).
+// Scattering is neglected (water in this case is essentially
+// non-scattering at 254 nm with no particulates).
+
+opticalRadiation        on;
+radiationModel          DOM;
+
+DOMCoeffs
+{
+    nPhi          8;     // 2*nPhi azimuthal bins
+    nTheta        4;     // polar bins per hemisphere; 3-D
+    convergence   1e-5;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+}
+
+extinctionModel constant;
+constantCoeffs
+{
+    nBands           1;
+    absorption       true;
+    absorptionCoeff  (35.67);   // matches setFluenceRate's sigmaW default
+    scattering       false;
+    scatteringCoeff  (0);
+}
+
+// ************************************************************************* //

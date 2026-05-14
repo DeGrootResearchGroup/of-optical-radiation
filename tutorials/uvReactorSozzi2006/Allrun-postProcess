@@ -10,3 +10,11 @@ set -e
 
 runApplication setFluenceRate -latestTime
 runApplication foamPostProcess -dict system/postProcess.dict -latestTime
+
+# Convert flow + G fields to VTK so ParaView can render the
+# analytical G field alongside the trajectories.vtk that the dose
+# tracker already writes. Matches the foamToVTK stage of the
+# DOM sibling case (../uvReactorSozzi2006-DOM) for easy side-by-side
+# comparison.
+LATEST=$(foamListTimes -case . -latestTime)
+runApplication foamToVTK -time "$LATEST" -fields "(U G k epsilon p)"

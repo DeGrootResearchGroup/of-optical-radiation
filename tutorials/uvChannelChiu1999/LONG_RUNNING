@@ -1,0 +1,20 @@
+Long-running marker for tutorials/Allrun.
+
+Estimated runtime on a workstation:
+  * Allmesh (blockMeshBuilder + blockMesh + checkMesh):  ~30 s
+  * foamRun (steady RANS, ~80 k cells, 2-D):              ~5-15 min
+  * opticalRadiationFoam (single DOM step, 32 rays):      ~1-3 min
+  * foamPostProcess radiationDose (10000 particles):      ~2-5 min
+  * Total:                                                 ~10-25 min
+
+Not as long as the Sozzi 3-D case (~45 min) but still skipped by the
+default tutorials/Allrun. Run directly with:
+
+    cd tutorials/uvChannelChiu1999
+    ./Allrun-DOM
+    ./validate
+
+or include in the bulk run with:
+
+    cd tutorials
+    RUN_LONG_TUTORIALS=1 ./Allrun

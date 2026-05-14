@@ -10,6 +10,7 @@
 #include "dosePathCloud.H"
 #include "constants.H"
 #include "polyBoundaryMesh.H"
+#include "emptyPolyPatch.H"
 #include "gaussianSample.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
@@ -412,14 +413,29 @@ void Foam::dose::dosePathParticle::hitBasicPatch
     if (cloud.escapePatchIDs().found(patchi))
     {
         endReason_ = endReason::escaped;
+        return;
     }
-    else
+
+    const polyPatch& pp = td.mesh.boundaryMesh()[patchi];
+    if (isA<emptyPolyPatch>(pp))
     {
-        // Some unknown patch type; treat as stuck. The base class's
-        // hitBasicPatch sets keepParticle=false (delete on the spot),
-        // which would lose the dose information — we keep it instead.
-        endReason_ = endReason::stuck;
+        // Empty patches arise from collapsed dimensions on a 2-D mesh
+        // (e.g. the frontAndBack pair on a plan-view channel). The OF
+        // base-class hitFace dispatcher has no emptyPolyPatch branch,
+        // so empties end up here. Reflect specularly: a particle that
+        // drifts out of plane via a 3-component dispersion fluctuation
+        // bounces back into the mesh instead of being marked stuck on
+        // a boundary that isn't physically there.
+        const vector nf = normal(td.mesh);
+        V_      -= 2.0*(V_      & nf)*nf;
+        V_disp_ -= 2.0*(V_disp_ & nf)*nf;
+        return;
     }
+
+    // Some other non-escape patch; treat as stuck. The base class's
+    // hitBasicPatch sets keepParticle=false (delete on the spot),
+    // which would lose the dose information -- we keep it instead.
+    endReason_ = endReason::stuck;
 }
 
 

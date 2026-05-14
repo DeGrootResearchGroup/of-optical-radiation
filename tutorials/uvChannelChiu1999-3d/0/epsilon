@@ -1,0 +1,58 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | uvChannelChiu1999: turbulent dissipation rate  |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      epsilon;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Inlet epsilon from a mixing length L = 0.07 * channel_width:
+//   epsilon = Cmu^0.75 * k^1.5 / L
+//           = 0.09^0.75 * (2.16e-4)^1.5 / 0.0231
+//           ~ 2.26e-5 m^2/s^3.
+
+dimensions      [0 2 -3 0 0 0 0];
+
+internalField   uniform 2.26e-5;
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        value           uniform 2.26e-5;
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    walls
+    {
+        type            epsilonWallFunction;
+        value           uniform 2.26e-5;
+    }
+    lampWall
+    {
+        type            epsilonWallFunction;
+        value           uniform 2.26e-5;
+    }
+    floor
+    {
+        type            epsilonWallFunction;
+        value           uniform 2.26e-5;
+    }
+    freeSurface
+    {
+        type            zeroGradient;
+    }
+}
+
+// ************************************************************************* //

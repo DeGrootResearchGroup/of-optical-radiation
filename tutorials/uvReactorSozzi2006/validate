@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Validate the radiationDose result against Sozzi & Taghipour 2006.
+"""Validate the analytical-G radiationDose result against Sozzi & Taghipour 2006.
 
 The paper reports for the L-shape reactor at 25 GPM (Section 4.3, Figure 5):
   - Lagrangian dose distribution from ~21 to ~270 mJ/cm^2
   - Mean dose: 68 mJ/cm^2
   - Log reduction at k = 0.1 cm^2/mJ: 1.87
+
+This tutorial sets G via setFluenceRate's analytical infinite-line
+formula (Sozzi 2006 eq. 3). A DOM-driven sibling lives at
+../uvReactorSozzi2006-DOM and produces a noticeably lower log
+reduction (~1.39) because the DOM solve correctly attenuates the
+per-chord path and accounts for end-cap radiation. Both bracket
+the paper's 1.87.
 
 With v0.3's barycentric tet tracker every seeded particle escapes
 (no drift, no recirculation traps), so we can tighten thresholds to
@@ -14,8 +21,8 @@ details.
 
 Targets:
   escape fraction > 0.95                (paper: ~100 %)
-  mean dose       in [55, 85] mJ/cm^2   (paper: 68)
-  log reduction   in [1.6, 2.3]         (paper: 1.87)
+  mean dose       in [55, 85] mJ/cm^2   (paper: 68; analytical ~70)
+  log reduction   in [1.6, 2.3]         (paper: 1.87; analytical ~2.05)
   range max/min   > 5                   (paper: ~270/21 ≈ 13)
 
 The script reads postProcessing/radiationDose/<latest>/summary.dat
