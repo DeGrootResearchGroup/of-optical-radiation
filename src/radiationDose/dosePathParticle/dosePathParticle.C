@@ -77,17 +77,13 @@ Foam::dose::dosePathParticle::dosePathParticle
 {
     if (readFields)
     {
-        // Mirror operator<<. Without this the stream desynchronises:
-        // operator<< writes these unconditionally, so leaving them
-        // unread leaves dangling tokens for the next particle's
-        // parse. points_ is intentionally not transmitted (would
-        // require trackPoint I/O operators); a particle that hands
-        // off mid-flight across a processor patch loses its
-        // pre-handoff trajectory vertices for VTK output but keeps
-        // its accumulated dose, time, velocity, and end reason for
-        // accurate final stats.
+        // Mirror operator<<. The trajectory point list is transmitted
+        // alongside the scalar state so a particle that hands off
+        // mid-flight across a processor patch keeps its pre-handoff
+        // vertices for the VTK writer. The element operators on
+        // trackPoint are what makes the DynamicList round-trip work.
         label er;
-        is  >> V_ >> V_disp_ >> D_ >> t_ >> er;
+        is  >> V_ >> V_disp_ >> D_ >> t_ >> er >> points_;
         endReason_ = static_cast<endReason>(er);
     }
 }
@@ -497,7 +493,8 @@ Foam::Ostream& Foam::dose::operator<<
         << p.V_disp_ << token::SPACE
         << p.D_ << token::SPACE
         << p.t_ << token::SPACE
-        << static_cast<label>(p.endReason_);
+        << static_cast<label>(p.endReason_) << token::SPACE
+        << p.points_;
     return os;
 }
 

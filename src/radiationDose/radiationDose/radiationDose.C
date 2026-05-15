@@ -388,20 +388,30 @@ bool Foam::functionObjects::radiationDose::execute()
     randomGenerator rng{randomGenerator::seed(randomSeed_)};
 
     // Seed all particles up front. The seedingModel returns this
-    // rank's share; with batching enabled we've already verified
-    // single-rank in read(), so this is the full global list.
+    // rank's share; in parallel runs that's only the seeds whose
+    // injection face / cell is owned locally, so nLocal varies across
+    // ranks while nGlobal is the sum every rank agrees on.
     Info<< type() << ": seeding particles..." << endl;
     const List<dose::trackPoint> allSeeds = seeding_->seed(rng);
-    const label nTotal = allSeeds.size();
-    Info<< type() << ": seeded " << nTotal << " particles" << endl;
+    const label nLocal = allSeeds.size();
+    label nGlobal = nLocal;
+    if (Pstream::parRun())
+    {
+        reduce(nGlobal, sumOp<label>());
+    }
+    Info<< type() << ": seeded " << nGlobal << " particles" << endl;
 
-    // Decide batching layout. batchSize == 0, or batchSize >= nTotal,
+    // Decide batching layout. batchSize == 0, or batchSize >= nGlobal,
     // collapses to a single batch keeping the original filename
-    // (trajectories.vtk) and skipping the PVD wrapper.
+    // (trajectories.vtk) and skipping the PVD wrapper. The loop count
+    // is set from the *global* total because cloud construction inside
+    // runBatch is a collective and every rank must enter every batch
+    // in lockstep -- a rank whose local seed share happens to be empty
+    // still has to participate in the batch's MPI alltoall.
     const label effBatch =
-        (batchSize_ <= 0 || batchSize_ >= nTotal) ? nTotal : batchSize_;
+        (batchSize_ <= 0 || batchSize_ >= nGlobal) ? nGlobal : batchSize_;
     const label nBatches =
-        (nTotal > 0) ? (nTotal + effBatch - 1) / effBatch : 0;
+        (nGlobal > 0) ? (nGlobal + effBatch - 1) / effBatch : 0;
     const bool batched = (nBatches > 1);
 
     fileName outDir;
@@ -415,32 +425,43 @@ bool Foam::functionObjects::radiationDose::execute()
 
     if (nBatches == 0)
     {
-        // Edge case: no seeds at all. Empty CSV / summary still get
+        // Edge case: no seeds anywhere. Empty CSV / summary still get
         // written from write() against the (empty) aggregator.
         return true;
     }
 
     for (label b = 0; b < nBatches; ++b)
     {
-        const label start = b*effBatch;
-        const label end   = min(start + effBatch, nTotal);
-        const label n     = end - start;
-
         const word vtkFile = batched
             ? word("trajectories_" + padIndex(b + 1) + ".vtk")
             : word("trajectories.vtk");
 
+        // Two slicing regimes:
+        //   * Batched -- single-rank only (read() enforces it). The
+        //     `allSeeds` list is the full global seed array; we slice
+        //     it by global index.
+        //   * Unbatched -- nBatches == 1. Each rank passes its full
+        //     local seed list straight through, so the union across
+        //     ranks reconstitutes the global population. This is the
+        //     only path that survives a multi-rank run.
+        List<dose::trackPoint> seeds;
         if (batched)
         {
+            const label start = b*effBatch;
+            const label end   = min(start + effBatch, nLocal);
+            const label n     = end - start;
             Info<< type() << ": batch " << (b + 1) << "/" << nBatches
                 << " (" << n << " particles, global indices "
                 << start << ".." << (end - 1) << ")" << endl;
+            seeds.setSize(n);
+            for (label i = 0; i < n; ++i)
+            {
+                seeds[i] = allSeeds[start + i];
+            }
         }
-
-        List<dose::trackPoint> seeds(n);
-        for (label i = 0; i < n; ++i)
+        else
         {
-            seeds[i] = allSeeds[start + i];
+            seeds = allSeeds;
         }
 
         runBatch(seeds, vtkFile, outDir, U, G, rng);
@@ -645,8 +666,15 @@ bool Foam::functionObjects::radiationDose::executeUnsteady
 
         Info<< type() << ": seeding particles (unsteady mode)..." << endl;
         const List<dose::trackPoint> seeds = seeding_->seed(*rng_);
-        const label nTotal = seeds.size();
-        Info<< type() << ": seeded " << nTotal << " particles" << endl;
+        // Same nLocal/nGlobal accounting as steady mode: seeds is the
+        // local share; report the cross-rank sum so the log lines up
+        // with the actual cohort size in parallel runs.
+        label nGlobal = seeds.size();
+        if (Pstream::parRun())
+        {
+            reduce(nGlobal, sumOp<label>());
+        }
+        Info<< type() << ": seeded " << nGlobal << " particles" << endl;
 
         if (Pstream::master())
         {

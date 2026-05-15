@@ -31,6 +31,9 @@ Description
 #include "vector.H"
 #include "scalar.H"
 #include "label.H"
+#include "Istream.H"
+#include "Ostream.H"
+#include "token.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -82,6 +85,41 @@ struct trackPoint
         return vector(x.x(), x.y(), x.z());
     }
 };
+
+
+// Required by Foam::UList<T>::operator>> for uniform-list detection
+// during stream parsing. Field-wise comparison is the natural fit for
+// this plain-data vertex record.
+inline bool operator==(const trackPoint& a, const trackPoint& b)
+{
+    return a.x == b.x && a.t == b.t && a.D == b.D && a.celli == b.celli;
+}
+
+inline bool operator!=(const trackPoint& a, const trackPoint& b)
+{
+    return !(a == b);
+}
+
+
+// Stream operators. trackPoint is the element type of the
+// DynamicList<trackPoint> trajectory carried on each dosePathParticle;
+// when the particle is serialised across a processor patch (Pstream),
+// the list invokes these element operators in turn so the full pre-
+// handoff trajectory survives the cross-rank transfer.
+inline Ostream& operator<<(Ostream& os, const trackPoint& p)
+{
+    os  << p.x << token::SPACE
+        << p.t << token::SPACE
+        << p.D << token::SPACE
+        << p.celli;
+    return os;
+}
+
+inline Istream& operator>>(Istream& is, trackPoint& p)
+{
+    is >> p.x >> p.t >> p.D >> p.celli;
+    return is;
+}
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

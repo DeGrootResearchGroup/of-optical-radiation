@@ -1,0 +1,11 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+. "$(dirname "$0")/../lib/AllcleanCommon.sh"
+
+# radiationDose writer puts CSV / summary / VTK here; cleanCase
+# leaves it alone. Wipe processor* dirs explicitly too in case
+# cleanCase's pattern misses them on some OF builds.
+rm -rf postProcessing processor*
+
+# ----------------------------------------------------------------------------
