@@ -1,0 +1,72 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose parallel handoff test
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     postProcess;
+
+startTime       0;
+endTime         0;
+deltaT          1;
+
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+
+writeFormat     ascii;
+writePrecision  8;
+
+functions
+{
+    radiationDose
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+
+        U               U;
+        fluenceRate     G;
+        seed            42;
+
+        seeding
+        {
+            type        patchInjection;
+            patches     (inlet);
+            nParticles  200;
+        }
+
+        dispersion
+        {
+            type        none;
+        }
+
+        termination
+        {
+            escapePatches   (outlet);
+            maxTime         10;
+            maxDose         0;
+        }
+
+        integration
+        {
+            dtMax           0.05;
+            cflMax          0.5;
+        }
+
+        output
+        {
+            kInact          (0.1);
+        }
+    }
+}
+
+// ************************************************************************* //

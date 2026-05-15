@@ -1,0 +1,37 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose parallel handoff test
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format          ascii;
+    class           dictionary;
+    object          decomposeParDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Split the 1 m plug-flow channel into 4 contiguous slabs along x.
+// With nParticles seeded on the inlet (rank 0), each track crosses
+// THREE processor patches on its way to the outlet on rank 3:
+//   x = 0.25 (rank 0 -> 1),
+//   x = 0.50 (rank 1 -> 2),
+//   x = 0.75 (rank 2 -> 3).
+// This makes the handoff path the dominant code path for trajectory
+// continuity -- a regression would lop off 3/4 of every track's
+// vertices, not just half.
+
+numberOfSubdomains 4;
+
+method          simple;
+
+simpleCoeffs
+{
+    n           (4 1 1);
+    delta       0.001;
+}
+
+
+// ************************************************************************* //

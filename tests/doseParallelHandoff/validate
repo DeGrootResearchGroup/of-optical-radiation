@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Regression test for VTK trajectory continuity across MPI handoff.
+
+Setup: same 1 m x 0.1 m x 0.1 m plug-flow box as `doseSmokeBox`, but
+decomposed into 4 contiguous x-slabs. With particles seeded on the
+inlet patch (rank 0) and escaping at the outlet (rank 3), every
+track crosses three processor patches at x = 0.25, 0.50, 0.75.
+
+Before the trajectory-transfer fix, a particle's `points_` list was
+not serialised across processor patches -- the receiving rank
+started its `points_` empty. The VTK file would show every
+post-handoff track starting at its last handoff point (x ~ 0.75)
+instead of the inlet (x ~ 0).
+
+This validate parses trajectories.vtk and asserts:
+
+  1. All seeded particles escape and have dose 2.0 mJ/cm^2 (the
+     plug-flow analytical, same as doseSmokeBox). This guards against
+     the de-serialisation introducing a state-corruption regression
+     in the scalar fields (V, V_disp, D, t, endReason) -- the points
+     list is appended to the wire format, so a parser/desync bug
+     would break the existing fields too.
+  2. Every track in the VTK file has its FIRST vertex at x <= 0.05.
+     With dtMax = 0.05 and U = 0.5, the first end-of-step vertex
+     after the seed is at x ~ 0.025; the seed itself is at x = 0.
+     A track starting at x ~ 0.25 / 0.5 / 0.75 (the processor patch
+     locations) means its pre-handoff vertices were lost, which is
+     exactly the regression we're guarding against.
+  3. The mean vertex count per track matches the serial expectation.
+     With L = 1 m, V_x = 0.5 m/s, dtMax = 0.05 s and CFL = 0.5 on a
+     dx = 0.025 m cell, each outer step is dt = 0.025 s -> dx_step =
+     0.0125 m -> ~80 outer steps + 1 seed = ~81 vertices per track.
+     A floor of 75 catches the regression where decomposing into 4
+     ranks lops three quarters of every track's history -- the
+     post-final-handoff stretch averages ~20 vertices, well under
+     75.
+"""
+
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import find_latest_time, parse_summary
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def find_latest_in_postprocessing(name, func="radiationDose"):
+    base = os.path.join(HERE, "postProcessing", func)
+    latest = find_latest_time(base)
+    if latest is None:
+        return None
+    p = os.path.join(latest, name)
+    return p if os.path.isfile(p) else None
+
+
+def parse_vtk_tracks(path):
+    """Return list of per-track [(x0, y0, z0), (x1, y1, z1), ...]."""
+    with open(path) as f:
+        body = f.read()
+
+    m_pts = re.search(
+        r"POINTS\s+(\d+)\s+float\s*\n((?:[-\d.eE+]+\s+){3}"
+        r"(?:[-\d.eE+]+\s+)*)",
+        body,
+    )
+    if m_pts is None:
+        sys.exit("could not parse POINTS block")
+    n_points = int(m_pts.group(1))
+    flat = m_pts.group(2).split()[: 3 * n_points]
+    if len(flat) != 3 * n_points:
+        sys.exit(
+            f"POINTS body has {len(flat)} floats, expected {3 * n_points}"
+        )
+    points = [
+        (float(flat[3*i]), float(flat[3*i + 1]), float(flat[3*i + 2]))
+        for i in range(n_points)
+    ]
+
+    m_lines = re.search(
+        r"LINES\s+(\d+)\s+(\d+)\s*\n((?:\d+(?:[ \t]+\d+)*\s*\n)+)",
+        body,
+    )
+    if m_lines is None:
+        sys.exit("could not parse LINES block")
+    n_lines = int(m_lines.group(1))
+    tracks = []
+    for ln in m_lines.group(3).strip().splitlines():
+        toks = ln.split()
+        n = int(toks[0])
+        idxs = [int(t) for t in toks[1 : 1 + n]]
+        tracks.append([points[i] for i in idxs])
+    if len(tracks) != n_lines:
+        sys.exit(
+            f"LINES block produced {len(tracks)} tracks, expected"
+            f" {n_lines}"
+        )
+    return tracks
+
+
+def main():
+    summary = find_latest_in_postprocessing("summary.dat")
+    if summary is None:
+        sys.stderr.write("validate: no summary.dat found\n")
+        return 1
+
+    data = parse_summary(summary)
+    nSeeded = int(data.get("totalSeeded", 0))
+    nEscaped = int(data.get("escaped", 0))
+    meanDose = data.get("meanDose_mJcm2")
+    stdevDose = data.get("stdevDose_mJcm2")
+    print(f"validate: seeded     = {nSeeded}")
+    print(f"validate: escaped    = {nEscaped}")
+    print(f"validate: meanDose   = {meanDose} mJ/cm^2 (analytical 2.0)")
+    print(f"validate: stdevDose  = {stdevDose} mJ/cm^2")
+
+    failures = []
+    if nSeeded < 1 or nEscaped != nSeeded:
+        failures.append(
+            f"escaped {nEscaped} != seeded {nSeeded} (plug flow"
+            f" should escape all)"
+        )
+    if meanDose is None or abs(meanDose - 2.0) > 1e-3:
+        failures.append(f"meanDose {meanDose} != 2.0 +/- 1e-3")
+    if stdevDose is None or stdevDose > 1e-6:
+        failures.append(
+            f"stdevDose {stdevDose} > 1e-6 (plug flow should be"
+            f" deterministic)"
+        )
+
+    vtk = find_latest_in_postprocessing("trajectories.vtk")
+    if vtk is None:
+        failures.append("trajectories.vtk not found")
+    else:
+        tracks = parse_vtk_tracks(vtk)
+        print(f"validate: VTK tracks = {len(tracks)}")
+
+        # Each track's starting vertex should be near the inlet
+        # (x <= 0.05). The seed point is at x = 0; the first end-of-
+        # outer-step append puts a vertex at x ~ 0.025 (one dtMax at
+        # U = 0.5 m/s). A start near a processor-patch x (0.25, 0.5,
+        # 0.75) means pre-handoff vertices were lost.
+        bad_starts = [
+            (i, t[0][0]) for i, t in enumerate(tracks) if t[0][0] > 0.05
+        ]
+        if bad_starts:
+            sample = ", ".join(
+                f"track {i} x0 = {x:.3f}" for i, x in bad_starts[:5]
+            )
+            failures.append(
+                f"{len(bad_starts)}/{len(tracks)} tracks start past"
+                f" x = 0.05 (first sample: {sample}) -- pre-handoff"
+                f" vertices were lost across the processor patch"
+            )
+
+        vert_counts = [len(t) for t in tracks]
+        if vert_counts:
+            mean_verts = sum(vert_counts) / len(vert_counts)
+            min_verts = min(vert_counts)
+            print(
+                f"validate: mean vertices/track = {mean_verts:.1f}"
+                f" (min {min_verts}, expected ~81)"
+            )
+            # Lower bound on the per-track mean. Without the fix,
+            # particles average ~20 vertices each on rank 3 (only
+            # the post-final-handoff stretch survives); with the fix,
+            # every particle keeps all ~81 vertices.
+            if mean_verts < 75:
+                failures.append(
+                    f"mean vertices/track {mean_verts:.1f} < 75"
+                    f" (expected ~81 with full trajectory continuity)"
+                )
+
+    if failures:
+        print("\nFAIL:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+    print("\nPASS: VTK trajectory survives processor-patch handoff intact")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
