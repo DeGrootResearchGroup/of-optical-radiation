@@ -368,6 +368,35 @@ guide for details.
 
 ---
 
+## Documentation
+
+Long-form theory and bibliography live under `docs/`, built with
+Sphinx + MyST Markdown and configured for Read the Docs (see
+`.readthedocs.yaml`). The theory chapters cover the RTE and DOM
+(angular discretisation, pixelisation, in-scatter table, Jacobi
+snapshot), extinction and scattering models (including BHMIE), phase
+functions, boundary conditions (Fresnel + n² étendue, IES luminaires),
+and Lagrangian dose integration (barycentric tet tracking,
+Ornstein-Uhlenbeck exact update, drag and dispersion sub-models).
+
+Local preview:
+
+```
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r docs/requirements.txt
+cd docs && make html
+open _build/html/index.html
+```
+
+CI builds the docs with `sphinx-build -W --keep-going` on every PR
+(the `docs` job in `.github/workflows/ci.yml`), failing on broken
+cross-refs, missing citations, or MyST syntax errors. API reference
+(Doxygen + Breathe) and tutorial walkthroughs are deferred to follow-up
+passes once the theory chapters are stable — see CLAUDE.md's "Open
+items — documentation" for the plan.
+
+---
+
 ## Theory references
 
 opticalRadiation:

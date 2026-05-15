@@ -1207,6 +1207,57 @@ The convention is:
 Don't try to `git push` from inside the sandbox; it fails with
 "Permission denied (publickey)" and wastes a turn.
 
+## Documentation
+
+Long-form theory and (eventually) API reference live under `docs/`,
+built with Sphinx + MyST Markdown + `sphinxcontrib-bibtex` and hosted
+on Read the Docs. The `.readthedocs.yaml` at the repo root drives the
+RTD build; `docs/conf.py`, `docs/Makefile`, and `docs/requirements.txt`
+are the local-build entry points.
+
+Layout:
+
+```
+docs/
+    conf.py                Sphinx config
+    Makefile               make html / latexpdf / clean
+    requirements.txt       Sphinx + MyST + bibtex + furo theme
+    index.md               Landing page
+    references.md          Bibliography page (renders references.bib)
+    references.bib         Cited works
+    theory/
+        index.md
+        rte.md             RTE, DOM, pixelisation, in-scatter, snapshot
+        extinction.md      Beer-Lambert, species, Rayleigh, molecular, Mie, composite
+        phase-functions.md Isotropic, HG, Schlick, Rayleigh, Mie
+        boundary-conditions.md  Lambertian, reflective, beam, refractive, IES
+        dose.md            Lagrangian dose, OU exact update, drag, DRW
+```
+
+Local preview:
+
+```sh
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r docs/requirements.txt
+cd docs && make html
+open _build/html/index.html
+```
+
+CI builds the same target with `sphinx-build -W --keep-going` on
+every PR (see the `docs` job in `.github/workflows/ci.yml`) -- broken
+cross-refs, missing citations, and MyST syntax errors fail the build
+rather than degrading the rendered output silently.
+
+Citations are made with the `{cite}\`<bibtex-key>\`` role and resolve
+against `docs/references.bib`. Cross-references between pages use
+`{doc}\`<page-name>\`` (whole page) or `{ref}\`<label>\`` (section,
+where the label is set by `(label)=` on the line above a heading).
+
+When updating theory after a physics fix, prefer editing the relevant
+`docs/theory/*.md` page over adding a long explanatory comment in
+the source. The README and CLAUDE.md remain the entry points; the
+docs tree is the deeper reference.
+
 ## OpenFOAM v13 Foundation Reference
 
 - **Source**: `openfoam13` Docker image from `dl.openfoam.org` (built
@@ -1794,10 +1845,42 @@ guessed.
 
 ---
 
+## Open items — documentation
+
+The `docs/` tree currently covers theory (RTE/DOM, extinction, phase
+functions, BCs, Lagrangian dose) plus the bibliography. Two follow-on
+passes are deferred:
+
+1. **API reference via Doxygen + Breathe.** Add a `Doxyfile` driving
+   Doxygen XML output, wire `breathe` into `docs/conf.py`'s
+   `extensions` list, and add a `docs/api/` tree of pages emitting
+   `.. doxygenclass::` / `.. doxygenfunction::` directives for the
+   public-facing C++ symbols (`radiationModel`, `DOM`, `ray`,
+   extinction and phase-function base classes, the BC subclasses,
+   `dosePathParticle`, `dosePathCloud`, seeding / dispersion / motion
+   / drag bases). The CI job will need a `doxygen` install (apt-get
+   before pip-install) and the RTD build will need it via an `apt`
+   block in `.readthedocs.yaml`. Plan to do this only once the theory
+   chapters are stable -- the cross-references from theory prose into
+   API symbols are where the integrated story pays off, and re-doing
+   them as the theory rolls is wasteful. Track here so it doesn't get
+   lost.
+
+2. **Tutorial walkthroughs.** Each case under `tutorials/` already has
+   a per-case `README.md`; the docs version would re-render those as
+   first-class pages with embedded plots and cross-references into
+   the theory chapters (e.g. the Sozzi walkthrough citing the dose
+   chapter's OU-update derivation). Lower priority than the API
+   reference -- the per-case READMEs are already good entry points.
+
 ## CI
 
-`.github/workflows/ci.yml` runs on every pull request. It detects
-whether the PR touches the `Dockerfile` (or `docker-publish.yml`):
+`.github/workflows/ci.yml` runs on every pull request. Two top-level
+jobs:
+
+**`test`** (Docker-based, the OpenFOAM build and regression suite).
+Detects whether the PR touches the `Dockerfile` (or
+`docker-publish.yml`):
 
 - **Regular PR:** pulls the pre-built
   `ghcr.io/degrootresearchgroup/of-optical-radiation-ci` image (built
@@ -1812,3 +1895,10 @@ whether the PR touches the `Dockerfile` (or `docker-publish.yml`):
 Passes only if every test's `validate` script passes and all three
 cross-case diffs match. Pedagogical tutorials under `tutorials/` are
 not run by CI; they're for users.
+
+**`docs`** (no Docker; Sphinx + MyST). Installs `docs/requirements.txt`
+on Python 3.11 (matching the RTD build) and runs
+`sphinx-build -W --keep-going -b html docs docs/_build/html`. Broken
+cross-references, missing bibliography keys, and MyST syntax errors
+fail the build -- the same failure modes that would silently degrade
+the rendered RTD output.
