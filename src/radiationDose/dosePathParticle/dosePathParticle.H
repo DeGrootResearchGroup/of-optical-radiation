@@ -134,8 +134,10 @@ private:
         autoPtr<motionModel::State> motionState_;
 
         //- Trajectory: every position the particle has visited at the
-        //  end of an outer step. Optional; controlled by the cloud's
-        //  storeFullTrack flag (TODO).
+        //  end of an outer step. Controlled by the cloud's storeTrack
+        //  flag. Transmitted across processor patches via the particle
+        //  (de)serialisation operators so the VTK writer sees the
+        //  full pre-handoff trajectory after parallel transfer.
         DynamicList<trackPoint> points_;
 
 

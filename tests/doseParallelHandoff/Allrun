@@ -1,0 +1,15 @@
+#!/bin/sh
+. "$(dirname "$0")/../lib/AllrunPreamble.sh"
+
+# Restore stock initial fields.
+cp -r 0.orig 0
+
+# OpenMPI refuses to run as root by default; the OpenFOAM 13 Docker
+# image runs as root. Setting these two env vars lets mpirun proceed.
+# They are no-ops on a non-root host.
+export OMPI_ALLOW_RUN_AS_ROOT=1
+export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+
+runApplication blockMesh
+runApplication decomposePar
+runParallel foamPostProcess

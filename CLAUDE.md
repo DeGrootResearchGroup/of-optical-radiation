@@ -275,7 +275,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Twenty-one regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Twenty-two regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -977,21 +977,6 @@ For each `execute()` call, `write()` emits:
    CSV per `execute()` vs. one continuous integration) would need
    to be re-thought first.
 
-4. **VTK trajectory truncated across MPI processor handoff.**
-   In parallel runs, the per-particle trajectory point list
-   (`points_`) is not transmitted across processor patches —
-   only the scalar end-state (V, V_disp, D, t, endReason, plus
-   the OpenFOAM particle base data) is serialised. A particle
-   that crosses one or more processor patches will appear in
-   the VTK file with only its post-handoff vertices. The CSV
-   and summary statistics are unaffected — the dose accumulator
-   and end position are correct because the receiving rank
-   continues integrating from where the sending rank left off.
-   Fixing this needs trackPoint to gain Ostream/Istream
-   operators and the dosePathParticle (de)serialisation to
-   include the full DynamicList; not done because no driver
-   case has needed parallel trajectory continuity.
-
 ### `setFluenceRate` utility
 
 A small standalone OpenFOAM utility that writes a `volScalarField G`
@@ -1163,7 +1148,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Twenty-one cases.
+  Twenty-two cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1407,6 +1392,22 @@ radiationDose:
   for the box) within 6 σ_stddev. Regression guard for the
   rejection-sampling kernel, the bounding-box / shape-test geometry,
   and the dictionary parser.
+- **`doseParallelHandoff`** — `doseSmokeBox` geometry decomposed
+  into four contiguous x-slabs via `simple` (n=(4,1,1)), exercising
+  the cross-rank particle transfer with `decomposePar` +
+  `runParallel foamPostProcess`. 201 plug-flow particles seeded on
+  the inlet (rank 0) traverse three processor patches at x = 0.25,
+  0.50, 0.75 on their way to the outlet (rank 3). Validate asserts
+  100 % escape, dose = 2.0 mJ/cm² (to floating-point), and parses
+  `trajectories.vtk` to verify that every track's first vertex sits
+  near the inlet (x ≤ 0.05) -- the regression guard for the
+  trajectory point list serialising across processor patches. Mean
+  ~82 vertices/track (≥ 75 lower bound); without the fix the post-
+  final-handoff stretch averages ~20 vertices per track. Also
+  exercises the collective batch loop in `execute()` (every rank
+  must enter every batch in lockstep so the Cloud constructor's
+  `MPI_Alltoall` doesn't deadlock when the local seed count is 0).
+
 ### `tutorials/`
 
 - **`uvReactorSozzi2006`** / **`uvReactorSozzi2006-DOM`** — Sozzi &

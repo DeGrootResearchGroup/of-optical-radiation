@@ -149,7 +149,7 @@ Build products:
 
 The case suite is split into two trees:
 
-- **`tests/`** -- 21 regression cases run by CI on every PR. Synthetic
+- **`tests/`** -- 22 regression cases run by CI on every PR. Synthetic
   geometries (slabs, boxes) chosen for closed-form analytical
   references (E_2 integrals, Schwarzschild-Milne, Beer-Lambert, etc.)
   plus three bit-for-bit cross-case identity checks. What you re-run
@@ -224,7 +224,7 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 `cyclicMatch`, `nonConformalCyclicMatch`, `radiationCoupledMatch`.
 
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
-`pointInjectionBox`.
+`pointInjectionBox`, `doseParallelHandoff`.
 
 ### What's in `tutorials/`
 
@@ -346,7 +346,7 @@ applications/
     modules/opticalRadiation/        DOM solver module for foamMultiRun
     utilities/setFluenceRate/        analytical radial G writer
 
-tests/                   21 regression cases + Alltest harness (CI runs this)
+tests/                   22 regression cases + Alltest harness (CI runs this)
 tutorials/               4 pedagogical cases (run on demand by users)
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)
