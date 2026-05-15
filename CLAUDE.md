@@ -7,7 +7,18 @@
 > intentionally — this guide is the long form, the README is the
 > entry point — and they drift out of sync quickly if only one is
 > touched. Quick check before committing: `grep` for any name or
-> path you renamed in the other file.
+> path you renamed in the other file. Any change to a public-facing
+> name or behaviour in `src/` or `applications/` triggers this rule;
+> internal refactors that don't change observable behaviour don't.
+
+> **Tests with features:** every new feature must ship with a test
+> case under `tests/`. Bug fixes that change observable behaviour
+> need a regression test that would have failed before the fix. The
+> `tests/` tree is what CI runs on every PR; the `tutorials/` tree
+> is pedagogical and is not run by CI. If a tutorial demonstrates a
+> code path the test suite doesn't, add a small bit-for-bit
+> replacement test under `tests/<name>Match` so CI coverage of that
+> path is preserved.
 
 > **Code comments:** don't leave behind comments that only make sense
 > if the reader saw the previous version. Notes like "// substr's
