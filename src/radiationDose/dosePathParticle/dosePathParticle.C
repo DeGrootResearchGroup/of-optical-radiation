@@ -53,7 +53,8 @@ Foam::dose::dosePathParticle::dosePathParticle
     endReason_(endReason::active),
     dispState_(),
     motionState_(),
-    points_()
+    points_(),
+    nStepsCompleted_(0)
 {}
 
 
@@ -71,7 +72,8 @@ Foam::dose::dosePathParticle::dosePathParticle
     endReason_(endReason::active),
     dispState_(),
     motionState_(),
-    points_()
+    points_(),
+    nStepsCompleted_(0)
 {
     if (readFields)
     {
@@ -101,7 +103,8 @@ Foam::dose::dosePathParticle::dosePathParticle(const dosePathParticle& p)
     endReason_(p.endReason_),
     dispState_(),
     motionState_(),
-    points_(p.points_)
+    points_(p.points_),
+    nStepsCompleted_(p.nStepsCompleted_)
 {}
 
 
@@ -234,7 +237,15 @@ bool Foam::dose::dosePathParticle::move
             D_ += dosePerSec*dtStatic;
         }
 
-        if (cloud.storeTrack())
+        ++nStepsCompleted_;
+        if
+        (
+            cloud.storeTrack()
+         && (
+                endReason_ != endReason::active
+             || (nStepsCompleted_ % cloud.trajectoryStride()) == 0
+            )
+        )
         {
             points_.append(trackPoint(position(td.mesh), t_, D_, cell()));
         }
@@ -354,7 +365,20 @@ bool Foam::dose::dosePathParticle::move
     // initial seed entry. Memory then stays O(N_particles) instead
     // of O(N_particles × residence_time / dtMax), which matters for
     // long-trajectory production runs.
-    if (cloud.storeTrack())
+    //
+    // Stride: only every N-th eligible vertex is recorded (default
+    // N=1 keeps the v0.4 behaviour). The terminal vertex is always
+    // recorded when the particle leaves the active state, so the
+    // last point in the polyline matches the CSV's xEnd/tEnd/dose.
+    ++nStepsCompleted_;
+    if
+    (
+        cloud.storeTrack()
+     && (
+            endReason_ != endReason::active
+         || (nStepsCompleted_ % cloud.trajectoryStride()) == 0
+        )
+    )
     {
         points_.append
         (

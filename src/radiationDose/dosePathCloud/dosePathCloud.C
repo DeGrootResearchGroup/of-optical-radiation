@@ -39,6 +39,7 @@ Foam::dose::dosePathCloud::dosePathCloud
     const scalar maxDose,
     const Switch wallReflection,
     const Switch storeTrack,
+    const label trajectoryStride,
     autoPtr<dispersionModel> dispersion,
     autoPtr<motionModel> motion
 )
@@ -52,6 +53,8 @@ Foam::dose::dosePathCloud::dosePathCloud
     maxDose_(maxDose),
     wallReflection_(wallReflection),
     storeTrack_(storeTrack),
+    trajectoryStride_(max(label(1), trajectoryStride)),
+    targetTime_(0),
     dispersion_(std::move(dispersion)),
     motion_(std::move(motion))
 {}
@@ -75,6 +78,63 @@ Foam::label Foam::dose::dosePathCloud::nActive() const
         }
     }
     return n;
+}
+
+
+Foam::label Foam::dose::dosePathCloud::nBehind(const scalar targetTime) const
+{
+    label n = 0;
+    forAllConstIter
+    (
+        typename Foam::lagrangian::Cloud<dosePathParticle>,
+        *this,
+        iter
+    )
+    {
+        if (iter().active() && iter().t() < targetTime)
+        {
+            ++n;
+        }
+    }
+    return n;
+}
+
+
+void Foam::dose::dosePathCloud::buildOmpState
+(
+    const int nThreads,
+    randomGenerator& parentRng,
+    std::vector<dosePathParticle*>& particles,
+    std::vector<randomGenerator>& threadRngs
+)
+{
+    particles.clear();
+    particles.reserve(this->size());
+    forAllIter
+    (
+        typename Foam::lagrangian::Cloud<dosePathParticle>,
+        *this,
+        iter
+    )
+    {
+        particles.push_back(&iter());
+    }
+
+    // Derive per-thread seeds from independent draws against the
+    // parent. Drawing once per thread (rather than seed = base + t)
+    // is the canonical defensive pattern: even if the underlying
+    // generator family has poor mixing for nearby seeds, the parent
+    // stream's spacing between successive uniforms is the actual
+    // seed gap. OF's Mersenne Twister has very strong seed mixing
+    // so the "base + t" form was also fine in practice, but this
+    // costs nothing extra and is the right pattern to copy elsewhere.
+    threadRngs.clear();
+    threadRngs.reserve(nThreads);
+    for (int t = 0; t < nThreads; ++t)
+    {
+        const label seed = label(parentRng.scalar01()*1.0e9);
+        threadRngs.emplace_back(randomGenerator::seed(seed));
+    }
 }
 
 
@@ -118,31 +178,7 @@ Foam::label Foam::dose::dosePathCloud::runToCompletion
 
     if (useOmp)
     {
-        particles.reserve(this->size());
-        forAllIter
-        (
-            typename Foam::lagrangian::Cloud<dosePathParticle>,
-            *this,
-            iter
-        )
-        {
-            particles.push_back(&iter());
-        }
-
-        // Derive per-thread seeds from independent draws against the
-        // parent. Drawing once per thread (rather than seed = base + t)
-        // is the canonical defensive pattern: even if the underlying
-        // generator family has poor mixing for nearby seeds, the parent
-        // stream's spacing between successive uniforms is the actual
-        // seed gap. OF's Mersenne Twister has very strong seed mixing
-        // so the "base + t" form was also fine in practice, but this
-        // costs nothing extra and is the right pattern to copy elsewhere.
-        threadRngs.reserve(nThreads);
-        for (int t = 0; t < nThreads; ++t)
-        {
-            const label seed = label(parentRng.scalar01()*1.0e9);
-            threadRngs.emplace_back(randomGenerator::seed(seed));
-        }
+        buildOmpState(nThreads, parentRng, particles, threadRngs);
 
         // trackingData has reference members; reserve+emplace_back
         // avoids reallocation that would invalidate copies.
@@ -175,6 +211,78 @@ Foam::label Foam::dose::dosePathCloud::runToCompletion
         {
             Info<< "  outer step " << step
                 << ": " << active << " active" << endl;
+        }
+        if (useOmp)
+        {
+            moveOmpStep(particles, tds);
+        }
+        else
+        {
+            Cloud<dosePathParticle>::move(*this, serialTd);
+        }
+        ++step;
+    }
+    return step;
+}
+
+
+Foam::label Foam::dose::dosePathCloud::runForDuration
+(
+    const scalar duration,
+    const interpolationCellPoint<vector>& UInterp,
+    const interpolationCellPoint<scalar>& GInterp,
+    randomGenerator& parentRng,
+    const label maxOuterSteps
+)
+{
+    targetTime_ += duration;
+
+    const bool useOmp = !Pstream::parRun();
+
+    dosePathParticle::trackingData serialTd
+        (*this, UInterp, GInterp, parentRng);
+
+#ifdef _OPENMP
+    const int nThreads = useOmp ? omp_get_max_threads() : 1;
+#else
+    const int nThreads = 1;
+#endif
+
+    std::vector<dosePathParticle*> particles;
+    std::vector<randomGenerator> threadRngs;
+    std::vector<dosePathParticle::trackingData> tds;
+
+    if (useOmp)
+    {
+        buildOmpState(nThreads, parentRng, particles, threadRngs);
+
+        tds.reserve(nThreads);
+        for (int t = 0; t < nThreads; ++t)
+        {
+            tds.emplace_back(*this, UInterp, GInterp, threadRngs[t]);
+        }
+    }
+
+    label step = 0;
+    while (step < maxOuterSteps)
+    {
+        // Count active particles whose per-track t is still behind
+        // the target. nBehind is local; reduce in MPI mode for the
+        // same collective-lockstep reason runToCompletion has.
+        label behind = nBehind(targetTime_);
+        if (Pstream::parRun())
+        {
+            reduce(behind, sumOp<label>());
+        }
+        if (behind == 0)
+        {
+            break;
+        }
+        if (debug && (step % 100 == 0))
+        {
+            Info<< "  unsteady step " << step
+                << " (target " << targetTime_ << " s): "
+                << behind << " behind" << endl;
         }
         if (useOmp)
         {

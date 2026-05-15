@@ -275,7 +275,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Twenty-one regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Twenty-two regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -963,19 +963,42 @@ For each `execute()` call, `write()` emits:
    the cloud. Promote to a full RTS family if a real case needs
    `terminationByDoseRate` or `terminationByCellZone`.
 
-3. **Steady-state flow only — `U` and `G` are frozen snapshots.**
-   The integrator reads a single `U` and `G` when it is invoked
-   and holds both constant for the entire particle-run loop,
-   regardless of how long any particle spends in flight. Use
-   cases where the ambient flow varies on a timescale comparable
-   to particle residence (transient HVAC, dynamic occupancy,
-   time-varying lamp output, moving sources) are out of scope
-   today. The clean fix is a coupled mode that advances the cloud
-   one host-solver time step at a time and re-reads `U`/`G`
-   between steps -- straightforward in principle, but gated on a
-   real driver case because the seeding and output semantics (one
-   CSV per `execute()` vs. one continuous integration) would need
-   to be re-thought first.
+3. **Two operating modes: `steady` (default) and `unsteady`.**
+   The dictionary key `mode` selects between them.
+   - `steady` (default) -- the original behaviour. One
+     `execute()` call seeds the full cohort, runs every particle
+     to completion against the U / G snapshot in the registry,
+     and the per-track CSV + summary + VTK are written by the
+     subsequent `write()`. Designed for `foamPostProcess`. Both
+     fields are frozen for the duration of one `execute()`; an
+     `execute()` is bounded by the maximum particle residence
+     time, not by any host-solver time scale.
+   - `unsteady` -- single-cohort transient mode. The first
+     `execute()` call seeds the cohort and builds the persistent
+     cloud; every subsequent `execute()` advances active
+     particles by `runTime.deltaT()` via
+     `dosePathCloud::runForDuration`. U and G are re-looked-up
+     from the registry on every call, so a host solver that
+     updates them per step (foamRun's `incompressibleFluid`, the
+     `opticalRadiation` solver module under `foamMultiRun`, or
+     any combination via the `opticalRadiation` fvModel) drives
+     a time-varying ambient. `write()` is a no-op until end-of-
+     run; the function object's `end()` hook flushes the same
+     CSV / summary / VTK pipeline as steady mode, into the
+     postProcessing tree under the simulation's final time
+     directory. Restart is not supported in v1 -- the run must
+     start at the configured `startTime` or `execute()` aborts
+     with a FatalError pointing at this limitation. Particles
+     overshoot the per-call target by at most one `dtMax`
+     (since `Cloud::move` advances all active particles
+     uniformly); cumulative drift across calls does not grow
+     because the cloud's internal `targetTime_` is pinned to the
+     caller's `deltaT` sum, not to particle `t_` values. The
+     unsteady code path is exercised by
+     `tests/doseUnsteadyBox` (under foamRun's
+     incompressibleFluid), which validates against the same
+     analytical answer as the steady `doseSmokeBox` (every
+     escaping particle dose = G·t·0.1 = 2.0 mJ/cm²).
 
 4. **VTK trajectory truncated across MPI processor handoff.**
    In parallel runs, the per-particle trajectory point list
@@ -991,6 +1014,55 @@ For each `execute()` call, `write()` emits:
    operators and the dosePathParticle (de)serialisation to
    include the full DynamicList; not done because no driver
    case has needed parallel trajectory continuity.
+
+5. **Memory mitigations for the per-particle trajectory.** The
+   `points_` DynamicList is the dominant in-memory term for
+   long-residence runs. Three independent dials are exposed,
+   in increasing order of intrusiveness:
+   * `output.writeVtk false` gates trajectory recording at the
+     source: `dosePathParticle::move()` checks
+     `cloud.storeTrack()` before every `points_.append(...)`,
+     so with VTK output disabled `points_` never grows past
+     the seed entry. Memory becomes O(N_particles) instead
+     of O(N_particles × residence_time / dtMax).
+   * `output.trajectoryStride N` (default `1`) records only
+     every N-th end-of-outer-step vertex. The seed point and
+     the terminal vertex (the one at which the particle
+     leaves the active state) are always recorded regardless
+     of stride, so the CSV's `xEnd / tEnd / dose` always
+     matches the last polyline vertex. Memory scales as
+     O(N_particles × residence / (dtMax × N)). The trade-off
+     is lossy at the trajectory-resolution level: stride 10
+     coarsens the rendered streamline but does not affect
+     the dose accumulator (which is integrated in double
+     precision on the particle, independent of vertex
+     recording).
+   * `trackPoint::x` is stored single-precision (`Vector<float>`)
+     -- the only consumer is the VTK writer, which emits POINTS
+     as float anyway, and the per-particle DynamicList<trackPoint>
+     is the dominant memory term. Time and dose stay double-
+     precision because they are integrated into double-precision
+     accumulators on the particle; the trackPoint just holds
+     the per-vertex snapshot. Memory per vertex drops 48 -> 36
+     bytes (or 40 -> 28 on builds where `label` is 32-bit) at
+     zero accuracy cost (the position precision of float at
+     metre scale is sub-µm, well below mesh resolution).
+
+   Future memory mitigation, not implemented today: **stream
+   finished particles to disk.** Once a particle hits
+   `endReason != active`, its trajectory is frozen -- it
+   could be flushed to a per-batch VTK file immediately and
+   the in-memory `points_` freed, so peak memory becomes
+   O(in-flight cohort + one batch buffer) instead of
+   O(cumulative injected). The existing `batchSize`
+   machinery already does this at fixed-count boundaries in
+   steady mode; the unsteady equivalent ("flush a batch when
+   it's drained, not when it reaches N seeded") is the
+   architectural fix for very long runs. Gated on a driver
+   case that demonstrably hits the memory wall after the
+   three dials above are exhausted -- non-trivial because
+   the writer + the `.pvd` collection wrapper would need to
+   be extended to time-evolved batches.
 
 ### `setFluenceRate` utility
 
@@ -1163,7 +1235,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Twenty-one cases.
+  Twenty-two cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1407,6 +1479,43 @@ radiationDose:
   for the box) within 6 σ_stddev. Regression guard for the
   rejection-sampling kernel, the bounding-box / shape-test geometry,
   and the dictionary parser.
+- **`doseUnsteadyBox`** — single-cohort unsteady-mode regression.
+  Same 1 m × 0.1 m × 0.1 m geometry, slip walls, and uniform
+  `G = 10 W/m²` as `doseSmokeBox`, but driven by
+  `foamRun -solver incompressibleFluid` with `endTime = 3 s`
+  (the L/V = 2 s plug-flow residence completes with 50 % margin).
+  `radiationDose` lives in `system/controlDict`'s `functions {}`
+  block with `mode unsteady`; the cohort (100 particles via
+  `patchInjection` on the inlet, rounded to ~101 by the
+  face-area-weighted stochastic seeding) is seeded on the first
+  `execute()` call and advances by `runTime.deltaT() = 0.05 s` per
+  host step. `cflMax 1.0` keeps each outer step at the full
+  `dtMax = 0.05 s` so the per-particle step count is exactly
+  L/V/dtMax = 40 (cleaner stride accounting than the 0.5 default
+  would give). End-of-run `radiationDose::end()` flushes the
+  CSV/summary/VTK to `postProcessing/radiationDose/3/`. The
+  validate script asserts the same analytical answer as
+  `doseSmokeBox`: every escaping particle has dose `G·t·0.1 =
+  2.0 mJ/cm²` within 1 part in 1000, stddev ≤ 1e-6 (floating-
+  point noise; observed ~1e-15). Also exercises the
+  `trajectoryStride 5` parameter: every per-line
+  `finalDose_mJcm2` cell-data entry equals the analytical 2.0
+  mJ/cm² (within 1e-6) and per-polyline vertex counts honour the
+  stride. With 40 outer steps and stride 5 the expected count is
+  9 vertices (seed + 8 strided; the terminal step at index 40 is
+  also a stride multiple and not double-counted). Validate
+  observed 9–10 and accepts up to 15, which is comfortably below
+  the unstrided ~41. Regression guard for the unsteady state
+  machine (`seeded_` / `emitted_` transitions, `end()` hook
+  flush, `runForDuration` target accumulation), the
+  `trajectoryStride` decimation, the float-position trackPoint
+  storage, the on-demand `G` lazy-load from the start time
+  directory (foamRun's `incompressibleFluid` solver doesn't
+  register `G` itself), and the self-loading path's idempotency
+  (the registry's `foundObject` check skips the load on every
+  call after the first). The restart guard's FatalError path is
+  not exercised here because it would require a multi-run test
+  harness; it is covered by inspection at construction time.
 ### `tutorials/`
 
 - **`uvReactorSozzi2006`** / **`uvReactorSozzi2006-DOM`** — Sozzi &
@@ -1567,16 +1676,38 @@ real driver case ever calls for it.
      cases (settling and DRW-driven inertial in water/air); add
      when the carrier-phase regime warrants it.
 
-4. **Unsteady-flow / coupled-tracking mode.** Today's integrator
-   freezes `U` and `G` for the duration of a single `execute()`
-   (see "Known limitations" #3). Indoor / HVAC cases with
-   transient ventilation, dynamic occupancy, or time-varying
-   lamp output need a coupled mode that advances the cloud one
-   host-solver time step at a time and re-reads `U`/`G` between
-   steps. The mechanics are clear; the design question (how to
-   reconcile per-step seeding and output with a single
-   continuous integration spanning many host steps) is what's
-   gating it -- pick this up against a real driver case.
+4. **Continuous-injection / periodic-cohort unsteady modes.**
+   The unsteady mode shipped today is single-cohort: the
+   cohort is seeded once at the configured `startTime` and
+   advances with the host time loop until end-of-run. Two
+   richer transient modes are sketched but not built:
+   * **Continuous injection.** Seed `n_dot * dt` particles each
+     execute() call; the CSV grows monotonically and finished
+     particles need a flushing policy so memory stays bounded.
+     The seeding RTS family would need a continuous-rate
+     variant (e.g. `patchInjection` with `rate` in particles/s
+     instead of a fixed `nParticles`).
+   * **Periodic cohorts.** Seed N particles every period T, so
+     multiple in-flight cohorts coexist, each tagged with its
+     emission time. Useful for pulse-and-chase residence-time
+     distribution studies in real reactors.
+   Both modes require re-thinking output semantics (windowed
+   summary statistics over a rolling cohort vs. cumulative
+   CSV growth); pick them up against a real driver case.
+
+5. **Restart for unsteady mode.** The persistent cloud lives
+   only in memory today. A run that hits its endTime, writes
+   the CSV/VTK, then is restarted with a later endTime would
+   re-seed from scratch (the FatalError in
+   `executeUnsteady` enforces this rather than silently
+   re-seeding). Making the cloud persist across restart needs
+   `dosePathParticle::write()` / `readFields()` to round-trip
+   the per-particle V_, V_disp_, D_, t_, endReason_, and any
+   dispersion / motion state (the per-particle `points_`
+   trajectory could be dropped at restart with a documented
+   caveat, since the VTK is regenerated on the next end()).
+   Out of scope until a long-running transient case calls for
+   it.
 
 ---
 

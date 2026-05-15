@@ -7,6 +7,7 @@
 \*---------------------------------------------------------------------------*/
 
 #include "radiationDose.H"
+#include "IOobject.H"
 #include "OFstream.H"
 #include "OSspecific.H"
 #include "Pstream.H"
@@ -14,6 +15,7 @@
 #include "interpolationCellPoint.H"
 #include "meshSearch.H"
 #include "polyBoundaryMesh.H"
+#include "volFields.H"
 
 #include <cmath>
 #include <cstdio>
@@ -73,6 +75,7 @@ Foam::functionObjects::radiationDose::radiationDose
 )
 :
     fvMeshFunctionObject(name, runTime, dict),
+    mode_("steady"),
     UName_("U"),
     GName_("G"),
     randomSeed_(0),
@@ -83,9 +86,12 @@ Foam::functionObjects::radiationDose::radiationDose
     cflMax_(0.5),
     maxOuterSteps_(100000),
     writeVtk_(true),
+    trajectoryStride_(1),
     vtkMinDose_(-1),
     vtkMaxDose_(-1),
-    batchSize_(0)
+    batchSize_(0),
+    seeded_(false),
+    emitted_(false)
 {
     read(dict);
 }
@@ -100,6 +106,15 @@ Foam::functionObjects::radiationDose::~radiationDose()
 bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
 {
     fvMeshFunctionObject::read(dict);
+
+    mode_ = dict.lookupOrDefault<word>("mode", word("steady"));
+    if (mode_ != "steady" && mode_ != "unsteady")
+    {
+        FatalErrorInFunction
+            << "Unknown mode \"" << mode_ << "\". Expected"
+            << " \"steady\" or \"unsteady\"."
+            << exit(FatalError);
+    }
 
     UName_ = dict.lookupOrDefault<word>("U", "U");
     GName_ = dict.lookupOrDefault<word>("fluenceRate", "G");
@@ -199,6 +214,16 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
     }
     writeVtk_ = outDict.lookupOrDefault<Switch>("writeVtk", true);
 
+    trajectoryStride_ =
+        outDict.lookupOrDefault<label>("trajectoryStride", 1);
+    if (trajectoryStride_ < 1)
+    {
+        FatalErrorInFunction
+            << "trajectoryStride must be >= 1 (got "
+            << trajectoryStride_ << ")."
+            << exit(FatalError);
+    }
+
     vtkMinDose_ = outDict.lookupOrDefault<scalar>("vtkMinDose", -1);
     vtkMaxDose_ = outDict.lookupOrDefault<scalar>("vtkMaxDose", -1);
     if (vtkMinDose_ >= 0 && vtkMaxDose_ >= 0 && vtkMaxDose_ < vtkMinDose_)
@@ -228,6 +253,17 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
             << "batchSize > 0 is not supported in parallel runs."
             << " Run single-rank (OMP threading via OMP_NUM_THREADS"
             << " still works) or disable batching."
+            << exit(FatalError);
+    }
+    if (batchSize_ > 0 && mode_ == "unsteady")
+    {
+        // Batching is a steady-mode memory-bound device: each batch
+        // is a fresh cloud run to completion. Unsteady mode has a
+        // single cohort spanning the host time loop, so batching
+        // does not apply.
+        FatalErrorInFunction
+            << "batchSize > 0 is not supported in unsteady mode."
+            << " Set batchSize 0 (the default) or run in steady mode."
             << exit(FatalError);
     }
 
@@ -310,10 +346,44 @@ struct Foam::functionObjects::radiationDose::AggregatedTracks
 
 bool Foam::functionObjects::radiationDose::execute()
 {
+    // The host driver registers U automatically (every fluid solver
+    // owns the velocity field), but `G` is a radiation field that
+    // most flow solvers don't know about. foamPostProcess auto-loads
+    // any volScalarField it finds in the time directory, but foamRun
+    // / foamMultiRun load only the fields their solver declares. To
+    // keep the FO self-contained in either driver, fall back to a
+    // disk read via findInstance() the first time G isn't in the
+    // registry. The new VolField self-registers with the mesh
+    // registry and persists for the rest of the run.
+    if (!mesh_.foundObject<volScalarField>(GName_))
+    {
+        const fileName instance =
+            time_.findInstance(mesh_.dbDir(), GName_);
+        Info<< type() << ": loading " << GName_
+            << " from " << instance << endl;
+        new volScalarField
+        (
+            IOobject
+            (
+                GName_,
+                instance,
+                mesh_,
+                IOobject::MUST_READ,
+                IOobject::NO_WRITE
+            ),
+            mesh_
+        );
+    }
+
     const volVectorField& U =
         mesh_.lookupObject<volVectorField>(UName_);
     const volScalarField& G =
         mesh_.lookupObject<volScalarField>(GName_);
+
+    if (mode_ == "unsteady")
+    {
+        return executeUnsteady(U, G);
+    }
 
     randomGenerator rng{randomGenerator::seed(randomSeed_)};
 
@@ -410,6 +480,7 @@ void Foam::functionObjects::radiationDose::runBatch
             maxDose_,
             wallReflection_,
             writeVtk_,
+            trajectoryStride_,
             std::move(dispersion),
             std::move(motion)
         )
@@ -423,7 +494,7 @@ void Foam::functionObjects::radiationDose::runBatch
             new dose::dosePathParticle
             (
                 ms,
-                seeds[i].x,
+                seeds[i].xd(),
                 seeds[i].celli,
                 nLocateBoundaryHits
             );
@@ -527,8 +598,208 @@ void Foam::functionObjects::radiationDose::appendBatch
 }
 
 
+bool Foam::functionObjects::radiationDose::executeUnsteady
+(
+    const volVectorField& U,
+    const volScalarField& G
+)
+{
+    if (!seeded_)
+    {
+        // Restart guard: in unsteady mode the cohort lives only in
+        // memory, so a run that starts mid-simulation has no way to
+        // pick up where the previous run left off. Fail loud rather
+        // than silently re-seeding a "fresh" cohort at the restart
+        // time -- the user almost certainly does not want that.
+        //
+        // The first execute() fires AFTER the first time step
+        // completes (default OF function-object semantics; the FO
+        // does not opt in to executeAtStart), so tNow at first
+        // call is roughly tStart + deltaT for a fresh run. Allow
+        // up to 2 deltaT of slack to absorb both that offset and
+        // any cumulative-write-interval cadence -- a real restart
+        // from a checkpoint at t >> tStart blows past this margin
+        // by orders of magnitude.
+        const scalar tNow = time_.value();
+        const scalar tStart = time_.startTime().value();
+        const scalar dt = time_.deltaT().value();
+        if (tNow > tStart + 2*dt + small)
+        {
+            FatalErrorInFunction
+                << "unsteady mode does not support restart. The run"
+                << " is at t = " << tNow << " s but the configured"
+                << " startTime is " << tStart << " s. Restart with"
+                << " startTime equal to the configured startTime,"
+                << " or use steady mode against the latest stored"
+                << " time."
+                << exit(FatalError);
+        }
+
+        rng_.reset
+        (
+            new randomGenerator
+            (
+                randomGenerator::seed(randomSeed_)
+            )
+        );
+
+        Info<< type() << ": seeding particles (unsteady mode)..." << endl;
+        const List<dose::trackPoint> seeds = seeding_->seed(*rng_);
+        const label nTotal = seeds.size();
+        Info<< type() << ": seeded " << nTotal << " particles" << endl;
+
+        if (Pstream::master())
+        {
+            aggregated_.reset(new AggregatedTracks);
+        }
+
+        autoPtr<dose::dispersionModel> dispersion =
+            dose::dispersionModel::New(dispersionDict_, mesh_);
+        autoPtr<dose::motionModel> motion =
+            dose::motionModel::New(motionDict_, mesh_);
+
+        cloud_.reset
+        (
+            new dose::dosePathCloud
+            (
+                mesh_,
+                "doseCloud",
+                dtMax_,
+                cflMax_,
+                escapePatchIDs_,
+                maxTime_,
+                maxDose_,
+                wallReflection_,
+                writeVtk_,
+                trajectoryStride_,
+                std::move(dispersion),
+                std::move(motion)
+            )
+        );
+
+        const meshSearch& ms = meshSearch::New(mesh_);
+        label nLocateBoundaryHits = 0;
+        forAll(seeds, i)
+        {
+            dose::dosePathParticle* p =
+                new dose::dosePathParticle
+                (
+                    ms,
+                    seeds[i].xd(),
+                    seeds[i].celli,
+                    nLocateBoundaryHits
+                );
+            p->setDispState(cloud_->dispersion().newState());
+            p->setMotionState(cloud_->motion().newState());
+            if (writeVtk_)
+            {
+                p->appendPoint(seeds[i]);
+            }
+            cloud_->addParticle(p);
+        }
+
+        seeded_ = true;
+    }
+
+    // Build interpolators fresh each call: U and G may have been
+    // updated by the host solver since the last execute().
+    interpolationCellPoint<vector> UInterp(U);
+    interpolationCellPoint<scalar> GInterp(G);
+
+    const scalar dt = time_.deltaT().value();
+    if (dt > 0)
+    {
+        cloud_->runForDuration
+        (
+            dt,
+            UInterp,
+            GInterp,
+            *rng_,
+            maxOuterSteps_
+        );
+    }
+
+    return true;
+}
+
+
+void Foam::functionObjects::radiationDose::flushUnsteady()
+{
+    if (emitted_ || !cloud_.valid())
+    {
+        return;
+    }
+
+    label nEscaped = 0, nTimedOut = 0, nStuck = 0, nTerm = 0, nActive = 0;
+    forAllConstIter
+    (
+        typename lagrangian::Cloud<dose::dosePathParticle>,
+        *cloud_,
+        iter
+    )
+    {
+        switch (iter().end())
+        {
+            case dose::dosePathParticle::endReason::escaped:    ++nEscaped;  break;
+            case dose::dosePathParticle::endReason::timedOut:   ++nTimedOut; break;
+            case dose::dosePathParticle::endReason::stuck:      ++nStuck;    break;
+            case dose::dosePathParticle::endReason::terminated: ++nTerm;     break;
+            case dose::dosePathParticle::endReason::active:     ++nActive;   break;
+        }
+    }
+    Info<< type() << ": unsteady run ending. "
+        << nEscaped  << " escaped, "
+        << nTimedOut << " timed out, "
+        << nStuck    << " stuck, "
+        << nTerm     << " hit maxDose, "
+        << nActive   << " still active at simulation end"
+        << endl;
+
+    GatheredTracks g = gatherTracks();
+
+    if (Pstream::master())
+    {
+        const label trackOffset = aggregated_->trackId.size();
+        forAll(g.globalTrackId, r)
+        {
+            const label nr = g.origId[r].size();
+            g.globalTrackId[r].setSize(nr);
+            for (label i = 0; i < nr; ++i)
+            {
+                g.globalTrackId[r][i] = trackOffset + g.origId[r][i];
+            }
+        }
+
+        const fileName outDir =
+            time_.globalPath()/"postProcessing"/name()/time_.name();
+        mkDir(outDir);
+
+        if (writeVtk_)
+        {
+            writeVtkTrajectories(g, outDir/"trajectories.vtk");
+        }
+        appendBatch(g, "trajectories.vtk");
+
+        const AggregatedTracks& a = aggregated_();
+        writeDoseCsv(a, outDir);
+        writeSummary(a, outDir);
+    }
+
+    emitted_ = true;
+    cloud_.clear();
+}
+
+
 bool Foam::functionObjects::radiationDose::write()
 {
+    // Unsteady mode defers all output to end-of-run; write() called
+    // at intermediate write intervals is a no-op (intermediate state
+    // is meaningless for a single in-flight cohort).
+    if (mode_ == "unsteady")
+    {
+        return true;
+    }
+
     if (!aggregated_.valid())
     {
         return true;
@@ -558,6 +829,19 @@ bool Foam::functionObjects::radiationDose::write()
         }
     }
     return true;
+}
+
+
+bool Foam::functionObjects::radiationDose::end()
+{
+    // Unsteady mode flushes at end-of-run. Steady mode is fully
+    // driven by execute()/write() pairs from foamPostProcess so
+    // end() has nothing to do.
+    if (mode_ == "unsteady")
+    {
+        flushUnsteady();
+    }
+    return fvMeshFunctionObject::end();
 }
 
 
@@ -619,7 +903,7 @@ Foam::functionObjects::radiationDose::gatherTracks() const
         g.nVerts[me][k] = nv;
         for (label j = 0; j < nv; ++j)
         {
-            vx.append(pts[j].x);
+            vx.append(pts[j].xd());
             vt.append(pts[j].t);
             vd.append(pts[j].D);
             vc.append(pts[j].celli);

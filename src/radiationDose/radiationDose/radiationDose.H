@@ -11,7 +11,7 @@ Class
 
 Description
     Function object that integrates radiation dose along Lagrangian
-    particle trajectories through a (typically frozen) flow field.
+    particle trajectories through a flow field.
 
     Reads a velocity field U [m/s] and a fluence-rate field G [W/m^2],
     seeds particles through a configurable seeding model, and integrates
@@ -20,6 +20,33 @@ Description
     construction: position is stored as barycentric coordinates within
     the current tet, never as Cartesian (x,y,z), so face crossings
     introduce no perpendicular floating-point error.
+
+    Two operating modes:
+    - `steady` (default) -- the v0.4 behaviour. One execute() seeds
+      the full cohort and runs every particle to completion against
+      frozen U and G; write() emits the per-track CSV, the summary,
+      and the legacy ASCII VTK trajectory file. Designed to be
+      invoked under `foamPostProcess`.
+    - `unsteady` -- single-cohort transient mode. The cohort is
+      seeded on the first execute() call, and each subsequent
+      execute() advances every active particle by runTime.deltaT().
+      U and G are re-read from the registry on every call, so a
+      host solver that updates them per time step (foamRun, the
+      opticalRadiation solver module, foamMultiRun) drives a
+      time-varying ambient. write() is a no-op until the final
+      time, when end() flushes the same CSV / summary / VTK
+      pipeline as steady mode. Restart is not supported; the run
+      must start at the configured startTime.
+
+    The function object loads `G` from the case time directory on
+    its own if no other model registers it in the mesh registry:
+    foamPostProcess auto-registers every volScalarField it finds, so
+    steady mode under postProcess is fine without any pre-loader,
+    but foamRun's incompressibleFluid (and similar flow solvers) load
+    only the fields they need (U, p, turbulence) and would otherwise
+    fail to find `G`. The fallback uses `time_.findInstance` so the
+    start-time copy of `G` is picked up even though the first
+    execute() fires after the first time step.
 
     Units convention:
     - Fluence rate input G is in W/m^2 (OpenFOAM SI standard).
@@ -34,6 +61,12 @@ Usage
     {
         type            radiationDose;
         libs            ("libradiationDose.so");
+
+        // Optional. "steady" (default) runs particles to completion
+        // each execute() call against frozen U/G. "unsteady" seeds
+        // once and advances by runTime.deltaT() per execute(); final
+        // output flushes at end-of-run.
+        mode            steady;
 
         U               U;
         fluenceRate     G;
@@ -70,6 +103,17 @@ Usage
         {
             kInact          (0.1);      // cm^2/mJ for log-reduction reporting
             writeVtk        true;       // emit trajectories.vtk per execute()
+
+            // Optional trajectory decimation. With N=1 (default) every
+            // outer step's end-of-step vertex is recorded; N=10 keeps
+            // only every 10th. The seed point and the terminal vertex
+            // (the one at which the particle leaves the active state)
+            // are always recorded regardless. Useful for bounding VTK
+            // memory and file size on long-residence runs -- ParaView
+            // rendering rarely needs every face crossing. Only meaningful
+            // when writeVtk is true (the gating flag for trajectory
+            // storage in the first place).
+            trajectoryStride  1;        // >=1; positions kept per N steps
 
             // Optional pre-write dose filter (inclusive bounds). A track
             // is written to trajectories.vtk only if its final dose D
@@ -142,6 +186,9 @@ class radiationDose
 
     // Private Data — configuration
 
+        //- "steady" or "unsteady". See class header for semantics.
+        word mode_;
+
         word UName_;
         word GName_;
         label randomSeed_;
@@ -170,6 +217,7 @@ class radiationDose
 
         scalarList kInact_;
         Switch writeVtk_;
+        label trajectoryStride_;
 
         //- Optional inclusive bounds on per-track final dose D for
         //  VTK output. A negative value disables the corresponding
@@ -189,7 +237,9 @@ class radiationDose
 
         //- Cloud of dose-tracking particles. Lives across execute()
         //  and write() so that the writer can iterate the cloud's
-        //  particles for the per-track CSV.
+        //  particles for the per-track CSV. In unsteady mode the
+        //  same cloud also persists across many execute() calls
+        //  (one per host time step).
         autoPtr<dose::dosePathCloud> cloud_;
 
         //- Cross-batch accumulator. Allocated on rank 0 only;
@@ -197,6 +247,20 @@ class radiationDose
         //  completes; consumed by write() to emit aggregated
         //  CSV/summary and the PVD wrapper.
         autoPtr<AggregatedTracks> aggregated_;
+
+        //- Persistent RNG for unsteady mode. Built once on the
+        //  first execute() call from the user's randomSeed_ and
+        //  threaded through every subsequent runForDuration() so
+        //  the dispersion stream evolves continuously across host
+        //  steps. Unused in steady mode.
+        autoPtr<randomGenerator> rng_;
+
+        //- Unsteady-mode flag: has the cohort been seeded yet?
+        bool seeded_;
+
+        //- Unsteady-mode flag: has the final write happened?
+        //  Guards against re-entrant end() calls.
+        bool emitted_;
 
 
     // Private Member Functions
@@ -230,6 +294,23 @@ class radiationDose
             const volScalarField& G,
             randomGenerator& rng
         );
+
+        //- Unsteady-mode entry. First call seeds the cohort and
+        //  builds the cloud; subsequent calls advance every active
+        //  particle by runTime.deltaT(). U and G are looked up on
+        //  every call so a host solver that updates them per step
+        //  drives a transient ambient.
+        bool executeUnsteady
+        (
+            const volVectorField& U,
+            const volScalarField& G
+        );
+
+        //- Unsteady-mode terminal flush. Gathers the in-memory
+        //  cloud, writes one CSV / summary / VTK to the current
+        //  time directory, and tears the cloud down. Re-entrant:
+        //  guarded by emitted_.
+        void flushUnsteady();
 
         void writeDoseCsv
         (
@@ -281,6 +362,7 @@ public:
         virtual wordList fields() const;
         virtual bool execute();
         virtual bool write();
+        virtual bool end();
 
 
     // Member Operators

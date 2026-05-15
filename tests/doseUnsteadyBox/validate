@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Regression test for radiationDose unsteady mode.
+
+Same geometry, fields, and analytical answer as doseSmokeBox (1 m
+x 0.1 m x 0.1 m plug-flow box, slip walls, U=(0.5,0,0), G=10), but
+driven by foamRun's incompressibleFluid solver in a transient
+time loop (endTime=3 s, deltaT=0.05 s) with the radiationDose
+function object in `mode unsteady`. End-of-run end() flushes
+CSV/summary/VTK to postProcessing/radiationDose/<endTime>/.
+
+What this script checks:
+
+  1. summary.dat: every seeded particle escapes, mean dose 2.0
+     +/- 1e-3 mJ/cm^2, stdev <= 1e-6 (floating-point noise level;
+     same plug-flow determinism as steady mode).
+  2. trajectories.vtk: parses, sections present, POINT_DATA matches
+     POINTS, CELL_DATA matches LINES, all finalDose_mJcm2 ~ 2.0.
+  3. trajectoryStride=5: max vertices per polyline is <= 15 (a
+     stride-1 run produces ~41 per track; the actual stride-5
+     count is ~9). Catches the regression where stride is read
+     but not applied.
+"""
+
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import find_latest_time, parse_summary
+
+
+def find_latest(name, func="radiationDose"):
+    base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "postProcessing", func,
+    )
+    latest = find_latest_time(base)
+    if latest is None:
+        return None
+    p = os.path.join(latest, name)
+    return p if os.path.isfile(p) else None
+
+
+def parse_vtk(path):
+    """Return (header_ok, section_counts, body) tuple for a legacy VTK."""
+    with open(path) as f:
+        body = f.read()
+    header_ok = (
+        body.startswith("# vtk DataFile Version 3.0")
+        and "ASCII" in body[:200]
+        and "DATASET POLYDATA" in body[:200]
+    )
+
+    def section_count(keyword):
+        m = re.search(rf"^{keyword}\s+(\d+)", body, re.MULTILINE)
+        return int(m.group(1)) if m else None
+
+    counts = {
+        "POINTS":     section_count("POINTS"),
+        "LINES":      section_count("LINES"),
+        "POINT_DATA": section_count("POINT_DATA"),
+        "CELL_DATA":  section_count("CELL_DATA"),
+    }
+    return header_ok, counts, body
+
+
+def per_line_vertex_counts(body):
+    """Return list of per-polyline vertex counts read from the LINES block.
+
+    Each LINES record is "n idx0 idx1 ... idxN-1" on one line; we just
+    want the leading n for every line in the block.
+    """
+    m = re.search(
+        r"^LINES\s+(\d+)\s+(\d+)\s*\n((?:.*\n){1,})",
+        body,
+        re.MULTILINE,
+    )
+    if m is None:
+        return []
+    nLines = int(m.group(1))
+    block = m.group(3).splitlines()[:nLines]
+    counts = []
+    for ln in block:
+        parts = ln.strip().split()
+        if not parts:
+            continue
+        counts.append(int(parts[0]))
+    return counts
+
+
+def main():
+    summary = find_latest("summary.dat")
+    if summary is None:
+        sys.stderr.write("validate: no summary.dat found\n")
+        return 1
+
+    data = parse_summary(summary)
+    nSeeded = int(data.get("totalSeeded", 0))
+    nEscaped = int(data.get("escaped", 0))
+    meanDose = data.get("meanDose_mJcm2")
+    stdevDose = data.get("stdevDose_mJcm2")
+    print(f"validate: seeded     = {nSeeded}")
+    print(f"validate: escaped    = {nEscaped}")
+    print(f"validate: meanDose   = {meanDose} mJ/cm^2 (analytical = 2.0)")
+    print(f"validate: stdevDose  = {stdevDose} mJ/cm^2")
+
+    failures = []
+    if nSeeded < 1 or nEscaped != nSeeded:
+        failures.append(
+            f"escaped {nEscaped} != seeded {nSeeded} (plug flow should"
+            f" escape all)"
+        )
+    if meanDose is None or abs(meanDose - 2.0) > 1e-3:
+        failures.append(f"meanDose {meanDose} != 2.0 +/- 1e-3")
+    if stdevDose is None or stdevDose > 1e-6:
+        failures.append(
+            f"stdevDose {stdevDose} > 1e-6 (plug flow should be"
+            f" deterministic)"
+        )
+
+    vtk = find_latest("trajectories.vtk")
+    if vtk is None:
+        failures.append("trajectories.vtk not found")
+    else:
+        print(f"validate: checking {os.path.basename(vtk)}")
+        header_ok, counts, body = parse_vtk(vtk)
+        if not header_ok:
+            failures.append("VTK header malformed")
+        if counts["POINT_DATA"] != counts["POINTS"]:
+            failures.append(
+                f"POINT_DATA={counts['POINT_DATA']} != POINTS={counts['POINTS']}"
+            )
+        if counts["CELL_DATA"] != counts["LINES"]:
+            failures.append(
+                f"CELL_DATA={counts['CELL_DATA']} != LINES={counts['LINES']}"
+            )
+
+        # finalDose_mJcm2 per-line scalars must all match the analytical
+        # 2.0 mJ/cm^2 (the per-vertex dose_mJcm2 also accumulates to this
+        # value at the terminal vertex, but cell data is the easier hit).
+        m = re.search(
+            r"SCALARS finalDose_mJcm2 float 1\s*\nLOOKUP_TABLE default\s*\n"
+            r"((?:[-\d.eE+]+\s*\n)+)",
+            body,
+        )
+        if m is None:
+            failures.append("could not parse finalDose_mJcm2 block")
+        else:
+            vals = [float(v) for v in m.group(1).split()]
+            if vals and max(abs(v - 2.0) for v in vals) > 1e-6:
+                failures.append(
+                    f"finalDose_mJcm2 deviates from 2.0 by more than 1e-6"
+                    f" (max abs deviation"
+                    f" {max(abs(v - 2.0) for v in vals):.3e})"
+                )
+
+        # trajectoryStride=5: a stride-1 run produces ~41 vertices per
+        # track (seed + ~40 outer steps). Stride 5 should produce ~9.
+        # Allow up to 15 as a wide margin -- the regression to catch is
+        # the case where the dictionary key is read but not applied
+        # (where every step still records, giving ~41).
+        per_line = per_line_vertex_counts(body)
+        if per_line:
+            max_vtx = max(per_line)
+            min_vtx = min(per_line)
+            print(
+                f"validate: per-track vertex counts: min={min_vtx}"
+                f" max={max_vtx} (expected ~9 for stride 5)"
+            )
+            if max_vtx > 15:
+                failures.append(
+                    f"max per-track vertices {max_vtx} > 15: stride is"
+                    f" not being applied (expected ~9 with stride 5;"
+                    f" a stride-1 run would produce ~41)"
+                )
+            if min_vtx < 2:
+                failures.append(
+                    f"min per-track vertices {min_vtx} < 2: VTK polyline"
+                    f" requires at least 2 points"
+                )
+
+    if failures:
+        print("\nFAIL:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+
+    print("\nPASS: unsteady mode + trajectoryStride both healthy")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

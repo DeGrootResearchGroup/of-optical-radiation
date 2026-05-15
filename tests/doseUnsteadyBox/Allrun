@@ -1,0 +1,11 @@
+#!/bin/sh
+. "$(dirname "$0")/../lib/AllrunPreamble.sh"
+
+# Restore stock initial fields
+rm -rf 0
+cp -r 0.orig 0
+
+runApplication blockMesh
+runApplication foamRun
+
+# ----------------------------------------------------------------------------

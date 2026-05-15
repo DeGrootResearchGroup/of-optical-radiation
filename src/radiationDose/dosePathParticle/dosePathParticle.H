@@ -133,10 +133,20 @@ private:
         //  motion models that need lagged per-particle quantities.
         autoPtr<motionModel::State> motionState_;
 
-        //- Trajectory: every position the particle has visited at the
-        //  end of an outer step. Optional; controlled by the cloud's
-        //  storeFullTrack flag (TODO).
+        //- Trajectory: positions visited at the end of an outer step.
+        //  Gated by the cloud's storeTrack() flag (off when VTK output
+        //  is disabled), and decimated by the cloud's trajectoryStride
+        //  (only every N-th eligible vertex is recorded). The seed
+        //  point and the final-state vertex are always recorded when
+        //  storeTrack is on, regardless of stride.
         DynamicList<trackPoint> points_;
+
+        //- Number of completed outer steps. Used together with the
+        //  cloud's trajectoryStride to decide whether the next post-
+        //  step vertex is recorded. Incremented at the END of every
+        //  outer step inside move(), independent of whether a vertex
+        //  was actually appended that step.
+        label nStepsCompleted_;
 
 
 public:

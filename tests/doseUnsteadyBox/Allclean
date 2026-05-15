@@ -1,0 +1,9 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+. "$(dirname "$0")/../lib/AllcleanCommon.sh"
+
+# Function object writes here; cleanCase doesn't know about it.
+rm -rf postProcessing
+
+# ----------------------------------------------------------------------------

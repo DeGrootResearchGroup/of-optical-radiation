@@ -1,0 +1,108 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose unsteady-mode regression
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solver          incompressibleFluid;
+
+startFrom       startTime;
+startTime       0;
+stopAt          endTime;
+
+// L/V = 1 m / 0.5 m/s = 2 s residence; 3 s endTime gives 50 %
+// margin for every particle to escape even when the per-call
+// runForDuration overshoots its dt budget by up to one dtMax.
+endTime         3;
+deltaT          0.05;
+
+writeControl    timeStep;
+writeInterval   60;
+purgeWrite      0;
+
+writeFormat     ascii;
+writePrecision  7;
+writeCompression off;
+
+timeFormat      general;
+timePrecision   6;
+
+runTimeModifiable true;
+
+functions
+{
+    radiationDose
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+
+        // The unsteady code path: seed the cohort on the first
+        // execute() call and advance the cloud by runTime.deltaT()
+        // every subsequent host step. End-of-run end() flushes
+        // CSV / summary / VTK to postProcessing/radiationDose/<endTime>/.
+        mode            unsteady;
+
+        U               U;
+        fluenceRate     G;
+        seed            42;
+
+        seeding
+        {
+            type        patchInjection;
+            patches     (inlet);
+            nParticles  100;
+        }
+
+        dispersion
+        {
+            type        none;
+        }
+
+        termination
+        {
+            escapePatches   (outlet);
+            maxTime         10;
+            maxDose         0;
+        }
+
+        integration
+        {
+            // dtMax should match (or be a small multiple of) the host
+            // step. With deltaT = 0.05 and dtMax = 0.05 each host
+            // step drives exactly one outer step per active particle
+            // until that particle's t catches up to the cloud's
+            // running target. L/V = 2 s -> 40 outer steps per
+            // particle. cflMax = 1 ensures CFL never tightens the
+            // outer step below dtMax: per-cell V*dtMax / cellSize =
+            // 0.5 * 0.05 / 0.025 = 1.0, which equals cflMax exactly
+            // so dt = dtMax for every step (cleaner stride accounting
+            // in the validate script than a CFL-halved alternative).
+            dtMax           0.05;
+            cflMax          1.0;
+        }
+
+        output
+        {
+            kInact          (0.1);
+
+            // Trajectory decimation: record one vertex per 5 outer
+            // steps. Seed and terminal vertices are always kept, so
+            // a typical 40-step trajectory yields 9 vertices (seed,
+            // steps 5/10/15/20/25/30/35/40 where 40 is also the
+            // terminal). Validates the stride plumbing through the
+            // cloud + particle path.
+            trajectoryStride 5;
+        }
+    }
+}
+
+// ************************************************************************* //
