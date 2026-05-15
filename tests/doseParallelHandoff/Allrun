@@ -10,6 +10,14 @@ cp -r 0.orig 0
 export OMPI_ALLOW_RUN_AS_ROOT=1
 export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
+# OpenMPI's default `--map-by core` rejects launches that ask for more
+# ranks than physical cores. GitHub-hosted CI runners typically expose
+# 4 vCPUs (= 2 cores x 2 hyperthreads) so a 4-rank launch fails with
+# "not enough slots available". Enabling oversubscribe lets mpirun
+# pack multiple ranks per core when needed; on a beefier host it has
+# no effect because slots are already sufficient.
+export OMPI_MCA_rmaps_base_oversubscribe=1
+
 runApplication blockMesh
 runApplication decomposePar
 runParallel foamPostProcess
