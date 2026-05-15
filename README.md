@@ -62,10 +62,19 @@ in absorbing/scattering participating media:
 ### radiationDose (Lagrangian dose tracker)
 
 - Function object `radiationDose` that integrates `D = ∫ G·dt` along
-  particle trajectories through a frozen steady-state flow. Both `U`
-  and `G` are read once and held constant for the entire particle-run
-  loop — unsteady ambient flow (transient HVAC, dynamic occupancy,
-  time-varying lamp output) is not currently supported.
+  particle trajectories. Two operating modes, selected by the
+  dictionary key `mode`:
+  - `steady` (default) runs every particle to completion against a
+    frozen U and G snapshot in a single `execute()` call. Designed
+    for `foamPostProcess`.
+  - `unsteady` seeds the cohort once and advances by
+    `runTime.deltaT()` per `execute()` call, with U and G re-read
+    from the registry every step. Drives time-varying ambient flow
+    when embedded as a function object in a host solver
+    (`foamRun -solver incompressibleFluid`, `opticalRadiationFoam`,
+    `foamMultiRun`). Single-cohort only in v1 -- continuous
+    injection and periodic cohorts are sketched but gated on a real
+    driver case.
 - Configurable particle seeding (RTS-selectable `seedingModel`:
   `patchInjection` for face-area-weighted seeding across boundary
   patches, `pointInjection` for uniform sampling inside a sphere or
@@ -149,7 +158,7 @@ Build products:
 
 The case suite is split into two trees:
 
-- **`tests/`** -- 22 regression cases run by CI on every PR. Synthetic
+- **`tests/`** -- 23 regression cases run by CI on every PR. Synthetic
   geometries (slabs, boxes) chosen for closed-form analytical
   references (E_2 integrals, Schwarzschild-Milne, Beer-Lambert, etc.)
   plus three bit-for-bit cross-case identity checks. What you re-run
@@ -224,7 +233,7 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 `cyclicMatch`, `nonConformalCyclicMatch`, `radiationCoupledMatch`.
 
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
-`pointInjectionBox`, `doseParallelHandoff`.
+`pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`.
 
 ### What's in `tutorials/`
 
@@ -346,7 +355,7 @@ applications/
     modules/opticalRadiation/        DOM solver module for foamMultiRun
     utilities/setFluenceRate/        analytical radial G writer
 
-tests/                   22 regression cases + Alltest harness (CI runs this)
+tests/                   23 regression cases + Alltest harness (CI runs this)
 tutorials/               4 pedagogical cases (run on demand by users)
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)
@@ -425,18 +434,27 @@ still cover the full population). For runs where the in-memory
 trajectory accumulation itself is the bottleneck,
 `output.batchSize` splits the integration into chunks and emits
 one numbered VTK plus a `trajectories.pvd` Collection wrapper
-that ParaView opens as a single logical dataset. Single-rank `foamPostProcess` runs OMP-parallelise the
-per-particle iteration across `OMP_NUM_THREADS`; multi-rank MPI
-runs use OF's serial-per-rank path. The developer guide tracks
-the remaining open items, all gated on a real driver case: a
-termination-model RTS family, follow-on extensions to the
-`inertial` motion model (position-noise term, polydisperse /
-per-particle properties, restitution-coefficient wall reflection,
-Maxey-Riley extras), and a coupled unsteady-flow mode that
-re-reads `U`/`G` between host-solver time steps (the integrator
-currently assumes both fields are frozen snapshots for the
-duration of the run, which rules out indoor / HVAC cases with
-transient ventilation or dynamic occupancy).
+that ParaView opens as a single logical dataset. Per-vertex
+storage is single-precision (positions stored as
+`Vector<float>`, matching the VTK output precision) and an
+optional `output.trajectoryStride` decimates the recorded
+polyline (every N-th outer-step vertex; seed and terminal
+vertices always kept). Both modes -- the
+`foamPostProcess`-driven steady mode (default) and the new
+host-solver-driven `unsteady` mode that seeds once and advances
+by `runTime.deltaT()` per `execute()` -- share the same CSV /
+summary / VTK pipeline. Single-rank `foamPostProcess` runs
+OMP-parallelise the per-particle iteration across
+`OMP_NUM_THREADS`; multi-rank MPI runs use OF's serial-per-rank
+path. The developer guide tracks the remaining open items, all
+gated on a real driver case: a termination-model RTS family,
+follow-on extensions to the `inertial` motion model
+(position-noise term, polydisperse / per-particle properties,
+restitution-coefficient wall reflection, Maxey-Riley extras),
+continuous-injection / periodic-cohort transient modes layered
+on top of today's single-cohort unsteady, and a stream-to-disk
+trajectory output for very long unsteady runs that exceed the
+current in-memory `points_` budget.
 
 ---
 

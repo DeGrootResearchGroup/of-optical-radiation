@@ -73,6 +73,21 @@ class dosePathCloud
         //  instead of O(N_particles × residence_time / dtMax).
         Switch storeTrack_;
 
+        //- Trajectory decimation: record only every N-th eligible
+        //  outer-step vertex. N=1 records every step (the default;
+        //  bit-for-bit equivalent to the un-strided v0.4 behaviour).
+        //  Seed and terminal vertices are always recorded regardless
+        //  of stride.
+        label trajectoryStride_;
+
+        //- Cumulative time the cloud has been told to advance to
+        //  in unsteady-mode operation. Incremented by `duration`
+        //  on every runForDuration() call; the inner loop runs
+        //  outer steps until every active particle's t_ is >=
+        //  targetTime_. Unused in steady runs (runToCompletion
+        //  ignores it).
+        scalar targetTime_;
+
         //- Dispersion model (RTS-selected). Lives here so the per-
         //  particle move() can sample fluctuations without needing a
         //  separate handle.
@@ -107,6 +122,7 @@ public:
             const scalar maxDose,
             const Switch wallReflection,
             const Switch storeTrack,
+            const label trajectoryStride,
             autoPtr<dispersionModel> dispersion,
             autoPtr<motionModel> motion
         );
@@ -130,6 +146,10 @@ public:
             inline scalar maxDose() const { return maxDose_; }
             inline Switch wallReflection() const { return wallReflection_; }
             inline Switch storeTrack() const { return storeTrack_; }
+            inline label trajectoryStride() const
+            {
+                return trajectoryStride_;
+            }
             inline dispersionModel& dispersion() { return *dispersion_; }
             inline const dispersionModel& dispersion() const
             {
@@ -167,9 +187,39 @@ public:
                 const label maxOuterSteps
             );
 
+            //- Advance every still-active particle so its per-track
+            //  elapsed time t_ reaches (or exceeds) the cloud's
+            //  rolling target. On entry, the target is bumped by
+            //  duration; the inner loop then steps the cloud until
+            //  no active particle's t_ is behind the target, or
+            //  maxOuterSteps fires as a safety cap. Per-step
+            //  overshoot is bounded by one dtMax; cumulative drift
+            //  across calls does not grow because the target is
+            //  externally pinned by the caller's deltaT sum, not
+            //  by particle t_ values.
+            //
+            //  Used by the function object's unsteady mode, where
+            //  each host time step advances the cloud by
+            //  runTime.deltaT(). The same OMP + MPI dispatch rules
+            //  as runToCompletion apply.
+            label runForDuration
+            (
+                const scalar duration,
+                const interpolationCellPoint<vector>& UInterp,
+                const interpolationCellPoint<scalar>& GInterp,
+                randomGenerator& parentRng,
+                const label maxOuterSteps
+            );
+
             //- Number of particles still in the active state
             //  (endReason == active). Counted via a forAllConstIter.
             label nActive() const;
+
+            //- Number of active particles whose per-track elapsed
+            //  time t_ is strictly less than the supplied target.
+            //  In parallel runs this returns the local count; the
+            //  caller is responsible for any global reduction.
+            label nBehind(const scalar targetTime) const;
 
 
     private:
@@ -178,13 +228,13 @@ public:
 
             //- Single outer step, OMP-parallelised across local
             //  particles. Takes pre-built per-thread trackingData
-            //  and the particle pointer snapshot — `runToCompletion`
-            //  hoists this state out of the outer-step loop so it
-            //  is not rebuilt on every call. Each thread is bound
-            //  to its own randomGenerator (seeded deterministically
-            //  from the parent RNG and the thread index) via the
-            //  trackingData reference; field interpolators are
-            //  shared read-only.
+            //  and the particle pointer snapshot — runToCompletion
+            //  and runForDuration both hoist this state out of the
+            //  outer-step loop so it is not rebuilt on every call.
+            //  Each thread is bound to its own randomGenerator
+            //  (seeded deterministically from the parent RNG and
+            //  the thread index) via the trackingData reference;
+            //  field interpolators are shared read-only.
             //
             //  Reproducibility: results are bit-for-bit reproducible
             //  for a fixed (seed, nThreads, particle ordering). The
@@ -199,6 +249,20 @@ public:
             (
                 std::vector<dosePathParticle*>& particles,
                 std::vector<dosePathParticle::trackingData>& tds
+            );
+
+            //- Build the per-thread RNGs and the particle pointer
+            //  snapshot used by moveOmpStep, given a parent RNG.
+            //  Hoisted out so runToCompletion and runForDuration
+            //  share identical setup. Drawing per-thread seeds from
+            //  parentRng leaves the same sequence of parentRng
+            //  draws as the v0.4 baseline -- bit-for-bit reproducible.
+            void buildOmpState
+            (
+                const int nThreads,
+                randomGenerator& parentRng,
+                std::vector<dosePathParticle*>& particles,
+                std::vector<randomGenerator>& threadRngs
             );
 
 
