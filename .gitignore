@@ -9,3 +9,6 @@
 # Python bytecode cache from validate-script imports of tests/lib/.
 __pycache__/
 *.pyc
+
+# Sphinx documentation build output
+docs/_build/
