@@ -298,7 +298,7 @@ void Foam::optical::iesEmitterMixedFvPatchScalarField::updateCoeffs()
             phiTable = 0.0;
             for (label iAngle = 0; iAngle < nAngle; ++iAngle)
             {
-                const ray& rj = dom.IRay(iBand*nAngle + iAngle);
+                const ray& rj = dom.IRay(dom.rayId(iAngle, iBand));
                 const scalar cosIn = rj.d() & nAvgInDomain;
                 if (cosIn > IES_MIN_COS)
                 {

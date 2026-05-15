@@ -135,27 +135,33 @@ Foam::optical::DOM::DOM(const volScalarField& I)
 
     Info<< "DOM : Allocated " << IRay_.size() << " rays" << endl;
 
-    // Allocate the per-ray radiance snapshot (one volScalarField per ray,
-    // matching IRay_[i].I() in size and dimensions). Used by calculate()
-    // to freeze I_j values at the start of each outer iteration so the
-    // in-scatter source uses a Jacobi update.
-    ISnapshot_.setSize(nRay_);
-    forAll(IRay_, rayI)
+    // Allocate the per-angle radiance snapshot (one volScalarField per
+    // angle in the current band, matching IRay_[rayId(iAngle, iBand)].I()
+    // in size and dimensions). Used by calculate() to freeze I_j values
+    // at the start of each outer iteration *within* a band so the
+    // in-scatter source uses a Jacobi update. Re-filled at the top of
+    // each per-band sweep; the same nAngle_ buffers are reused for
+    // every band (legal because the in-scatter coupling is intra-band).
+    // The seed copy is from band 0; subsequent overwrites in
+    // calculate() preserve only the volScalarField's mesh and
+    // dimensions, not its values.
+    ISnapshot_.setSize(nAngle_);
+    for (label iAngle = 0; iAngle < nAngle_; iAngle++)
     {
         ISnapshot_.set
         (
-            rayI,
+            iAngle,
             new volScalarField
             (
                 IOobject
                 (
-                    "ISnapshot_" + Foam::name(rayI),
+                    "ISnapshot_" + Foam::name(iAngle),
                     mesh_.time().name(),
                     mesh_,
                     IOobject::NO_READ,
                     IOobject::NO_WRITE
                 ),
-                IRay_[rayI].I()
+                IRay_[rayId(iAngle, 0)].I()
             )
         );
     }
@@ -256,95 +262,107 @@ void Foam::optical::DOM::calculate()
         radIter++;
         maxResidual = 0.0;
 
-        // Snapshot the current per-ray radiance fields for use as the
-        // in-scatter source. The inner loop below updates IRay_[i].I()
-        // sequentially (Gauss-Seidel over rays), and using the partially
-        // updated values to build ds for ray i can drive an oscillation
-        // in the outer iteration on strongly-coupled cases. Computing ds
-        // from a snapshot frozen at the start of the outer iteration
-        // (Jacobi) symmetrises the coupling and stabilises convergence.
-        if (doInScatter)
+        // Sweep band by band. The in-scatter coupling is intra-band
+        // (the phase-table row for rayI only sums over rayJ in the
+        // same band as rayI, and extinction is diagonal in band), so
+        // bands are independent in the algorithm. Walking band-major
+        // lets ISnapshot_ be sized nAngle_ instead of nRay_ and reused
+        // across bands.
+        for (label iBand = 0; iBand < nBand_; iBand++)
         {
-            forAll(IRay_, rayI)
-            {
-                ISnapshot_[rayI] == IRay_[rayI].I();
-            }
-        }
-
-        forAll(IRay_, rayI)
-        {
-            const label iBand = IRay_[rayI].iBand();
-
-            if (debug)
-            {
-                Info<< "opticalRadiation solver:"
-                    << "    iter: "   << radIter
-                    << "    iBand: "  << iBand
-                    << "    iAngle: " << IRay_[rayI].iAngle() << endl;
-            }
-
+            // Snapshot the current per-angle radiance fields for this
+            // band as the in-scatter source. The inner loop below
+            // updates IRay_[rayId(iAngle, iBand)].I() sequentially
+            // (Gauss-Seidel over rays in this band), and using the
+            // partially updated values to build ds for ray i can drive
+            // an oscillation in the outer iteration on strongly-
+            // coupled cases. Computing ds from a snapshot frozen at
+            // the start of the per-band sweep (Jacobi) symmetrises the
+            // coupling and stabilises convergence.
             if (doInScatter)
             {
-                // Fused in-scatter accumulator. The table value
-                // table[i, j, iBand] from buildPhaseTable is row-
-                // normalised so sum_j table[i, j, iBand] = 1, which
-                // means it absorbs both the per-bin solid angle
-                // omega_j and the 1/(4 pi) prefactor of the in-scatter
-                // integral. The discrete sum here approximates
-                //   (1/(4 pi)) integral over 4 pi of
-                //                Phi(s_i . s') I(s') dOmega'
-                // with no extra solid-angle weight.
-                //
-                // The whole row table[i, *, iBand] is fetched once via
-                // phaseRow() (one virtual call per (rayI, iBand) pair),
-                // and the cell- and boundary-loops below fold the
-                // per-pair multiply-and-accumulate into a single pass
-                // -- no tmp<volScalarField> per ray pair.
-                const scalar* row =
-                    phaseFunctionModel_->phaseRow(rayI, iBand);
-
-                scalarField& dsCell = ds.primitiveFieldRef();
-                dsCell = 0.0;
-
-                volScalarField::Boundary& dsBf = ds.boundaryFieldRef();
-                forAll(dsBf, patchi)
+                for (label iAngle = 0; iAngle < nAngle_; iAngle++)
                 {
-                    dsBf[patchi] = 0.0;
+                    ISnapshot_[iAngle] == IRay_[rayId(iAngle, iBand)].I();
+                }
+            }
+
+            for (label iAngle = 0; iAngle < nAngle_; iAngle++)
+            {
+                const label rayI = rayId(iAngle, iBand);
+
+                if (debug)
+                {
+                    Info<< "opticalRadiation solver:"
+                        << "    iter: "   << radIter
+                        << "    iBand: "  << iBand
+                        << "    iAngle: " << iAngle << endl;
                 }
 
-                for (label jAngle = 0; jAngle < nAngle_; jAngle++)
+                if (doInScatter)
                 {
-                    const label rayJ = jAngle + iBand*nAngle_;
-                    if (rayJ == rayI)
-                    {
-                        continue;
-                    }
-                    const scalar pf = row[jAngle];
+                    // Fused in-scatter accumulator. The table value
+                    // table[i, j, iBand] from buildPhaseTable is row-
+                    // normalised so sum_j table[i, j, iBand] = 1,
+                    // which means it absorbs both the per-bin solid
+                    // angle omega_j and the 1/(4 pi) prefactor of the
+                    // in-scatter integral. The discrete sum here
+                    // approximates
+                    //   (1/(4 pi)) integral over 4 pi of
+                    //                Phi(s_i . s') I(s') dOmega'
+                    // with no extra solid-angle weight.
+                    //
+                    // The whole row table[i, *, iBand] is fetched once
+                    // via phaseRow() (one virtual call per (rayI, iBand)
+                    // pair), and the cell- and boundary-loops below
+                    // fold the per-pair multiply-and-accumulate into a
+                    // single pass -- no tmp<volScalarField> per ray
+                    // pair.
+                    const scalar* row =
+                        phaseFunctionModel_->phaseRow(rayI, iBand);
 
-                    const scalarField& Ij =
-                        ISnapshot_[rayJ].primitiveField();
-                    forAll(dsCell, celli)
-                    {
-                        dsCell[celli] += pf*Ij[celli];
-                    }
+                    scalarField& dsCell = ds.primitiveFieldRef();
+                    dsCell = 0.0;
 
-                    const volScalarField::Boundary& IjBf =
-                        ISnapshot_[rayJ].boundaryField();
+                    volScalarField::Boundary& dsBf = ds.boundaryFieldRef();
                     forAll(dsBf, patchi)
                     {
-                        scalarField& dsP = dsBf[patchi];
-                        const scalarField& IjP = IjBf[patchi];
-                        forAll(dsP, fi)
+                        dsBf[patchi] = 0.0;
+                    }
+
+                    for (label jAngle = 0; jAngle < nAngle_; jAngle++)
+                    {
+                        if (jAngle == iAngle)
                         {
-                            dsP[fi] += pf*IjP[fi];
+                            continue;
+                        }
+                        const scalar pf = row[jAngle];
+
+                        const scalarField& Ij =
+                            ISnapshot_[jAngle].primitiveField();
+                        forAll(dsCell, celli)
+                        {
+                            dsCell[celli] += pf*Ij[celli];
+                        }
+
+                        const volScalarField::Boundary& IjBf =
+                            ISnapshot_[jAngle].boundaryField();
+                        forAll(dsBf, patchi)
+                        {
+                            scalarField& dsP = dsBf[patchi];
+                            const scalarField& IjP = IjBf[patchi];
+                            forAll(dsP, fi)
+                            {
+                                dsP[fi] += pf*IjP[fi];
+                            }
                         }
                     }
                 }
-            }
 
-            IRay_[rayI].updateBoundary();
-            const scalar maxBandResidual = IRay_[rayI].correct(ds);
-            maxResidual = max(maxBandResidual, maxResidual);
+                IRay_[rayI].updateBoundary();
+                const scalar maxBandResidual = IRay_[rayI].correct(ds);
+                maxResidual = max(maxBandResidual, maxResidual);
+            }
         }
     } while (maxResidual > convergence_ && radIter < maxIter_);
 
@@ -361,7 +379,7 @@ void Foam::optical::DOM::updateG()
         GLambda_[iBand] = zeroIrradiance;
         for (label iAngle = 0; iAngle < nAngle_; iAngle++)
         {
-            const label rayI = iAngle + iBand*nAngle_;
+            const label rayI = rayId(iAngle, iBand);
             // Convert per-ray radiance [W/m^2/sr] to irradiance [W/m^2]
             // by multiplying by the ray's solid angle.
             GLambda_[iBand] += IRay_[rayI].I()*IRay_[rayI].omega();
@@ -391,7 +409,7 @@ Foam::label Foam::optical::DOM::nameToRayId(const word& name) const
     label ib = readLabel(IStringStream(name.substr(i1+1, i2-i1-1))());
     label ia = readLabel(IStringStream(name.substr(i2+1))());
 
-    return nAngle_*ib + ia;
+    return rayId(ia, ib);
 }
 
 
@@ -441,7 +459,7 @@ Foam::label Foam::optical::DOM::dirToRayId
     // the next band.
     label iPhi = min(label(tPhi/deltaPhi_), 2*nPhi_ - 1);
     label iTheta = min(label(tTheta/deltaTheta_), nTheta_ - 1);
-    return nAngle_*iBand + iTheta*2*nPhi_ + iPhi;
+    return rayId(iTheta*2*nPhi_ + iPhi, iBand);
 }
 
 

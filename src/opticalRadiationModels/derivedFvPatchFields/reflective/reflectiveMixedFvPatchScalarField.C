@@ -210,8 +210,8 @@ updateCoeffs()
 			if( diffuseFraction_ > 0)
 			{	 
 				for (label jAngle = 0; jAngle < nAngle; jAngle++)
-				{         
-				label sweepRayID = jAngle + iBand*nAngle;
+				{
+				label sweepRayID = dom.rayId(jAngle, iBand);
 				vector sweepDir = dom.IRay(sweepRayID).d();
 				vector sweepdAve = dom.IRay(sweepRayID).dAve();   
 				

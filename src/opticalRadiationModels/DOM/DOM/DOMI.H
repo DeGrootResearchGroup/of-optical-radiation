@@ -30,6 +30,26 @@ Foam::optical::DOM::IRay(const label rayI) const
 }
 
 
+inline Foam::label Foam::optical::DOM::rayId
+(
+    const label iAngle,
+    const label iBand
+) const
+{
+    return iAngle + iBand*nAngle_;
+}
+
+
+inline Foam::label Foam::optical::DOM::iAngleOf
+(
+    const label rayI,
+    const label iBand
+) const
+{
+    return rayI - iBand*nAngle_;
+}
+
+
 inline Foam::label Foam::optical::DOM::nTheta() const
 {
     return nTheta_;

@@ -107,14 +107,22 @@ class DOM
         //- List of pointers to per-direction radiance rays
         PtrList<ray> IRay_;
 
-        //- Per-ray radiance snapshot taken at the start of each outer
-        //  iteration. The in-scatter source for ray i uses the snapshot
+        //- Per-angle radiance snapshot for the band currently being
+        //  swept. The in-scatter source for ray i uses the snapshot
         //  values of all I_j (Jacobi update) rather than the
         //  partially-updated current I_j (Gauss-Seidel). The Jacobi
         //  form removes the order-dependent staleness in the scatter
         //  coupling that otherwise can drive an oscillation in the
         //  outer iteration on strongly-coupled cases (multi-band 3-D
         //  with anisotropic phase function).
+        //
+        //  Sized nAngle_, not nRay_: the in-scatter coupling is
+        //  intra-band (extinction is diagonal in band, and the phase
+        //  table only sums over rays in the same band as i), so the
+        //  outer iteration can sweep one band at a time and reuse a
+        //  single nAngle_-wide snapshot across bands. Memory cost
+        //  drops by a factor of nBand vs the original full-ray
+        //  snapshot, with no change to the converged answer.
         PtrList<volScalarField> ISnapshot_;
 
         //- Convergence criterion
@@ -226,6 +234,25 @@ public:
 
             //- Ray radiance for rayI
             inline const ray& IRay(const label rayI) const;
+
+            //- Map (iAngle, iBand) -> flat ray ID. Rays are stored
+            //  band-major in IRay_, so band 0's nAngle rays occupy
+            //  [0, nAngle), band 1's [nAngle, 2*nAngle), etc. The
+            //  canonical (iAngle, iBand) <-> rayId decomposition used
+            //  throughout the library (DOM inner loops, derived BCs,
+            //  phaseFunctionModel table indexing).
+            inline label rayId(const label iAngle, const label iBand) const;
+
+            //- Inverse of rayId: strip the band offset to recover the
+            //  per-band angle index from a flat ray ID. Caller must
+            //  supply the iBand the ray belongs to (cheaper than a
+            //  modulo when iBand is already known, which is the case
+            //  in every existing caller).
+            inline label iAngleOf
+            (
+                const label rayI,
+                const label iBand
+            ) const;
 
             //- Number of angles in theta
             inline label nTheta() const;

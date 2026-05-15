@@ -10,6 +10,14 @@
 > path you renamed in the other file. Any change to a public-facing
 > name or behaviour in `src/` or `applications/` triggers this rule;
 > internal refactors that don't change observable behaviour don't.
+>
+> The same rule extends to **per-case READMEs** under `tests/<case>/`
+> and `tutorials/<case>/`: when a code change alters a case's
+> dictionary inputs, expected output, validation tolerance, or the
+> physics it documents, update that case's README in the same change.
+> If a code change touches a BC, model, or behaviour that several
+> cases validate, walk the relevant case READMEs — they are part of
+> the documentation surface, not just per-case scaffolding.
 
 > **Tests with features:** every new feature must ship with a test
 > case under `tests/`. Bug fixes that change observable behaviour
@@ -452,25 +460,24 @@ re-litigate them.
   an internal mesh rotation); the workaround (re-orient the mesh) is
   trivial. `checkDim_` rejects 2-D meshes in x-z or y-z.
 
-- **`ISnapshot_` keeps a per-ray snapshot of every `I_j` field.**
-  Memory cost is `nRay = 2*nPhi*nTheta*nBand` full `volScalarField`s.
-  At 1 M cells, 8 bytes/cell, an 8-band 8x16-angle 3-D problem this
-  works out to about 16 GB just for the snapshot, on top of the
-  `nRay` `I_j` fields themselves. The snapshot exists to symmetrise
-  the in-scatter coupling -- without it, the per-ray sweep in
-  `DOM::calculate` is Gauss-Seidel and oscillates on strongly-coupled
-  cases (multi-band 3-D with anisotropic phase functions); see the
-  three-bug-stack note above. If memory ever becomes the binding
-  constraint, the next step is a partial snapshot: only allocate
-  `ISnapshot_[j]` for rays `j` that actually contribute to the
-  in-scatter source for some ray `i`, which after the row-norm is
-  `j != i` for any `i` in the same band -- i.e. all in-band rays.
-  The snapshot can drop to one band's worth (`nAngle` fields) by
-  band-major rather than ray-major scheduling of the outer loop:
-  finish all rays in band 0, then all rays in band 1, etc., reusing
-  the same `nAngle`-wide snapshot. Not implemented today because
-  the bands are independent and the current ray-major order is
-  fine for shipped tutorials.
+- **`ISnapshot_` keeps a per-angle snapshot of one band's `I_j`
+  fields at a time.** Memory cost is `nAngle = 2*nPhi*nTheta`
+  full `volScalarField`s, reused across all bands within the same
+  outer iteration. At 1 M cells, 8 bytes/cell, an 8-band 8x16-angle
+  3-D problem this works out to about 2 GB for the snapshot, on top
+  of the `nRay = nAngle * nBand` `I_j` fields themselves. The
+  snapshot exists to symmetrise the in-scatter coupling -- without
+  it, the per-ray sweep in `DOM::calculate` is Gauss-Seidel and
+  oscillates on strongly-coupled cases (multi-band 3-D with
+  anisotropic phase functions); see the three-bug-stack note above.
+  The factor-of-`nBand` saving over a ray-major snapshot comes
+  from band-major scheduling of the outer loop in `DOM::calculate`:
+  finish all rays in band 0, then all rays in band 1, etc., re-
+  snapshotting the same `nAngle_` buffers at the top of each per-
+  band sweep. Bit-for-bit identical to a ray-major sweep because
+  the in-scatter coupling is intra-band (the phase-table row for
+  `rayI` only sums over `rayJ` in the same band as `rayI`, and
+  extinction is diagonal in band).
 
 - **Mie scattering: monodisperse only, dictionary keys duplicated
   between extinction and phase function.** `mieKernel` runs the
