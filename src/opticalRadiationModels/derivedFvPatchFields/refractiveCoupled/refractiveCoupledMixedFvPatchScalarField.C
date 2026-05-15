@@ -206,11 +206,10 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
     // stays within the BC's own band -- dirToRayId(..., iBand) below
     // never escapes iBand. So we only need to fetch the neighbour's
     // patch-internal values for rays in this iBand, not for every
-    // (band, angle) tuple. Index by per-band angle and offset the
-    // rayId before lookup. Saves (nBands - 1) * nAngle fromNeighbour
+    // (band, angle) tuple. Index by per-band angle and use dom.rayId()
+    // for the lookup. Saves (nBands - 1) * nAngle fromNeighbour
     // allocations per face on multi-band cases.
     PtrList<scalarField> NbrRaySet(nAngle);
-    const label bandOffset = iBand*nAngle;
 
     // Get the coupling information from the mappedPatchBase
     const mappedPatchBase& mpp = mappedPatchBase::getMap(patch().patch());
@@ -220,7 +219,7 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
 
     for (label jAngle = 0; jAngle < nAngle; jAngle++)
     {
-        const label rayI = jAngle + bandOffset;
+        const label rayI = dom.rayId(jAngle, iBand);
 
         const refractiveCoupledMixedFvPatchScalarField&
             nbrField = refCast
@@ -275,7 +274,7 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
             {
                 for (label jAngle = 0; jAngle < nAngle; jAngle++)
                 {
-                    label sweepRayId = jAngle + iBand*nAngle;
+                    label sweepRayId = dom.rayId(jAngle, iBand);
 
                     vector sweepDir = dom.IRay(sweepRayId).d();
                     vector sweepdAve = dom.IRay(sweepRayId).dAve();
@@ -315,7 +314,7 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
                             // Transmitted radiance picks up an (nB/nA)^2 factor
                             // from solid-angle compression across the interface
                             // (radiance invariant is I/n^2, not I).
-                            diffuse += (NbrRaySet[refracIncidentRay - bandOffset][faceI]*nRatio*nRatio*(1-R) + reflecFace[faceI]*R) *mag(surfNorm & sweepdAve);
+                            diffuse += (NbrRaySet[dom.iAngleOf(refracIncidentRay, iBand)][faceI]*nRatio*nRatio*(1-R) + reflecFace[faceI]*R) *mag(surfNorm & sweepdAve);
 
                         }
                         else
@@ -536,7 +535,7 @@ void Foam::optical::refractiveCoupledMixedFvPatchScalarField::updateCoeffs()
                                     // Accumulate the specular flux. Transmitted
                                     // radiance picks up an (nB/nA)^2 factor from
                                     // solid-angle compression across the interface.
-                                    specular += NbrRaySet[iRay - bandOffset][faceI]*nRatio*nRatio*(1-R)*(intDirOmega & surfNorm);
+                                    specular += NbrRaySet[dom.iAngleOf(iRay, iBand)][faceI]*nRatio*nRatio*(1-R)*(intDirOmega & surfNorm);
                                 }
                             }
                         }

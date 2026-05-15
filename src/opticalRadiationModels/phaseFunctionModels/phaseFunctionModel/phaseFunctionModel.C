@@ -97,7 +97,7 @@ void Foam::optical::phaseFunctionModel::buildPhaseTable()
     {
         for (label i = 0; i < nAngle_; ++i)
         {
-            const label rayI = i + iBand*nAngle_;
+            const label rayI = dom_.rayId(i, iBand);
             const vector dI = dom_.IRay(rayI).d();
 
             // Pass 1: pixel-sample Phi over each Omega_j to fill Psi_ij,
@@ -105,8 +105,8 @@ void Foam::optical::phaseFunctionModel::buildPhaseTable()
             scalar pfSum = 0;
             for (label j = 0; j < nAngle_; ++j)
             {
-                const label rayJ = j + iBand*nAngle_;
-                const label idx = j + i*nAngle_ + iBand*nAngle_*nAngle_;
+                const label rayJ = dom_.rayId(j, iBand);
+                const label idx = tableIdx(i, j, iBand);
 
                 const scalar phiJ   = dom_.IRay(rayJ).phi();
                 const scalar thetaJ = dom_.IRay(rayJ).theta();
@@ -172,7 +172,7 @@ void Foam::optical::phaseFunctionModel::buildPhaseTable()
             // raw BHMIE intensity) it provides the absolute scaling.
             for (label j = 0; j < nAngle_; ++j)
             {
-                const label idx = j + i*nAngle_ + iBand*nAngle_*nAngle_;
+                const label idx = tableIdx(i, j, iBand);
                 phaseFunction_[idx] /= pfSum;
             }
         }
@@ -195,7 +195,7 @@ Foam::scalar Foam::optical::phaseFunctionModel::correct
     }
     const label i = rayI - iBand*nAngle_;
     const label j = rayJ - iBand*nAngle_;
-    return phaseFunction_[j + i*nAngle_ + iBand*nAngle_*nAngle_];
+    return phaseFunction_[tableIdx(i, j, iBand)];
 }
 
 
@@ -210,7 +210,7 @@ const Foam::scalar* Foam::optical::phaseFunctionModel::phaseRow
         return nullptr;
     }
     const label i = rayI - iBand*nAngle_;
-    return &phaseFunction_[i*nAngle_ + iBand*nAngle_*nAngle_];
+    return &phaseFunction_[rowOffset(i, iBand)];
 }
 
 

@@ -101,12 +101,33 @@ protected:
         label subAngleNum_;
 
         //- Flat-indexed phase function table; entry [i, j, iBand] lives at
-        //  phaseFunction_[j + i*nAngle_ + iBand*nAngle_*nAngle_]. Filled by
+        //  phaseFunction_[tableIdx(i, j, iBand)]. Filled by
         //  buildPhaseTable; consumed by correct().
         DynamicList<scalar, 1, 0> phaseFunction_;
 
 
     // Protected member functions
+
+        //- Flat index into phaseFunction_ for entry [i, j, iBand]. The
+        //  table is laid out band-major with row-major (i, j) layout
+        //  inside each band, so the row table[i, *, iBand] is contiguous
+        //  starting at rowOffset(i, iBand).
+        inline label tableIdx
+        (
+            const label i,
+            const label j,
+            const label iBand
+        ) const
+        {
+            return j + i*nAngle_ + iBand*nAngle_*nAngle_;
+        }
+
+        //- Offset of the start of row i in band iBand within
+        //  phaseFunction_. tableIdx(i, j, iBand) == rowOffset(i, iBand) + j.
+        inline label rowOffset(const label i, const label iBand) const
+        {
+            return i*nAngle_ + iBand*nAngle_*nAngle_;
+        }
 
         //- Angular shape Phi(cosV) of the phase function. Subclasses
         //  override; absolute scaling does not matter (the row-
