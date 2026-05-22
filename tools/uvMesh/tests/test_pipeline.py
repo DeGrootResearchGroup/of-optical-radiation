@@ -231,6 +231,63 @@ def test_allrun_skips_polyDualMesh_when_bulk_cells_is_tet(basic_lamp, tmp_path):
     )
 
 
+def test_allrun_hybrid_emits_subsetMesh_stitchMesh_pipeline(basic_lamp, tmp_path):
+    """`bulk_cells='hybrid'`: Allrun.mesh splits the bulk via subsetMesh,
+    dualises only the bulk subset, fuses with mergeMeshes + stitchMesh
+    on the renamed cap_iface / bulk_iface patches."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.15),
+        bulk_cell_size=0.008,
+        bulk_cells="hybrid",
+    )
+    build(case_dir=str(tmp_path), lamps=[basic_lamp], body=body)
+    text = _read_allrun(tmp_path)
+    # subsetMesh runs for both cellZones.
+    assert "subsetMesh -cellZone cap_zone" in text
+    assert "subsetMesh -cellZone bulk_zone" in text
+    # Patches are renamed so stitchMesh can pair them.
+    assert "s/oldInternalFaces/cap_iface/" in text
+    assert "s/oldInternalFaces/bulk_iface/" in text
+    # polyDualMesh runs only on the bulk subset.
+    assert "polyDualMesh" in text  # somewhere in the script
+    # mergeMeshes fuses cap subset into the (dualised) bulk subset.
+    assert "mergeMeshes -addCases" in text and "hybrid_cap" in text
+    # stitchMesh's argv is a single quoted-paren pair list -- the
+    # call must escape the parens so OF parses them as the patchPairs
+    # argument rather than the shell expanding/erroring on them.
+    assert "stitchMesh '((cap_iface bulk_iface))'" in text
+
+
+def test_allrun_hybrid_does_not_emit_root_polyDualMesh(basic_lamp, tmp_path):
+    """The hybrid path runs polyDualMesh only on the bulk subset
+    (inside _uvMesh/hybrid_bulk/), NOT on the full bulk_body case.
+    This regression guard catches accidental fallback to the
+    polyhedral-everything code path when the user requests hybrid."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.15),
+        bulk_cell_size=0.008,
+        bulk_cells="hybrid",
+    )
+    build(case_dir=str(tmp_path), lamps=[basic_lamp], body=body)
+    text = _read_allrun(tmp_path)
+    # Find the bulk_body block; assert polyDualMesh is NOT inside it.
+    # The hybrid path's polyDualMesh runs inside hybrid_bulk/, which is
+    # a separate `(cd _uvMesh/hybrid_bulk ...)` subshell.
+    bulk_body_block_match = re.search(
+        r"cd _uvMesh/bulk_body\s*\n(.*?)\)\s*\n", text, re.DOTALL,
+    )
+    assert bulk_body_block_match is not None
+    bulk_body_block = bulk_body_block_match.group(1)
+    assert "polyDualMesh" not in bulk_body_block, (
+        "polyDualMesh must run on the bulk subset (hybrid_bulk/), not "
+        "the pre-split bulk_body/ case"
+    )
+
+
 def test_allrun_merges_all_annulus_subdirs(box_body, tmp_path):
     """mergeMeshes call must include every per-lamp annulus subdir."""
     lamps = [

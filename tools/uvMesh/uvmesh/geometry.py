@@ -24,7 +24,7 @@ def _sub(a, b):
 
 
 _VALID_ENDCAP_SHAPES = ("flat", "hemisphere")
-_VALID_BULK_CELLS = ("polyhedral", "tet")
+_VALID_BULK_CELLS = ("polyhedral", "tet", "hybrid")
 
 
 @dataclass
@@ -139,8 +139,34 @@ class ReactorBody:
         max skewness ~0.9 and checkMesh reports `Mesh OK`. The
         right choice when the curved capsule boundary makes
         polyDualMesh's dualization fail -- which is the case for
-        every hemispherical lamp. The hemispherical smoke test uses
-        this mode.
+        every hemispherical lamp.
+
+      * `"hybrid"` -- ONLY the cells near each hemispherical cap stay
+        as tets; the rest of the bulk is dualised. The cap-zone
+        cylinder (`cap_zone_radius_factor * annulus_outer_radius`,
+        from `axis_end - annulus_outer_radius` to
+        `axis_end + cap_zone_axial_factor * annulus_outer_radius`)
+        insulates polyDualMesh from the curved capsule seam, which
+        is what makes the dualization fail in the all-polyhedral
+        path. ~1.7x more cells than `"polyhedral"` would have
+        produced on a flat-flat lamp, vs ~4x for the all-tet path
+        -- a 60% cell-count savings vs `"tet"`. Costs: an extra
+        `subsetMesh` + `stitchMesh` step in `Allrun.mesh`, and a
+        small residual count of bad face pyramids (~2 in the
+        smoke test) at the cap-bulk stitch interface where tet and
+        polyhedral cells meet. Recommended default for hemispherical
+        lamps.
+
+    For hybrid bulks, two extra parameters control the cap zone shape:
+      * `cap_zone_radius_factor` (default 1.5) -- cap zone cylinder
+        radius as a multiple of `annulus_outer_radius`. The lamp seam
+        sits at radius 1.0, so the cap zone radial extent is
+        (factor - 1) annuli widths beyond the lamp.
+      * `cap_zone_axial_factor` (default 1.5) -- cap zone extends
+        `factor * annulus_outer_radius` past `axis_end` along the
+        lamp axis, on the hemispherical-cap side. The cap zone's
+        lower z bound is `axis_end - annulus_outer_radius` (one
+        radius back into the lamp's cylindrical extent).
     """
 
     box_min: Optional[tuple] = None
@@ -153,6 +179,9 @@ class ReactorBody:
     endcap_lo_patch_name: str = "endcap_lo"  # box-only; not used for STL
     endcap_hi_patch_name: str = "endcap_hi"  # box-only; not used for STL
     bulk_cells: str = "polyhedral"
+    # Hybrid-bulk cap zone (ignored unless bulk_cells == "hybrid")
+    cap_zone_radius_factor: float = 1.5
+    cap_zone_axial_factor:  float = 1.5
 
     def __post_init__(self):
         if self.box_min is not None and self.box_max is not None:

@@ -38,14 +38,16 @@ BODY = ReactorBody(
     box_min=(-0.04, -0.04, 0.00),
     box_max=( 0.04,  0.04, 0.15),
     bulk_cell_size=0.008,
-    # Hemispherical lamps: skip polyDualMesh on the bulk and ship the
-    # tet mesh as-is. polyDualMesh's dualization of obtuse tets along
-    # the capsule's cylinder-sphere fusion seam produces ~0.06 % of
-    # cells with bad face pyramids and max skewness ~8.7; the tet
-    # bulk avoids the dualization entirely. Trade-off: ~4x more bulk
-    # cells, but max skewness 0.9 and `Mesh OK`. See ReactorBody
-    # docstring for the full discussion.
-    bulk_cells="tet",
+    # Hemispherical lamps: use the hybrid bulk path. Only cells inside
+    # the cap zone (cylindrical region around each hemispherical cap)
+    # stay as tets; the rest of the bulk is dualised. The cap zone
+    # insulates polyDualMesh from the curved capsule seam, which is
+    # what makes the all-polyhedral path fail. Gives ~1.5x cell count
+    # of the all-poly path (vs ~4x for all-tet) with checkMesh-OK
+    # quality except for a small residual count of bad face pyramids
+    # at the cap-bulk stitch interface. See ReactorBody docstring
+    # for the trade-off.
+    bulk_cells="hybrid",
 )
 
 import os

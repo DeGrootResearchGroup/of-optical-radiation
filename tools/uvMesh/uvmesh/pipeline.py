@@ -118,9 +118,17 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
     # Bulk mesh
     if body.bulk_cells == "polyhedral":
         lines.append("# Bulk: gmsh tet -> polyDualMesh -> polyhedral cells.")
-    else:
+    elif body.bulk_cells == "tet":
         lines.append("# Bulk: gmsh tet (kept as tets, polyDualMesh skipped --")
         lines.append("# see ReactorBody.bulk_cells docstring for the trade-off).")
+    else:   # hybrid
+        lines.append("# Bulk: hybrid. gmsh emits a tet mesh with two cellZones")
+        lines.append("# (cap_zone near each hemispherical cap, bulk_zone elsewhere);")
+        lines.append("# subsetMesh splits them; polyDualMesh dualises only the bulk")
+        lines.append("# (the curved capsule seam stays inside the tet cap zone,")
+        lines.append("# where polyDualMesh's obtuse-tet artifact doesn't apply);")
+        lines.append("# stitchMesh fuses the cap and bulk subsets across the")
+        lines.append("# cylindrical cap-zone interface.")
     lines.append("(")
     lines.append("    cd _uvMesh")
     lines.append("    python3 bulk_body.py")
@@ -133,6 +141,46 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
         # polyDualMesh leaves the cellZone built by gmshToFoam pointing at pre-
         # dual cell indices. Single-region bulks don't need it -- drop the file.
         lines.append("    rm -f constant/polyMesh/cellZones")
+    elif body.bulk_cells == "hybrid":
+        # Split into cap_zone (tets) and bulk_zone (will be dualised)
+        # via two `subsetMesh` runs against copies of the mesh, rename
+        # the resulting `oldInternalFaces` patches to distinct names so
+        # `stitchMesh` can pair them, dualise the bulk subset, fuse them
+        # back with mergeMeshes + stitchMesh.
+        lines.append("    rm -rf ../hybrid_cap ../hybrid_bulk")
+        lines.append("    cp -r . ../hybrid_cap")
+        lines.append("    cp -r . ../hybrid_bulk")
+        lines.append(")")
+        lines.append("(")
+        lines.append("    cd _uvMesh/hybrid_cap")
+        lines.append("    runApplication subsetMesh -cellZone cap_zone")
+        # subsetMesh leaves the cap-bulk interface as a patch named
+        # `oldInternalFaces` with type `internal`. Rename + retype so
+        # mergeMeshes keeps the two sides distinct and stitchMesh can
+        # operate on them.
+        lines.append("    sed -i 's/oldInternalFaces/cap_iface/' "
+                     "constant/polyMesh/boundary")
+        lines.append("    sed -i '/cap_iface/,/}/ s/type            internal/"
+                     "type            patch/' constant/polyMesh/boundary")
+        lines.append(")")
+        lines.append("(")
+        lines.append("    cd _uvMesh/hybrid_bulk")
+        lines.append("    runApplication subsetMesh -cellZone bulk_zone")
+        lines.append("    sed -i 's/oldInternalFaces/bulk_iface/' "
+                     "constant/polyMesh/boundary")
+        lines.append("    sed -i '/bulk_iface/,/}/ s/type            internal/"
+                     "type            patch/' constant/polyMesh/boundary")
+        lines.append("    runApplication polyDualMesh 90")
+        lines.append("    rm -f constant/polyMesh/cellZones")
+        # Fuse cap into the dualised bulk; stitchMesh joins the interface.
+        lines.append("    runApplication mergeMeshes -addCases '(\"../hybrid_cap\")'")
+        # stitchMesh's argv is a quoted parenthesised pair list -- single arg.
+        lines.append("    runApplication stitchMesh '((cap_iface bulk_iface))'")
+        # That last mergeMeshes wrote the combined polyMesh into hybrid_bulk;
+        # we propagate it to the canonical bulk_body location for the cp step
+        # below.
+        lines.append("    rm -rf ../bulk_body/constant/polyMesh")
+        lines.append("    cp -r constant/polyMesh ../bulk_body/constant/")
     # bulk_cells == "tet": gmshToFoam's output is the final bulk; the
     # cellZone it built is still valid (no dualization re-indexes) so
     # we leave it in place.

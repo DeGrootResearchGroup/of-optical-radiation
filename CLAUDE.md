@@ -659,7 +659,7 @@ body = ReactorBody(
     box_min=(-0.04, -0.04, 0.0),
     box_max=( 0.04,  0.04, 0.15),         # taller box so the hemispherical
     bulk_cell_size=0.008,                  # cap fits with margin
-    bulk_cells="tet",                      # required for hemispherical lamps;
+    bulk_cells="hybrid",                   # recommended for hemispherical lamps;
                                            # see the trade-off below
 )
 build(case_dir=".", lamps=lamps, body=body)
@@ -797,16 +797,23 @@ as the flat-flat case plus:
   5 cubed-sphere blocks × 10² cells).
 - `lamp0_seam` face count > 1000 (cylinder seam 800 + hemisphere
   seam 500 combined into one patch).
-- `checkMesh` reports `Mesh OK` (max non-orth ~89°, max skew 0.9,
-  no bad face pyramids). The case uses `ReactorBody.bulk_cells="tet"`
-  to ship the bulk as plain tets rather than polyhedra — see the
-  helper's `ReactorBody` docstring and "Open items — uvMesh helper"
-  for the trade-off (skipping polyDualMesh avoids ~40 bad face
-  pyramids that the dualization produces on the capsule's
-  cylinder-sphere fusion seam, at the cost of ~4x more bulk cells).
-- The bulk is therefore tetrahedra (~17000), not polyhedra; the
-  validate explicitly asserts `polyhedra: 0` and that
-  `_uvMesh/bulk_body/log.polyDualMesh` does NOT exist.
+- Mesh quality: max non-orth < 90° (~89° observed; the cubed-sphere
+  annular polar singularity sets this), max skew < 4 (~1.78
+  observed), bad face pyramids < 0.1 % of total faces (~2 out of
+  ~72k observed; residual at the cap-bulk stitch interface, see
+  ReactorBody docstring).
+- The case uses `ReactorBody.bulk_cells="hybrid"`: a cylindrical
+  cap-zone around each hemispherical cap stays as tets, the rest
+  of the bulk is dualised. The cap zone insulates polyDualMesh
+  from the curved capsule seam (where its obtuse-tet dualization
+  fails in the all-polyhedral path) without the ~4x cell-count
+  cost of the all-tet path. ~20k total cells (vs ~17k all-poly
+  with bad cells, vs ~30k all-tet).
+- The bulk is therefore mixed (~3000 tetrahedra in the cap zone,
+  ~3300 polyhedra in the dualised bulk zone); the validate
+  explicitly asserts both element types are present and that
+  `_uvMesh/hybrid_bulk/log.polyDualMesh` + `log.stitchMesh` are
+  written (regression guards for the hybrid pipeline).
 
 `tools/uvMesh/tests/` contains a **pytest unit-test suite** (~80
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.
@@ -1852,22 +1859,25 @@ mesh tooling:
   one of the lamp end caps set to `endcap_b_shape="hemisphere"`,
   exercising the cubed-sphere annular cap path. Box stretched
   to z = 0.15 so the hemispherical cap (z = 0.10 to 0.12) fits
-  with margin. The case sets `bulk_cells="tet"` (skip
-  polyDualMesh) -- see the trade-off in the helper's
-  `ReactorBody` docstring. Validates: `checkMesh` reports
-  `Mesh OK`; the new patch set (12 patches, with
+  with margin. The case sets `bulk_cells="hybrid"`:
+  cells inside a cylindrical cap-zone around each hemispherical
+  cap stay as tets, the rest of the bulk is dualised (see the
+  helper's `ReactorBody` docstring). Validates: per-metric mesh
+  quality (max non-orth < 90°, max skew < 4, < 0.1 % bad face
+  pyramids); the new patch set (12 patches, with
   `lamp0_endcap_B` replaced by `lamp0_tip_B`); `lamp0_tip_B`
   has ~500 faces (5 cubed-sphere blocks × 10² cells per block);
   `lamp0_seam` has > 1000 faces (cylinder 800 + hemisphere 500
-  combined); NCC fuse produced ~17732 face couplings at 99.99 %
-  coverage; max non-orthogonality < 90°, max skewness < 4;
-  bulk is plain tets (`polyhedra: 0`) and the polyDualMesh log
-  is absent (regression guard for the `bulk_cells="tet"` path).
-  Observed at the shipped resolution: ~13000 annulus hex cells
-  (8000 cylinder + 5000 hemisphere from 5 × 10³), ~16978 bulk
-  tet cells, max non-orth 89.1°, max skew 0.90, no bad face
-  pyramids. Load-bearing for the hemisphere code path; will be
-  the reference geometry for any future Sozzi-poly tutorial that
+  combined); NCC fuse produced ~15000 face couplings at 99.99 %
+  coverage; bulk is mixed tets + polyhedra (regression guard
+  for the hybrid path); `_uvMesh/hybrid_bulk/log.polyDualMesh`
+  and `log.stitchMesh` both present. Observed at the shipped
+  resolution: ~13000 annulus hex cells (8000 cylinder + 5000
+  hemisphere from 5 × 10³), ~3000 cap-zone tet cells, ~3300
+  bulk polyhedral cells, max non-orth 89.1°, max skew 1.78,
+  2 bad face pyramids out of 72k total faces (0.003 %).
+  Load-bearing for the hemisphere code path; will be the
+  reference geometry for any future Sozzi-poly tutorial that
   models a submerged lamp tip.
 
 ### `tutorials/`
@@ -2208,24 +2218,32 @@ Remaining work queued behind real driver cases:
    rotation axis). Not exercised by any shipped case, but worth
    bench-testing before any tutorial uses a -z lamp axis.
 
-5. **Polyhedral bulk for hemispherical lamps.** v0.3 ships
-   hemispherical-lamp cases with `bulk_cells="tet"` because
-   polyDualMesh's dualization of obtuse tets along the capsule's
-   cylinder-sphere fusion seam produces ~0.06 % of cells with bad
-   face pyramids (max skewness 8.7, checkMesh-fail). Three
-   follow-on paths if the ~1.8x combined cell-count cost of tet
-   bulks becomes a real problem on Sozzi-poly: (a) write a proper
-   prism-layer pipeline by extruding the seam surface inward in
-   gmsh (the OCC "thicken" operation, then mesh the prism shell
-   separately from the tet bulk and stitch); (b) post-process the
-   polyhedral output with a custom smoother to relax the bad
-   cells; (c) replace the gmsh + polyDualMesh leg with
-   `foamyHexMesh` for the bulk. The investigation that ruled out
-   simpler fixes (gmsh BoundaryLayer field is 2D-only in v4.8;
-   snappyHexMesh's medialAxis can't push layers through the
-   existing bad cells; gmsh tet-algorithm sweep all converge to
-   the same 40 bad cells) is captured in the commit message that
-   introduced `bulk_cells`.
+5. **Polyhedral bulk for hemispherical lamps.** v0.4 ships
+   hemispherical-lamp cases with `bulk_cells="hybrid"`: the cells
+   inside a cylindrical cap zone around each hemispherical cap stay
+   as tets while the rest of the bulk is dualised. polyDualMesh
+   doesn't see the curved capsule seam (it's hidden inside the
+   tet-only cap zone) and dualises the bulk cleanly. The cap-bulk
+   stitch interface leaves a small residual of bad face pyramids
+   (~2 out of ~72k faces, 0.003 %, vs ~40 / 67k = 0.06 % in the
+   all-polyhedral path) but the quality is otherwise close to the
+   all-tet path's checkMesh-OK result, at ~30 % the cell-count cost
+   (20k vs 30k for the smoke test, vs 17k all-poly-with-bad-cells).
+   Two follow-on paths if the residual stitch-interface bad cells
+   become a problem: (a) a true prism-layer extrusion in gmsh (the
+   OCC "thicken" operation; would replace the stitched interface
+   with a conformal prism shell -- nontrivial because gmsh 4.8's
+   BoundaryLayer field is 2D-only); (b) replace the gmsh +
+   polyDualMesh leg with `foamyHexMesh` for the bulk. The cap-zone
+   shape (cylinder radius `cap_zone_radius_factor *
+   annulus_outer_radius`, axial extent set by
+   `cap_zone_axial_factor`) is tunable on `ReactorBody` for cases
+   that need a different geometry. The original investigation that
+   ruled out simpler fixes (snappyHexMesh layers refuse to extrude
+   through pre-existing bad cells; gmsh tet algorithm sweep all
+   converge to the same bad cells; doubling annulus_outer_radius
+   makes quality WORSE) is captured in the v0.3 / v0.4 commit
+   messages.
 
 ## CI
 
