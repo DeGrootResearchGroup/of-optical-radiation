@@ -70,7 +70,8 @@ def _fmt_vec(v) -> str:
     return f"({v[0]:.12g} {v[1]:.12g} {v[2]:.12g})"
 
 
-def _write_allrun_mesh(case_dir: str, lamps: List[Lamp]) -> None:
+def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
+                       body: ReactorBody) -> None:
     """Generate the `_uvMesh/Allrun.mesh` driver script.
 
     The script is self-contained: assumes `WM_PROJECT_DIR` is set (OF env
@@ -115,7 +116,11 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp]) -> None:
         lines.append("")
 
     # Bulk mesh
-    lines.append("# Bulk: gmsh tet -> polyDualMesh -> polyhedral cells.")
+    if body.bulk_cells == "polyhedral":
+        lines.append("# Bulk: gmsh tet -> polyDualMesh -> polyhedral cells.")
+    else:
+        lines.append("# Bulk: gmsh tet (kept as tets, polyDualMesh skipped --")
+        lines.append("# see ReactorBody.bulk_cells docstring for the trade-off).")
     lines.append("(")
     lines.append("    cd _uvMesh")
     lines.append("    python3 bulk_body.py")
@@ -123,10 +128,14 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp]) -> None:
     lines.append("(")
     lines.append("    cd _uvMesh/bulk_body")
     lines.append("    runApplication gmshToFoam ../bulk.msh")
-    lines.append("    runApplication polyDualMesh 90")
-    # polyDualMesh leaves the cellZone built by gmshToFoam pointing at pre-
-    # dual cell indices. Single-region bulks don't need it -- drop the file.
-    lines.append("    rm -f constant/polyMesh/cellZones")
+    if body.bulk_cells == "polyhedral":
+        lines.append("    runApplication polyDualMesh 90")
+        # polyDualMesh leaves the cellZone built by gmshToFoam pointing at pre-
+        # dual cell indices. Single-region bulks don't need it -- drop the file.
+        lines.append("    rm -f constant/polyMesh/cellZones")
+    # bulk_cells == "tet": gmshToFoam's output is the final bulk; the
+    # cellZone it built is still valid (no dualization re-indexes) so
+    # we leave it in place.
     lines.append(")")
     lines.append("")
 
@@ -196,4 +205,4 @@ def build(case_dir: str, lamps: List[Lamp], body: ReactorBody) -> None:
     _write_stub_controldict(bulk_case)
 
     # Top-level Allrun.mesh.
-    _write_allrun_mesh(case_dir, lamps)
+    _write_allrun_mesh(case_dir, lamps, body)

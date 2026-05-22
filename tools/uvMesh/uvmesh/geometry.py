@@ -24,6 +24,7 @@ def _sub(a, b):
 
 
 _VALID_ENDCAP_SHAPES = ("flat", "hemisphere")
+_VALID_BULK_CELLS = ("polyhedral", "tet")
 
 
 @dataclass
@@ -120,6 +121,26 @@ class ReactorBody:
         The gmsh script imports the named STL as a triSurface and meshes
         the volume it encloses. Used by real reactor geometries (Sozzi,
         Chiu, ...). Reserved for a follow-on PR; not exercised in v0.1.
+
+    `bulk_cells` controls whether the gmsh tet mesh is dualised into
+    polyhedra by `polyDualMesh`:
+
+      * `"polyhedral"` (default) -- run `polyDualMesh` after `gmshToFoam`.
+        Produces ~14-faces/cell polyhedra (~4x fewer cells than the
+        tet input). Best for flat-flat lamps. **Hemispherical lamps
+        produce ~0.06 % of cells with bad face pyramids on the
+        cylinder-sphere fusion seam** -- polyDualMesh's dualization of
+        obtuse tets near the curved boundary produces non-convex
+        polyhedra. Functional, but max skewness ~8.7 and checkMesh
+        fails the face-pyramid-orientation check.
+
+      * `"tet"` -- skip `polyDualMesh`, ship the bulk as plain tets.
+        ~4x more cells in the bulk than the polyhedral path, but
+        max skewness ~0.9 and checkMesh reports `Mesh OK`. The
+        right choice when the curved capsule boundary makes
+        polyDualMesh's dualization fail -- which is the case for
+        every hemispherical lamp. The hemispherical smoke test uses
+        this mode.
     """
 
     box_min: Optional[tuple] = None
@@ -131,6 +152,7 @@ class ReactorBody:
     wall_patch_name: str = "bulkWall"
     endcap_lo_patch_name: str = "endcap_lo"  # box-only; not used for STL
     endcap_hi_patch_name: str = "endcap_hi"  # box-only; not used for STL
+    bulk_cells: str = "polyhedral"
 
     def __post_init__(self):
         if self.box_min is not None and self.box_max is not None:
@@ -149,4 +171,9 @@ class ReactorBody:
         else:
             raise ValueError(
                 "ReactorBody: must supply either (box_min, box_max) or stl_path"
+            )
+        if self.bulk_cells not in _VALID_BULK_CELLS:
+            raise ValueError(
+                f"ReactorBody.bulk_cells: must be one of {_VALID_BULK_CELLS}, "
+                f"got {self.bulk_cells!r}"
             )

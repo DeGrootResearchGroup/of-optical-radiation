@@ -187,3 +187,29 @@ def test_reactor_body_stl_path_not_implemented():
     # surprise downstream gmsh error.
     with pytest.raises(NotImplementedError, match="STL"):
         ReactorBody(stl_path="reactor.stl", bulk_cell_size=0.01)
+
+
+def test_reactor_body_default_bulk_cells_is_polyhedral():
+    """`bulk_cells` controls whether polyDualMesh dualises the gmsh
+    tets into polyhedra. Default 'polyhedral' preserves the v0.1
+    behaviour for flat-flat lamps where polyDualMesh produces a
+    valid Mesh OK result."""
+    body = ReactorBody(box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1)
+    assert body.bulk_cells == "polyhedral"
+
+
+def test_reactor_body_accepts_tet_bulk_cells():
+    """'tet' skips polyDualMesh -- the right choice for
+    hemispherical lamps where the capsule's cylinder-sphere fusion
+    seam trips polyDualMesh's dualization on obtuse tets."""
+    body = ReactorBody(
+        box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+        bulk_cells="tet",
+    )
+    assert body.bulk_cells == "tet"
+
+
+def test_reactor_body_rejects_invalid_bulk_cells():
+    with pytest.raises(ValueError, match="bulk_cells"):
+        ReactorBody(box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+                    bulk_cells="hexahedral")

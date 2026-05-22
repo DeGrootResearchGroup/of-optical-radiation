@@ -3,19 +3,15 @@
 
 Pipeline regression for the cubed-sphere annular hemisphere path.
 Checks the same things the flat-flat smoke does (patches, NCC, dual
-mesh), plus hemisphere-specific patch names and a relaxed mesh-quality
-threshold.
+mesh), plus hemisphere-specific patch names (`lamp0_tip_B` instead
+of `lamp0_endcap_B`) and the combined cylinder+hemisphere seam.
 
-A small fraction (~0.3 %) of bulk-side polyhedral cells get bad face
-pyramids near the curved capsule seam -- a known polyDualMesh artifact
-on cylinder-sphere fused surfaces, see CLAUDE.md "Open items -- uvMesh
-helper". The validate therefore requires:
-  - reasonable cell volumes (no negative-volume cells -- min volume > 0)
-  - max non-orthogonality < 90 deg (the OpenFOAM "severely
-    non-orthogonal" threshold)
-  - max skewness < 12 (loose; the smoke test sees ~8.7)
-  - < 1 % of total faces flagged as incorrectly oriented pyramids
-Rather than asserting "Mesh OK".
+Mesh quality: the case uses `ReactorBody.bulk_cells="tet"` to skip
+polyDualMesh on the bulk -- polyDualMesh's dualization of obtuse tets
+along the capsule's cylinder-sphere fusion seam produces ~0.06 % of
+cells with bad face pyramids and max skewness ~8.7. The tet bulk
+avoids the dualization entirely; the validate therefore requires
+`Mesh OK` outright (no per-metric leniency).
 """
 from __future__ import annotations
 
@@ -41,48 +37,32 @@ def passed(msg):
     print(f"  ok  {msg}")
 
 
-# 1. Mesh quality. checkMesh may fail on a small fraction of the
-#    polyDualMesh cells near the curved capsule seam; we allow that
-#    explicitly via per-metric thresholds, but disallow negative-volume
-#    cells (which would indicate a real topology bug, not a polyDualMesh
-#    quirk).
+# 1. checkMesh must report "Mesh OK". With bulk_cells="tet" the
+#    polyDualMesh artifact is avoided entirely, so any failure here
+#    is a real topology bug.
 log = read(os.path.join(HERE, "log.checkMesh"))
+if not re.search(r"^Mesh OK\.?\s*$", log, re.MULTILINE):
+    fail("checkMesh did not report 'Mesh OK'")
+passed("checkMesh reported Mesh OK")
 
-m_min_vol = re.search(r"Min volume\s*=\s*([\d.eE+-]+)\.", log)
-if m_min_vol is None or float(m_min_vol.group(1)) <= 0:
-    fail("checkMesh: zero or negative cell volume present")
-passed(f"min cell volume {float(m_min_vol.group(1)):.3e} > 0")
-
+# Sanity-check key quality metrics. "Mesh OK" already accepts these
+# below OpenFOAM's failure thresholds (non-orth < 90 deg, skew < 4);
+# we re-assert them as regression guards but loose enough not to be
+# tighter than checkMesh itself. The cubed-sphere annular shell has
+# unavoidably high non-orth near the polar singularity (87-89 deg
+# observed) -- that's the cost of the topology choice, not a fix-it
+# bug.
 m_non_orth = re.search(r"Mesh non-orthogonality Max:\s*([\d.eE+-]+)", log)
-if m_non_orth is None:
-    fail("checkMesh log missing Max non-orthogonality")
-non_orth = float(m_non_orth.group(1))
-if non_orth >= 90.0:
-    fail(f"checkMesh max non-orthogonality {non_orth:.2f} >= 90 deg")
+non_orth = float(m_non_orth.group(1)) if m_non_orth else None
+if non_orth is None or non_orth >= 90.0:
+    fail(f"checkMesh max non-orthogonality {non_orth} >= 90 deg")
 passed(f"max non-orthogonality {non_orth:.2f} deg")
 
 m_skew = re.search(r"Max skewness\s*=\s*([\d.eE+-]+)", log)
-if m_skew is None:
-    fail("checkMesh log missing Max skewness")
-skew = float(m_skew.group(1))
-if skew >= 12.0:
-    fail(f"checkMesh max skewness {skew:.2f} >= 12.0")
+skew = float(m_skew.group(1)) if m_skew else None
+if skew is None or skew >= 4.0:
+    fail(f"checkMesh max skewness {skew} >= 4.0")
 passed(f"max skewness {skew:.2f}")
-
-m_n_faces = re.search(r"faces:\s+(\d+)", log)
-if m_n_faces is None:
-    fail("checkMesh log missing total face count")
-total_faces = int(m_n_faces.group(1))
-
-m_bad = re.search(r"(\d+)\s+faces are incorrectly oriented", log)
-n_bad_pyramids = int(m_bad.group(1)) if m_bad else 0
-bad_frac = n_bad_pyramids / total_faces if total_faces else 0.0
-if bad_frac >= 0.01:
-    fail(
-        f"{n_bad_pyramids} bad face pyramids out of {total_faces} faces "
-        f"({100*bad_frac:.2f} %) >= 1 %"
-    )
-passed(f"bad face pyramids {n_bad_pyramids} / {total_faces} ({100*bad_frac:.3f} %)")
 
 # 2. Expected patches present.
 boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
@@ -175,13 +155,32 @@ for label in ("Source", "Target"):
         fail(f"createNonConformalCouples {label} avg coverage {avg_cov:.3f} < 0.9")
     passed(f"createNonConformalCouples {label} avg coverage {avg_cov:.4f}")
 
-# 4. polyDualMesh really ran.
-bulk_log = read(
+# 4. Bulk is tets, not polyhedra (we used bulk_cells="tet" in
+#    mesh.py to sidestep the polyDualMesh capsule-junction artifact).
+#    Confirm by inspecting checkMesh's element-type breakdown.
+m_tets = re.search(r"^\s*tetrahedra:\s+(\d+)", log, re.MULTILINE)
+m_polys = re.search(r"^\s*polyhedra:\s+(\d+)", log, re.MULTILINE)
+n_tets = int(m_tets.group(1)) if m_tets else 0
+n_polys = int(m_polys.group(1)) if m_polys else 0
+if n_tets == 0:
+    fail("bulk has no tetrahedra; expected gmsh tet bulk under bulk_cells='tet'")
+if n_polys != 0:
+    fail(
+        f"bulk has {n_polys} polyhedra; expected zero under bulk_cells='tet' "
+        f"(polyDualMesh must NOT have run)"
+    )
+passed(f"bulk is {n_tets} tetrahedra, 0 polyhedra (polyDualMesh skipped)")
+
+# Confirm polyDualMesh log is absent for the bulk (i.e. Allrun.mesh
+# really skipped it).
+if os.path.exists(
     os.path.join(HERE, "_uvMesh", "bulk_body", "log.polyDualMesh")
-)
-if "Writing dual mesh" not in bulk_log:
-    fail("polyDualMesh log does not confirm 'Writing dual mesh'")
-passed("polyDualMesh wrote dual mesh (polyhedra)")
+):
+    fail(
+        "log.polyDualMesh exists in bulk_body/ but bulk_cells='tet' should "
+        "have skipped that step"
+    )
+passed("polyDualMesh was not run on the bulk (as configured)")
 
 print()
 print("uvMeshSmokeHemisphere: all checks passed.")

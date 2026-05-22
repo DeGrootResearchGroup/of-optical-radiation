@@ -198,15 +198,37 @@ def test_allrun_transforms_for_x_axis_lamp(box_body, tmp_path):
 
 
 def test_allrun_runs_polyDualMesh_and_cleans_cellZone(basic_lamp, box_body, tmp_path):
-    """polyDualMesh runs at featureAngle 90 (matches the derisk),
-    and Allrun.mesh removes the stale cellZone file afterwards
-    (gmshToFoam built it from Physical Volume('fluid') but polyDualMesh
-    doesn't update its cell indices, so it would trip checkMesh's
-    zone-validity check)."""
+    """Default `bulk_cells='polyhedral'`: polyDualMesh runs at
+    featureAngle 90 (matches the derisk), and Allrun.mesh removes
+    the stale cellZone file afterwards (gmshToFoam built it from
+    Physical Volume('fluid') but polyDualMesh doesn't update its cell
+    indices, so it would trip checkMesh's zone-validity check)."""
     build(case_dir=str(tmp_path), lamps=[basic_lamp], body=box_body)
     text = _read_allrun(tmp_path)
     assert "runApplication polyDualMesh 90" in text
     assert "rm -f constant/polyMesh/cellZones" in text
+
+
+def test_allrun_skips_polyDualMesh_when_bulk_cells_is_tet(basic_lamp, tmp_path):
+    """`bulk_cells='tet'`: skip polyDualMesh + cellZone cleanup. The
+    gmshToFoam output is the final bulk; the cellZone is valid
+    (no dualization re-indexes the cells)."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.15),
+        bulk_cell_size=0.008,
+        bulk_cells="tet",
+    )
+    build(case_dir=str(tmp_path), lamps=[basic_lamp], body=body)
+    text = _read_allrun(tmp_path)
+    assert "runApplication polyDualMesh" not in text, (
+        "Allrun.mesh must not invoke polyDualMesh under bulk_cells='tet'"
+    )
+    assert "rm -f constant/polyMesh/cellZones" not in text, (
+        "cellZone cleanup is only needed after polyDualMesh; it must "
+        "not be emitted under bulk_cells='tet'"
+    )
 
 
 def test_allrun_merges_all_annulus_subdirs(box_body, tmp_path):
