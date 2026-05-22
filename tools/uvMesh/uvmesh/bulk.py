@@ -70,16 +70,20 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
     pad = 1e-3
     lamp_cuts = []
     for i, lamp in enumerate(lamps):
-        # For bulk_cells == "structured", the cap region (between the
-        # hemispherical lamp tip and the cylinder + disc envelope at
-        # z = axis_end + cap_extension_factor * annulus_outer_radius)
-        # is filled by the morphed cubed-sphere blocks. The bulk's
-        # lamp cutout becomes a CYLINDER (no sphere fuse) extended past
-        # axis_end by the same factor. The hemispherical lamp surface
-        # is INSIDE this cylinder cutout (covered by the structured
+        # For bulk_cells in ("structured", "structured_full"), the
+        # cap region (between the hemispherical lamp tip and the
+        # cylinder + disc envelope at z = axis_end +
+        # cap_extension_factor * annulus_outer_radius) is filled by
+        # the morphed cubed-sphere blocks. The bulk's lamp cutout
+        # becomes a CYLINDER (no sphere fuse) extended past axis_end
+        # by the same factor. The hemispherical lamp surface is
+        # INSIDE this cylinder cutout (covered by the structured
         # cap), so the bulk doesn't see it. Same on the A side if
-        # endcap_a is hemispherical.
-        if body.bulk_cells == "structured":
+        # endcap_a is hemispherical. `structured_full` projects the
+        # cap's outer face onto the cylinder + disc envelope (so
+        # there are no disc-segment gaps) but the bulk-side
+        # cylinder cutout is identical to the basic structured path.
+        if body.bulk_cells in ("structured", "structured_full"):
             cap_ext = body.cap_extension_factor * lamp.annulus_outer_radius
         else:
             cap_ext = 0.0

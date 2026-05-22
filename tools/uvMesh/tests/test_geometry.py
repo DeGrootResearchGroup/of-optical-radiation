@@ -261,3 +261,27 @@ def test_reactor_body_structured_cap_factor_user_override():
         cap_extension_factor=2.0,
     )
     assert body.cap_extension_factor == pytest.approx(2.0)
+
+
+def test_reactor_body_accepts_structured_full_bulk_cells():
+    """'structured_full' is the same 5-block cubed-sphere topology
+    as 'structured', but with the polar-cap outer edges projected
+    onto the disc-cylinder edge so the cap covers the full disc
+    (no inscribed-square gaps). Most expensive structured topology
+    in cell count; cleanest annulus-to-bulk interface."""
+    body = ReactorBody(
+        box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+        bulk_cells="structured_full",
+    )
+    assert body.bulk_cells == "structured_full"
+    # Inherits the same cap-extension default as 'structured'.
+    assert body.cap_extension_factor == pytest.approx(1.5)
+
+
+def test_reactor_body_structured_full_cap_factor_user_override():
+    body = ReactorBody(
+        box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+        bulk_cells="structured_full",
+        cap_extension_factor=2.5,
+    )
+    assert body.cap_extension_factor == pytest.approx(2.5)

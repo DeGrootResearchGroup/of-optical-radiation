@@ -260,6 +260,27 @@ def test_allrun_hybrid_emits_subsetMesh_stitchMesh_pipeline(basic_lamp, tmp_path
     assert "stitchMesh '((cap_iface bulk_iface))'" in text
 
 
+def test_allrun_runs_polyDualMesh_when_bulk_cells_is_structured_full(basic_lamp, tmp_path):
+    """`bulk_cells='structured_full'`: same Allrun.mesh shape as
+    'structured' / 'polyhedral' (polyDualMesh on the full bulk
+    case + cellZone cleanup). The annulus-side cap is what
+    differs (full disc coverage via edge projection)."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.18),
+        bulk_cell_size=0.008,
+        bulk_cells="structured_full",
+    )
+    build(case_dir=str(tmp_path), lamps=[basic_lamp], body=body)
+    text = _read_allrun(tmp_path)
+    assert "runApplication polyDualMesh 90" in text
+    assert "rm -f constant/polyMesh/cellZones" in text
+    # No hybrid stitchMesh / subsetMesh logic should leak in.
+    assert "subsetMesh" not in text
+    assert "stitchMesh" not in text
+
+
 def test_allrun_runs_polyDualMesh_when_bulk_cells_is_structured(basic_lamp, tmp_path):
     """`bulk_cells='structured'`: the bulk is dualised (same as
     'polyhedral'). The lamp cutout is a simple cylinder + flat disc

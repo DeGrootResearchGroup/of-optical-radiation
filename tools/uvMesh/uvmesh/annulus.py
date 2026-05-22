@@ -94,12 +94,19 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
     # hemispherical seam faces accumulate into the same patch
     # (blockmeshbuilder's name-clash check rejects two BoundaryTag
     # objects with the same name even if their type matches).
-    # For bulk_cells == "structured", the outer surface of the cap is
-    # a CYLINDER + DISC envelope (extended past axis_end by
-    # cap_extension_factor * annulus_outer_radius). Otherwise it's the
-    # standard cubed-sphere shell that hemisphere.py emits.
+    # For bulk_cells in ("structured", "structured_full"), the outer
+    # surface of the cap is a CYLINDER + DISC envelope (extended past
+    # axis_end by cap_extension_factor * annulus_outer_radius).
+    # `structured_full` additionally projects the polar-cap outer
+    # edges and the side-block outer faces onto the outer cylinder
+    # so the cap covers the FULL disc + cylinder surface (no
+    # inscribed-square disc segments). Otherwise it's the standard
+    # cubed-sphere shell that hemisphere.py emits.
     use_structured = (
-        body is not None and body.bulk_cells == "structured"
+        body is not None and body.bulk_cells in ("structured", "structured_full")
+    )
+    full_disc = (
+        body is not None and body.bulk_cells == "structured_full"
     )
     cap_ext_L = (
         (body.cap_extension_factor if use_structured else 0.0)
@@ -124,6 +131,7 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
                 seam_tag=seam,
                 end_label="A",
                 zone_tag_name=f"{lamp.sleeve_patch_name}_capext_A",
+                full_disc_coverage=full_disc,
             )
         else:
             write_hemisphere_cap(
@@ -160,6 +168,7 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
                 seam_tag=seam,
                 end_label="B",
                 zone_tag_name=f"{lamp.sleeve_patch_name}_capext_B",
+                full_disc_coverage=full_disc,
             )
         else:
             write_hemisphere_cap(

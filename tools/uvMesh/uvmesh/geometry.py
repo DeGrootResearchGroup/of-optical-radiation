@@ -24,7 +24,7 @@ def _sub(a, b):
 
 
 _VALID_ENDCAP_SHAPES = ("flat", "hemisphere")
-_VALID_BULK_CELLS = ("polyhedral", "tet", "hybrid", "structured")
+_VALID_BULK_CELLS = ("polyhedral", "tet", "hybrid", "structured", "structured_full")
 
 
 @dataclass
@@ -157,16 +157,28 @@ class ReactorBody:
         polyhedral cells meet. Recommended default for hemispherical
         lamps.
 
-      * `"structured"` -- the cap region is filled with a 9-block
-        structured hex mesh (5 morphed cubed-sphere blocks + 4
-        disc-segment "wedge" blocks). The bulk's lamp cutout becomes
-        a simple cylinder (no hemispherical seam visible to the bulk
-        at all), and polyDualMesh dualises the bulk cleanly. The
-        downside is a more complex topology with degenerate-hex
-        disc-segment cells whose mesh quality is not guaranteed to
-        beat the hybrid path's 2 residual bad-pyramid faces.
-        Experimental in v0.5 -- use `"hybrid"` if `"structured"`
-        runs into issues.
+      * `"structured"` -- the cap region is filled with a 5-block
+        morphed cubed-sphere shell (`cap_extension.py`). The polar
+        cap's outer face is an INSCRIBED SQUARE in the disc; the 4
+        disc-segment regions between the inscribed square and the
+        disc edge are part of the bulk's (slightly non-convex)
+        gmsh-meshed region. Cheaper than `"hybrid"` (~14 % fewer
+        cells in the smoke test); slightly higher residual bad-cell
+        count at the disc-segment corners (~15 vs ~2 in the smoke
+        test).
+
+      * `"structured_full"` -- same 5-block topology as
+        `"structured"`, but with the polar-cap outer edges PROJECTED
+        onto the disc-cylinder edge (Cylinder geometry of radius
+        `annulus_outer_radius`) so the polar cap's outer face covers
+        the FULL DISC (with curved arc edges) instead of just the
+        inscribed square. Side blocks' outer faces are face-projected
+        onto the same Cylinder so they follow the cylinder side
+        exactly. The result is true pure-hex coverage of the cap
+        region -- no disc segments left for the bulk. Most expensive
+        topology / highest mesh quality / fewest bad cells. Designed
+        for cases where mesh quality near the lamp is critical
+        (research-paper comparisons, fine-resolution dose work).
 
     For hybrid bulks, two extra parameters control the cap zone shape:
       * `cap_zone_radius_factor` (default 1.5) -- cap zone cylinder

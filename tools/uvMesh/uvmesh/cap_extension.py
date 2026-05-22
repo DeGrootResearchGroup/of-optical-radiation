@@ -14,13 +14,24 @@ This makes the BULK see only a cylinder + flat disc as the lamp's
 seam -- no hemispherical surface in the bulk-side mesh, which is what
 breaks polyDualMesh in the all-polyhedral path.
 
-This v0.5 implementation emits only the 5-block topology. The 4
-"disc-segment" wedges between the polar cap's inscribed-square outer
-face and the disc edge are left as part of the BULK's gmsh-meshed
-region; the bulk's cutout has a non-convex shape but gmsh handles
-it. If the disc-segment regions cause mesh-quality issues in real
-driver cases, the 9-block topology (5 cubed-sphere + 4 degenerate-hex
-disc-segment blocks) is the documented next step.
+Two modes via the `full_disc_coverage` flag:
+
+  * `False` (default; bulk_cells="structured"): the polar cap's outer
+    face is the INSCRIBED SQUARE in the disc (corners at the cube
+    angles on the disc-cylinder edge, edges are straight chords). The
+    4 disc-segment regions between the inscribed square and the disc
+    arc are part of the BULK's gmsh-meshed region. ~15 bad face
+    pyramids at the segment corners in the smoke test.
+
+  * `True` (bulk_cells="structured_full"): the polar cap's outer
+    edges are projected onto a Cylinder geometry (the outer envelope
+    at r = annulus_outer_radius), so each edge becomes an arc on the
+    disc circle. The 4 arc edges together trace the full disc circle;
+    the polar cap's outer face covers the FULL disc with transfinite
+    interpolation. Side blocks' outer faces are face-projected onto
+    the same Cylinder so they follow the cylinder side exactly. The
+    bulk's cutout is a clean cylinder + flat disc with NO disc-
+    segment gaps.
 """
 from __future__ import annotations
 
@@ -28,7 +39,7 @@ import math
 from typing import List, Tuple
 
 import numpy as np
-from blockmeshbuilder import BoundaryTag, Sphere, ZoneTag
+from blockmeshbuilder import BoundaryTag, Cylinder, Sphere, ZoneTag
 from blockmeshbuilder.blockelements import (
     Face,
     HexBlock,
@@ -57,6 +68,7 @@ def write_morphed_cap(
     seam_tag: BoundaryTag,
     end_label: str,
     zone_tag_name: str,
+    full_disc_coverage: bool = False,
 ) -> None:
     """Append a 5-block morphed cubed-sphere cap to `bmd`.
 
@@ -101,15 +113,29 @@ def write_morphed_cap(
     inv_sqrt3 = 1.0 / math.sqrt(3.0)
     z_top = centre[2] + axis_dir * L_ext
 
-    # Inner sphere geometry for projecting the inner faces. The outer
-    # surface is cylinder + disc -- those are geometrically simple
-    # (planar / cylindrical) so we don't need a projection geometry
-    # for the outer face: the 5 block faces are flat quads inscribed
-    # in the cylinder strips / disc-edge corners.
+    # Inner sphere geometry for projecting the inner faces (always
+    # needed). Outer cylinder geometry (only needed for full disc
+    # coverage) projects the side blocks' outer faces and the polar
+    # cap's outer edges onto the r=r_outer cylinder -- this turns the
+    # cap's outer envelope from a flat-quad approximation into the
+    # exact cylinder + disc shape.
     sphere_inner = Sphere(
         Point(centre), r_inner, name=f"sphere_{end_label}_inner_morphed"
     )
     bmd.add_geometries([sphere_inner])
+
+    cyl_outer = None
+    if full_disc_coverage:
+        # Cylinder axis aligned with the lamp axis (lamp-local +z). The
+        # `Point` pair gives 2 points on the cylinder axis. We use the
+        # equator centre and the top-disc centre.
+        cyl_outer = Cylinder(
+            Point((centre[0], centre[1], centre[2])),
+            Point((centre[0], centre[1], z_top)),
+            r_outer,
+            name=f"cyl_{end_label}_outer_morphed",
+        )
+        bmd.add_geometries([cyl_outer])
 
     # ---- Inner polar-cap corners on the inner sphere ----
     # 4 cube corners (NE, NW, SW, SE) projected to the inner sphere of
@@ -148,6 +174,25 @@ def write_morphed_cap(
             geometries=[sphere_inner],
         ))
 
+    # ---- Outer cylinder edges (full_disc_coverage only) ----
+    # Project the 4 polar-cap outer edges (between adjacent D_top
+    # corners at the cube angles) onto the outer cylinder, so each
+    # edge becomes an arc on the disc-cylinder edge circle. The 4
+    # arcs together trace the full disc-circle -- with this, the
+    # polar cap's outer face covers the WHOLE disc instead of just
+    # the inscribed square.
+    #
+    # Also project the 4 side-block top edges (same vertices, shared
+    # with the polar cap's edges) -- handled by the same edges since
+    # shared vertices share edges in blockMesh.
+    if full_disc_coverage:
+        for k in range(4):
+            j = (k + 1) % 4
+            bmd.add_edge(ProjectionEdge(
+                np.array([D_top[k], D_top[j]], dtype=object),
+                geometries=[cyl_outer],
+            ))
+
     zone = ZoneTag(zone_tag_name)
 
     # ---- Polar cap block ----
@@ -182,10 +227,13 @@ def write_morphed_cap(
         (n_polar, n_polar, n_radial),
         zone_tag=zone,
     ))
-    # Polar cap's outer face (k_min, v0..v3) -- a FLAT QUADRILATERAL
-    # inscribed in the disc circle at the cube angles. Tagged as seam.
-    # We do NOT use _add_projected_face here because the outer surface
-    # is flat (no projection geometry needed).
+    # Polar cap's outer face (k_min, v0..v3). For the basic structured
+    # mode this is a FLAT QUADRILATERAL inscribed in the disc circle.
+    # For full_disc_coverage, the face's 4 edges are arcs on the
+    # cylinder so the face covers the full disc; we still emit it as
+    # a boundary face (NOT a projected face) because the face's
+    # interior is at z = z_top regardless (the corners and arc edges
+    # all lie in the disc plane). Tagged as seam.
     bmd.add_boundary_face(
         seam_tag, _face(cap_v[0], cap_v[1], cap_v[3], cap_v[2])
     )
@@ -223,11 +271,19 @@ def write_morphed_cap(
         ))
         # Side block's outer face (k_min) -- on the cylinder strip from
         # equator (z = centre[2]) to disc edge (z = z_top), at the East
-        # / North / etc. azimuthal quadrant. Tagged as seam. Flat quad
-        # on the cylinder (no projection needed).
-        bmd.add_boundary_face(
-            seam_tag, _face(side_v[0], side_v[1], side_v[3], side_v[2])
-        )
+        # / North / etc. azimuthal quadrant. Tagged as seam. For the
+        # basic structured mode this is a flat quad inscribed in the
+        # cylinder; for full_disc_coverage the face is PROJECTED onto
+        # the outer cylinder so it follows the cylinder surface exactly.
+        if full_disc_coverage:
+            _add_projected_face(
+                bmd, side_v[0], side_v[1], side_v[3], side_v[2],
+                cyl_outer, seam_tag,
+            )
+        else:
+            bmd.add_boundary_face(
+                seam_tag, _face(side_v[0], side_v[1], side_v[3], side_v[2])
+            )
         # Side block's inner face (k_max) -- on the inner sphere,
         # projected.
         _add_projected_face(

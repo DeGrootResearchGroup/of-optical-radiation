@@ -203,6 +203,68 @@ def test_two_hemisphere_lamp_has_ten_extra_blocks(
 # ----------------------------------------------------------------------
 
 
+# ----------------------------------------------------------------------
+# Structured / structured_full cap paths route through cap_extension.py
+# ----------------------------------------------------------------------
+
+
+def test_structured_body_invokes_morphed_cap(hemisphere_lamp, tmp_path):
+    """When `body.bulk_cells == 'structured'`, the annulus emits the
+    5-block morphed cubed-sphere cap. The dict should contain a Sphere
+    geometry for the inner projection but NOT a Cylinder (the basic
+    structured path only projects onto the inner sphere; outer faces
+    are flat quads inscribed in the disc / cylinder)."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.18),
+        bulk_cell_size=0.008,
+        bulk_cells="structured",
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    hemisphere_lamp.seam_patch_name = "lamp0_seam"
+    hemisphere_lamp.endcap_a_patch_name = "lamp0_endcap_A"
+    hemisphere_lamp.tip_patch_name_b = "lamp0_tip_B"
+    from uvmesh.annulus import write_annulus_dict
+    write_annulus_dict(hemisphere_lamp, str(tmp_path), body=body)
+    text = (tmp_path / "system" / "blockMeshDict").read_text()
+    # Inner sphere projection geometry must be present (lamp tip is
+    # projected onto the inner sphere of radius sleeve_radius).
+    assert "sphere_B_inner_morphed" in text
+    assert "type    searchableSphere" in text or "type searchableSphere" in text
+    # No outer-cylinder projection geometry in the basic structured
+    # mode -- the cylinder is only added under structured_full.
+    assert "cyl_B_outer_morphed" not in text
+
+
+def test_structured_full_body_adds_outer_cylinder_geometry(hemisphere_lamp, tmp_path):
+    """When `body.bulk_cells == 'structured_full'`, the cap's outer
+    edges and side-block outer faces are projected onto a Cylinder
+    geometry so the polar cap covers the full disc. The dict must
+    therefore declare a `searchableCylinder` geometry in addition
+    to the inner sphere."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.18),
+        bulk_cell_size=0.008,
+        bulk_cells="structured_full",
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    hemisphere_lamp.seam_patch_name = "lamp0_seam"
+    hemisphere_lamp.endcap_a_patch_name = "lamp0_endcap_A"
+    hemisphere_lamp.tip_patch_name_b = "lamp0_tip_B"
+    from uvmesh.annulus import write_annulus_dict
+    write_annulus_dict(hemisphere_lamp, str(tmp_path), body=body)
+    text = (tmp_path / "system" / "blockMeshDict").read_text()
+    # Inner sphere still present.
+    assert "sphere_B_inner_morphed" in text
+    # Outer cylinder is the structured_full addition.
+    assert "cyl_B_outer_morphed" in text
+    # blockmeshbuilder emits Cylinder as searchableCylinder.
+    assert "searchableCylinder" in text
+
+
 def test_hemisphere_seam_combines_with_cylinder_seam(hemisphere_lamp, tmp_path):
     """`lamp{i}_seam` must occur exactly ONCE in the dict's boundary
     list -- the cylinder's seam BoundaryTag is shared with the

@@ -189,6 +189,55 @@ def test_seam_size_defaults_to_annulus_circumferential_spacing(
     assert seam_size == pytest.approx(expected, rel=1e-9)
 
 
+def test_structured_bulk_cuts_cylinder_no_sphere_fuse(
+    hemisphere_lamp, tmp_path,
+):
+    """For `bulk_cells='structured'`, the bulk's lamp cutout is a
+    plain cylinder extended past axis_end by `cap_extension_factor *
+    annulus_outer_radius`. The hemispherical lamp surface lives
+    INSIDE that cylinder (covered by the morphed cubed-sphere cap on
+    the annulus side), so no sphere fuse is needed on the bulk
+    side."""
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.18),
+        bulk_cell_size=0.008,
+        bulk_cells="structured",
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    write_bulk_script(body, [hemisphere_lamp], str(tmp_path))
+    cuts = _get_lamp_cuts(tmp_path)
+    # cap_extension_factor=1.5 (default) * annulus_outer_radius=0.02
+    assert cuts[0]["cap_ext_a"] == pytest.approx(0.0)
+    assert cuts[0]["cap_ext_b"] == pytest.approx(1.5 * 0.02)
+
+
+def test_structured_full_bulk_cuts_cylinder_no_sphere_fuse(
+    hemisphere_lamp, tmp_path,
+):
+    """`bulk_cells='structured_full'` mirrors 'structured' on the
+    bulk side: the lamp cutout is a plain cylinder (no sphere fuse)
+    with cap_ext = cap_extension_factor * annulus_outer_radius. The
+    annulus-side cap is what differs (full disc coverage via
+    edge projection), invisible to the bulk emitter."""
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.18),
+        bulk_cell_size=0.008,
+        bulk_cells="structured_full",
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    write_bulk_script(body, [hemisphere_lamp], str(tmp_path))
+    cuts = _get_lamp_cuts(tmp_path)
+    assert cuts[0]["cap_ext_a"] == pytest.approx(0.0)
+    assert cuts[0]["cap_ext_b"] == pytest.approx(1.5 * 0.02)
+    # BULK_CELLS must be propagated into the emitted script so the
+    # script's runtime branches (e.g. the hybrid cap-zone fragment)
+    # use the correct path.
+    src = (tmp_path / "bulk_body.py").read_text()
+    assert "BULK_CELLS = 'structured_full'" in src
+
+
 def test_seam_size_user_override(basic_lamp, tmp_path):
     body = ReactorBody(
         box_min=(-0.04, -0.04, 0),

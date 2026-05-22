@@ -9,7 +9,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="uvmesh",
-    version="0.5.0",
+    version="0.6.0",
     description="Hybrid O-grid-annulus + polyhedral-bulk mesh generator for UV reactor cases",
     packages=find_packages(include=["uvmesh", "uvmesh.*"]),
     python_requires=">=3.8",

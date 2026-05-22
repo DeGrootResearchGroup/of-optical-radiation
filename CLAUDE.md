@@ -291,7 +291,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Twenty-three regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Twenty-seven regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -659,8 +659,12 @@ body = ReactorBody(
     box_min=(-0.04, -0.04, 0.0),
     box_max=( 0.04,  0.04, 0.15),         # taller box so the hemispherical
     bulk_cell_size=0.008,                  # cap fits with margin
-    bulk_cells="hybrid",                   # recommended for hemispherical lamps;
-                                           # see the trade-off below
+    bulk_cells="hybrid",                   # default for hemispherical lamps; see
+                                           # the 4-way comparison below. Alts:
+                                           # "structured" (cheap pure-poly bulk),
+                                           # "structured_full" (research-grade
+                                           # full-disc NCC match), "tet"
+                                           # (skip polyDualMesh entirely).
 )
 build(case_dir=".", lamps=lamps, body=body)
 ```
@@ -833,6 +837,36 @@ pyramids (0.02 % of total faces) at the 4 disc-segment regions where
 the polar cap's inscribed-square outer face leaves the bulk with a
 slightly non-convex cutout. Trade-off vs hybrid: cheaper but higher
 residual bad-cell count.
+
+`tests/uvMeshSmokeHemisphereStructuredFull` exercises
+`bulk_cells="structured_full"` on the same lamp + box. Same 5-block
+cubed-sphere topology as `structured`, but the polar cap's outer
+edges are projected onto a `searchableCylinder` geometry at radius
+`annulus_outer_radius` so the polar cap's outer face covers the
+FULL disc (with curved arc edges) instead of just the inscribed
+square; side blocks' outer faces are face-projected onto the same
+cylinder so they follow the cylinder side exactly. This eliminates
+the 4 disc-segment regions that `structured` leaves for the bulk to
+mesh — the annulus side now provides true pure-hex coverage of the
+cap region. Observed at the shipped resolution: same ~13000 hex
++ ~4600 polyhedra cell count as `structured`; NCC coverage
+0.992/0.947 (vs 0.921/0.896 for `structured` — the full disc
+covers all bulk-side seam faces); max non-orth 60.24° (vs 68° for
+`structured`); same 15 residual bad face pyramids on the bulk side
+(unchanged because the bulk-side cylinder cutout is identical
+between the two structured modes). Recommended over `structured`
+whenever NCC coverage matters more than the wall-time savings of
+not running cylinder-edge projection (research-paper-grade
+comparisons, fine-resolution dose work near the lamp tip).
+
+#### 4-way comparison (smoke-test resolutions)
+
+| `bulk_cells`        | Annulus cells | Bulk cells | NCC coverage (src / tgt) | Max non-orth | Bad face pyramids | When to pick |
+|---------------------|---------------|------------|--------------------------|--------------|-------------------|--------------|
+| `"polyhedral"`      | n/a            | n/a (fails for hemispherical lamps) | n/a | n/a | ~40 (broken) | flat-flat lamps only |
+| `"hybrid"`          | ~12000 hex     | ~3000 tet + ~3300 poly | 1.00 / 1.00 | 89° | ~2 | balanced default for hemispherical lamps |
+| `"structured"`      | ~13000 hex     | ~4600 poly | 0.92 / 0.90 | 68° | 15 | cheaper than hybrid, NCC mismatch on disc segments tolerable |
+| `"structured_full"` | ~13000 hex     | ~4600 poly | 0.99 / 0.95 | 60° | 15 | research-grade NCC match; the disc-segment polyDualMesh residual on the bulk side is the only quality cost |
 
 `tools/uvMesh/tests/` contains a **pytest unit-test suite** (~80
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.
@@ -1554,7 +1588,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Twenty-three cases.
+  Twenty-seven cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1917,6 +1951,32 @@ mesh tooling:
   in the cap topology); max skew 2.46; 15 bad face pyramids
   out of 72k faces (0.021 %) at the disc-segment corners where
   the bulk's non-convex cutout meets the cap.
+- **`uvMeshSmokeHemisphereStructuredFull`** — sibling of
+  `uvMeshSmokeHemisphereStructured` with the same lamp + box
+  but `bulk_cells="structured_full"`. The polar cap's outer
+  edges are projected onto a `searchableCylinder` at radius
+  `annulus_outer_radius` so the polar cap's outer face covers
+  the FULL disc (curved arc edges) instead of just the
+  inscribed square; side blocks' outer faces are face-projected
+  onto the same cylinder. Eliminates the disc-segment gaps that
+  `structured` leaves for the bulk -- the annulus side now
+  provides true pure-hex coverage of the cap region.
+  Validates: same quality / patch checks as
+  `uvMeshSmokeHemisphereStructured`; in addition asserts the
+  bulk is dualised (no tets) and that
+  `_uvMesh/bulk_body/log.polyDualMesh` is present. Observed:
+  same ~13000 hex + ~4600 polyhedra cell count as `structured`
+  (the bulk-side cylinder cutout is identical); NCC fuse
+  ~10500 face couplings with **0.99/0.95 average coverage**
+  (vs 0.92/0.90 for `structured` -- the bulk-side disc segments
+  are no longer NCC orphans); max non-orth **60.24°** (better
+  than `structured`'s 68° -- the side-block outer faces
+  conform exactly to the cylinder); max skew 2.46; 15 residual
+  bad face pyramids unchanged (they come from the polyDualMesh
+  dualization at the disc-cylinder edge, which is the same
+  feature in both structured modes). Designed for cases where
+  mesh quality near the lamp tip is critical
+  (research-paper-grade comparisons, fine-resolution dose work).
 
 ### `tutorials/`
 
@@ -2256,22 +2316,27 @@ Remaining work queued behind real driver cases:
    rotation axis). Not exercised by any shipped case, but worth
    bench-testing before any tutorial uses a -z lamp axis.
 
-5. **9-block structured cap (full disc coverage).** v0.5 ships
-   `bulk_cells="structured"` with a 5-block morphed cubed-sphere
-   topology that leaves the 4 disc segments between the polar cap's
-   inscribed-square outer face and the disc edge as part of the
-   bulk's gmsh-meshed region. This produces ~15 bad face pyramids
-   (0.02 % of total faces) at the disc-segment corners where the
-   bulk's non-convex cutout meets the cap. A 9-block topology
-   would cover the disc segments fully with 4 additional
-   degenerate-hex "wedge" blocks (or with clean non-degenerate
-   blocks via added midpoint vertices on the chord/arc of each
-   segment); estimated ~200 LOC on top of the existing
-   `cap_extension.py`. Defer until a real driver case shows the
-   15 bad cells matter -- the 5-block path is already cheaper than
-   `"hybrid"` (~14 % fewer cells) with comparable mesh quality, and
-   the residual bad cells are at a non-critical location away from
-   the lamp's high-dose layer.
+5. **Eliminating the bulk-side polyDualMesh residual at the
+   disc-cylinder edge.** All three structured modes (`structured`,
+   `structured_full`) leave ~15 bad face pyramids in the bulk on
+   the smoke-test geometry. The cells live on the polyDualMesh-
+   dualised side at the disc-cylinder corner ring, where obtuse
+   tets meeting the right-angle disc edge dualise into non-convex
+   polyhedra. `structured_full`'s edge-projection trick fixed the
+   annulus-side coverage (and brought max non-orth from 68° down
+   to 60°), but the residual is bulk-side. Two paths if a driver
+   case shows the 15 cells matter:
+   (a) round the disc-cylinder corner with a chamfer or fillet
+       (cap_extension gains a corner-radius parameter; the bulk
+       gmsh cutout adds a chamfer geometry); or
+   (b) move the cap-bulk interface to a non-flat surface (e.g. a
+       half-sphere of larger radius) so the bulk never sees the
+       sharp disc-cylinder edge.
+   Both are non-trivial topology changes; defer until a real
+   driver case demonstrates the residual is the binding quality
+   constraint. For research-paper-grade work where the 15 cells
+   would otherwise show up, `bulk_cells="hybrid"` already produces
+   ~2 bad cells at higher cell count — a tested fallback.
 
 6. **Polyhedral bulk for hemispherical lamps.** v0.4 ships
    hemispherical-lamp cases with `bulk_cells="hybrid"`: the cells
