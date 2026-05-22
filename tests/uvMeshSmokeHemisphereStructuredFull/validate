@@ -73,10 +73,10 @@ m_bad_pyr = re.search(r"(\d+)\s+faces are incorrectly oriented", log)
 total_faces = int(m_total_faces.group(1)) if m_total_faces else 0
 n_bad = int(m_bad_pyr.group(1)) if m_bad_pyr else 0
 bad_frac = n_bad / total_faces if total_faces else 0.0
-# structured_full's outer-face projection eliminates the disc-segment
-# corners that produce the bulk's bad pyramids in `structured`. Same
-# 0.1 %-of-faces envelope as `structured` so a regression is still
-# caught; the observed count should be significantly lower (often 0).
+# After the pad fix (the cylinder cutout no longer overshoots the
+# annulus's cap top by 1 mm), the disc-cylinder corner ring no longer
+# produces a thin polyDualMesh artifact band. Observed: 0 bad face
+# pyramids on the smoke geometry.
 if bad_frac >= 0.001:
     fail(
         f"{n_bad} bad face pyramids / {total_faces} faces "

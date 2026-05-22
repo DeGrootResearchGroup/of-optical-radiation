@@ -4,23 +4,19 @@
 The structured cap (5 morphed cubed-sphere blocks per hemispherical
 end) replaces the bulk's hemispherical cutout with a cylinder + flat
 disc envelope. polyDualMesh on the bulk sees only flat/cylindrical
-surfaces; the bulk dualises with significantly fewer bad face pyramids
-than the all-polyhedral path, at lower cell count than the hybrid
-path.
+surfaces; the bulk dualises cleanly with checkMesh reporting Mesh OK.
 
-Quality is between the hybrid (cleanest) and all-polyhedral (most bad
-cells) paths. The 5-block topology leaves the 4 disc-segment regions
-between the polar cap's inscribed-square outer face and the disc edge
-in the bulk -- gmsh meshes them as part of the (slightly non-convex)
-bulk cutout. ~15 bad face pyramids at these segments in the smoke
-test (0.02 % of total faces), max skewness ~2.5. The 9-block topology
-that fully covers the disc segments is a documented future option in
-CLAUDE.md.
+The 5-block topology leaves the 4 disc-segment regions between the
+polar cap's inscribed-square outer face and the disc edge in the bulk,
+so the NCC pair has ~10 % per-face area deficit on the bulk side
+(disc segments + chord-vs-arc cylinder slivers). For full-disc
+coverage with arc-projected polar cap edges, use
+`bulk_cells="structured_full"` instead.
 
 Validates:
   - max non-orth < 90 deg
   - max skewness < 4 (OF's failure threshold)
-  - bad face pyramids < 0.1 % of total faces
+  - bad face pyramids < 0.1 % of total faces (0 observed)
   - all expected patches present with correct types
   - bulk is mixed hex (annulus) + polyhedra (dualised bulk)
 """
@@ -73,8 +69,10 @@ m_bad_pyr = re.search(r"(\d+)\s+faces are incorrectly oriented", log)
 total_faces = int(m_total_faces.group(1)) if m_total_faces else 0
 n_bad = int(m_bad_pyr.group(1)) if m_bad_pyr else 0
 bad_frac = n_bad / total_faces if total_faces else 0.0
-# Structured-cap has a higher residual than hybrid (~15 vs ~2 for the
-# smoke test); allow up to 0.1 % of total faces.
+# After the pad fix, the disc-cylinder corner no longer produces
+# polyDualMesh face-pyramid artifacts. Observed: 0 on the smoke
+# geometry. Leave the 0.1 % envelope as a generous regression guard
+# in case finer refinement reintroduces them.
 if bad_frac >= 0.001:
     fail(
         f"{n_bad} bad face pyramids / {total_faces} faces "

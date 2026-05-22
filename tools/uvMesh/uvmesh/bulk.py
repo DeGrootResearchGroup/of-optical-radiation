@@ -155,22 +155,34 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             radius = cut["radius"]
             pad = cut["pad"]
 
-            # Cylindrical body. For bulk_cells == "structured" the
-            # cylinder extends past each hemispherical end by
-            # `cut["cap_ext_a"]` / `cap_ext_b"]` so the cylinder cutout
-            # also covers the structured cap region (the cap blocks fill
-            # the space between the lamp's hemispherical wall and the
-            # bulk's cylinder + disc cutout boundary).
+            # Cylindrical body. For bulk_cells == "structured" /
+            # "structured_full" the cylinder extends past each hemispherical
+            # end by `cut["cap_ext_a"]` / `cap_ext_b"]` so the cylinder
+            # cutout also covers the structured cap region (the cap blocks
+            # fill the space between the lamp's hemispherical wall and
+            # the bulk's cylinder + disc cutout boundary).
+            #
+            # Pad: extends the cylinder slightly past the axis endpoint
+            # so the boolean is robust when the endpoint sits exactly on
+            # a box face. Only needed on FLAT ends -- on cap_ext > 0
+            # ends the cylinder's far disc must align EXACTLY with the
+            # annulus's structured cap polar block (at `axis_end + cap_ext_b`
+            # / `axis_start - cap_ext_a`) so the disc top couples conformally
+            # via NCC; pulling the disc 1 mm past that point (the previous
+            # behaviour) misclassified the disc top as a wall and gave a
+            # 1mm z-offset orphan band on the annulus's polar cap face.
             cap_ext_a = cut.get("cap_ext_a", 0.0)
             cap_ext_b = cut.get("cap_ext_b", 0.0)
+            pad_a = 0.0 if cap_ext_a > 0 else pad
+            pad_b = 0.0 if cap_ext_b > 0 else pad
             start = (
-                ax[0] - (pad + cap_ext_a) * ux,
-                ax[1] - (pad + cap_ext_a) * uy,
-                ax[2] - (pad + cap_ext_a) * uz,
+                ax[0] - (pad_a + cap_ext_a) * ux,
+                ax[1] - (pad_a + cap_ext_a) * uy,
+                ax[2] - (pad_a + cap_ext_a) * uz,
             )
             cyl_total_len = (
                 math.sqrt(dx*dx + dy*dy + dz*dz)
-                + 2 * pad + cap_ext_a + cap_ext_b
+                + pad_a + pad_b + cap_ext_a + cap_ext_b
             )
             extent = (
                 cyl_total_len * ux,
