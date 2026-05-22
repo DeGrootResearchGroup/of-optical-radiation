@@ -43,6 +43,22 @@ RUN set -eux \
 
 RUN echo ". /opt/openfoam13/etc/bashrc" >> /root/.bashrc
 
+# Mesh-tooling layer: python3-gmsh (apt; PyPI gmsh wheels are x86_64-only),
+# pip + git for installing blockmeshbuilder from upstream, and the in-tree
+# `uvmesh` helper. blockmeshbuilder ships only via git -- there is no PyPI
+# release. uvmesh is installed in non-editable mode from /code (bind-
+# mounted at runtime); the install step here would fail before the source
+# is present, so we install the *dependencies* here and `pip install
+# /code/tools/uvMesh` is left to per-case Allruns (or CI's outer wrapper).
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    python3-gmsh \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir \
+        numpy \
+        git+https://github.com/NauticalMile64/blockmeshbuilder.git
+
 WORKDIR /case
 
 ENTRYPOINT ["/bin/bash", "-c", "source /opt/openfoam13/etc/bashrc && \"$@\"", "--"]

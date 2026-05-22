@@ -235,6 +235,8 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 `pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`.
 
+mesh tooling: `uvMeshSmoke`.
+
 ### What's in `tutorials/`
 
 `uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `refractiveInterface2D`,
@@ -355,7 +357,17 @@ applications/
     modules/opticalRadiation/        DOM solver module for foamMultiRun
     utilities/setFluenceRate/        analytical radial G writer
 
-tests/                   23 regression cases + Alltest harness (CI runs this)
+tools/uvMesh/            Python helper (pip-installable as `uvmesh`):
+                         hybrid O-grid-annulus + polyhedral-bulk mesh
+                         generator for UV reactor cases. Each case
+                         declares lamps + body and calls `build()` to
+                         emit blockMesh + gmsh scripts and an
+                         Allrun.mesh that runs the full pipeline
+                         (blockMesh per lamp -> gmsh tet bulk ->
+                         polyDualMesh -> mergeMeshes ->
+                         createNonConformalCouples).
+
+tests/                   24 regression cases + Alltest harness (CI runs this)
 tutorials/               4 pedagogical cases (run on demand by users)
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)

@@ -1,0 +1,9 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+. "$(dirname "$0")/../lib/AllcleanCommon.sh"
+
+# Remove the generated meshing workspace.
+rm -rf _uvMesh
+
+# ----------------------------------------------------------------------------

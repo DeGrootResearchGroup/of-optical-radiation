@@ -76,6 +76,7 @@ opticalRadiation.
 | `libopticalRadiationModule` | `Foam::solvers::opticalRadiation` solver module for `foamMultiRun` | `$FOAM_USER_LIBBIN/libopticalRadiationModule.so` |
 | `libradiationDose` | Shared library — Lagrangian dose tracker function object + RTS-selectable seeding/dispersion models | `$FOAM_USER_LIBBIN/libradiationDose.so` |
 | `setFluenceRate` | Standalone utility — writes the analytical infinite-line-source fluence rate `G(r)` to a time directory | `$FOAM_USER_APPBIN/setFluenceRate` |
+| `uvmesh` | Python helper (pip-installable from `tools/uvMesh/`) — hybrid O-grid-annulus + polyhedral-bulk mesh generator for UV reactor cases | site-packages (`pip install /code/tools/uvMesh`) |
 
 Two ways to embed radiation in a multi-physics case:
 - For pure-radiation regions inside a multi-region case, use the
@@ -96,6 +97,10 @@ Source layout (OpenFOAM-style):
 - `applications/modules/opticalRadiation/`     — solver module.
 - `applications/utilities/setFluenceRate/`     — analytical-G writer
   utility, used by the radiationDose Sozzi tutorial.
+- `tools/uvMesh/`                              — Python mesh-tooling
+  package (`uvmesh`); blockmeshbuilder O-grid annulus + gmsh
+  polyhedral bulk + NCC fuse pipeline. Compiled libs depend on
+  nothing in `tools/`; the helper is a separate Python install.
 
 ### Class Hierarchy
 
@@ -607,6 +612,131 @@ Cross-region refractive-index BCs work either through:
 
 The `tutorials/refractiveInterface2D` case (pedagogical) and
 `tests/refractiveCoupledMatch` (regression) exercise the first path.
+
+---
+
+## uvMesh Python helper (`tools/uvMesh/`)
+
+### Purpose
+
+A pip-installable Python package (`uvmesh`) that generates hybrid
+meshes for UV reactor cases: a structured **O-grid annulus** around
+each lamp (via blockmeshbuilder's `TubeBlockStruct`) joined to a
+**polyhedral bulk** (via gmsh tet meshing + OpenFOAM's
+`polyDualMesh`) using OpenFOAM's `nonConformalCyclic` patch pair
+(AMI-weighted partition-of-unity coupling, no remesh-and-pray
+required when the two pieces have mismatched face counts).
+
+The motivation is mesh quality near the lamp wall, which is exactly
+where dose accuracy matters most (κ·r ≫ 1 attenuation layer, near-
+wall particles dominate `maxDose`). snappyHexMesh produces faceted
+boundary layers against curved walls; the O-grid annulus gives
+cells whose faces are radially aligned, with arbitrary grading
+toward the sleeve wall. Polyhedral bulk replaces snappy's
+hex-with-prismatic-transitions with isotropic ~14-faces/cell
+polyhedra throughout — the same cell topology that makes STAR-CCM+'s
+polyhedral mesher popular, available here without the licence.
+
+### Public API
+
+```python
+from uvmesh import Lamp, ReactorBody, build
+
+lamps = [
+    Lamp(
+        axis_start=(0.0, 0.0, 0.0),       # world coords (m)
+        axis_end  =(0.0, 0.0, 0.1),
+        sleeve_radius=0.01,                # lamp/sleeve OD/2
+        annulus_outer_radius=0.02,         # NCC seam radius
+        # n_radial / n_azimuth_per_quadrant / n_axial defaults are
+        # tuned for visible-UV cases; override if needed
+    ),
+]
+body = ReactorBody(
+    box_min=(-0.04, -0.04, 0.0),
+    box_max=( 0.04,  0.04, 0.1),
+    bulk_cell_size=0.008,
+)
+build(case_dir=".", lamps=lamps, body=body)
+```
+
+The call writes:
+
+- `<case>/_uvMesh/annulus_lamp{i}/`        one per lamp; blockMesh
+  case directory with a blockMeshDict for the O-grid annulus in
+  lamp-local coordinates (axis along +z, axis_start at origin).
+- `<case>/_uvMesh/bulk_body.py`            gmsh Python script that
+  builds the reactor body, subtracts a cylinder per lamp at the
+  lamp's `annulus_outer_radius`, classifies surfaces, sets up a
+  Distance + Threshold refinement field near each seam (matching
+  the annulus circumferential spacing), and writes `bulk.msh`.
+- `<case>/_uvMesh/bulk_body/`              OF case directory used as
+  scratch for `gmshToFoam` + `polyDualMesh`.
+- `<case>/_uvMesh/Allrun.mesh`             shell driver that runs
+  the full pipeline: blockMesh per lamp + transformPoints into
+  world coordinates, gmsh + gmshToFoam + polyDualMesh for the bulk
+  (with cellZone cleanup post-dual), seeds `<case>/constant/polyMesh`
+  with the bulk, then mergeMeshes each annulus and
+  createNonConformalCouples per seam pair. Final checkMesh.
+
+### Patch naming convention
+
+Per lamp `i` (0-based):
+
+| Annulus side              | Bulk side                  |
+|---------------------------|----------------------------|
+| `lamp{i}_wall` (sleeve)   | (no bulk match)            |
+| `lamp{i}_seam`            | `reactor_seam_lamp{i}`     |
+| `lamp{i}_endcap_A` (start)| (no bulk match)            |
+| `lamp{i}_endcap_B` (end)  | (no bulk match)            |
+
+`createNonConformalCouples lamp{i}_seam reactor_seam_lamp{i}` fuses
+the two seams. The annulus end caps are walls by default (suitable
+for a lamp end cap or flush termination); a "submerged" lamp tip
+with fluid wrapping the end would need a second NCC pair against a
+matching bulk face — not supported by v0.1, planned for the
+Sozzi-poly tutorial follow-up (see deferred work below).
+
+### Pipeline pitfalls already absorbed
+
+These were caught during the derisk and the helper now handles them
+silently. Recorded here so they don't get reintroduced.
+
+- **gmsh drops 3D elements without a Physical Volume.** Default
+  `Mesh.SaveAll=0` writes only elements that belong to a Physical
+  Group; surface elements are tagged by patch, volume elements need
+  a `Physical Volume("fluid")` to be tagged. Without it, gmshToFoam
+  reads zero cells. The bulk emitter always declares the Physical
+  Volume; Allrun.mesh deletes the stale cellZone after polyDualMesh
+  to keep checkMesh happy (the dual mesh has fewer cells than the
+  tet mesh the cellZone was built against).
+- **OF v13's `transformPoints` takes a single string.** Older
+  per-flag forms (`-rotate ... -translate ...`) error out. The
+  helper emits `transformPoints "rotate=((0 0 1) (u_x u_y u_z)),
+  translate=(x y z)"` — operations applied in listed order.
+- **`mergeMeshes` auto-renames colliding patches.** End-cap patches
+  must have lamp-unique names so they aren't collapsed across the
+  bulk + annulus pieces. The `lamp{i}_endcap_A/B` convention keeps
+  them distinct.
+- **PyPI's `gmsh` wheel is x86_64-only.** Apple-Silicon containers
+  (linuxArm64) need `apt install python3-gmsh` instead. The
+  Dockerfile uses the apt path; pyproject.toml lists neither gmsh
+  nor blockmeshbuilder as a hard pip dependency to keep the
+  helper installable from either route.
+
+### Coverage
+
+`tests/uvMeshSmoke` exercises the helper end-to-end on a single
+lamp inside a box body. Validates that:
+
+- All 12 expected patches (4 bulk + 4 annulus + 4 NCC) land in
+  `constant/polyMesh/boundary` with the right `type`.
+- `createNonConformalCouples` reports ≥ 100 couplings and ≥ 90%
+  average coverage on both source and target.
+- `polyDualMesh` actually wrote a dual mesh (regression guard
+  against silently falling back to the input tet mesh).
+- `checkMesh` reports `Mesh OK` (NCC-coupled meshes report
+  `Number of regions: 2+` — this is normal, not an error).
 
 ---
 
@@ -1579,6 +1709,30 @@ radiationDose:
   must enter every batch in lockstep so the Cloud constructor's
   `MPI_Alltoall` doesn't deadlock when the local seed count is 0).
 
+mesh tooling:
+
+- **`uvMeshSmoke`** — exercises the `uvmesh` helper end-to-end on
+  a 1 m x 0.1 m x 0.1 m box body with a single z-axis lamp
+  (sleeve r=0.01, annulus seam r=0.02, length 0.1). `mesh.py`
+  imports `uvmesh.Lamp` + `uvmesh.ReactorBody` + `uvmesh.build`,
+  declares one lamp + body, calls `build()`. Allrun runs the
+  emitted `_uvMesh/Allrun.mesh` which: (a) blockMesh per lamp
+  annulus + transformPoints, (b) gmsh + gmshToFoam +
+  polyDualMesh for the bulk (with cellZone cleanup),
+  (c) mergeMeshes everything into `constant/polyMesh`,
+  (d) createNonConformalCouples per seam pair, (e) checkMesh.
+  Validate asserts: `checkMesh` reports `Mesh OK`; all 12
+  expected patches (4 bulk + 4 annulus + 4 NCC machinery) are
+  present with the correct types; `createNonConformalCouples`
+  produced ≥ 100 face couplings and ≥ 90 % average coverage on
+  both source and target; `polyDualMesh` actually wrote a dual
+  mesh (guard against silent fallback to the input tet mesh).
+  Observed at the shipped resolution: ~7972 NCC couplings,
+  99.99 % average coverage on both sides, ~3800 polyhedral
+  cells in the bulk, ~8000 hex cells in the annulus.
+  Load-bearing for the helper API; future Sozzi-poly tutorial
+  will validate against paper data.
+
 ### `tutorials/`
 
 - **`uvReactorSozzi2006`** / **`uvReactorSozzi2006-DOM`** — Sozzi &
@@ -1872,6 +2026,52 @@ passes are deferred:
    the theory chapters (e.g. the Sozzi walkthrough citing the dose
    chapter's OU-update derivation). Lower priority than the API
    reference -- the per-case READMEs are already good entry points.
+
+---
+
+## Open items — uvMesh helper
+
+The v0.1 helper covers what the smoke test exercises: one or more
+lamps with arbitrary axis orientation inside a box-bounded reactor
+body. Three extensions are queued behind real driver cases:
+
+1. **STL-driven reactor body.** Today `ReactorBody` requires
+   `box_min` / `box_max`; `stl_path` raises `NotImplementedError`.
+   The bulk emitter would need to `gmsh.merge(stl_path)` and adapt
+   the surface classification (the box-walls test relies on the
+   bbox-extent shape). The Sozzi STEP file's `make_geometry.py` is
+   a working template for the boolean + classification logic.
+
+2. **Sozzi-poly tutorial.** Replace the snappy bulk in
+   `tutorials/uvReactorSozzi2006(-DOM)` with the uvmesh hybrid
+   pipeline. Two design decisions land at the same time: (a)
+   STL-driven body (above), and (b) lamp-tip handling — the Sozzi
+   lamp has a hemispherical tip embedded in fluid, so the annulus
+   downstream end cap meets a bulk-side disc face at x=0.810 m.
+   Either add a second NCC pair per lamp (annulus end cap ↔ bulk
+   disc face) and grow the helper API with a `flush` vs
+   `submerged` flag, or simplify the lamp to a full-length cylinder
+   (loses end-cap emission, matches the analytical-G version's
+   infinite-line-source assumption). Validation is against
+   the existing Sozzi log-reduction window and the paper.
+
+3. **Radial grading and per-lamp resolution overrides.**
+   `Lamp.radial_grading` is accepted but currently no-op — the
+   annulus radial cells are uniform. Wiring it through
+   blockmeshbuilder's per-block grading records would let users
+   pack cells against the sleeve wall (where κ·r >> 1 attenuation
+   layer needs finer resolution); the parameter is held for
+   forward compatibility so the Sozzi-poly tutorial doesn't have
+   to rename it later.
+
+4. **Lamp-axis edge cases.** The pipeline emits
+   `transformPoints "rotate=((0 0 1) (u_x u_y u_z))"` for every
+   lamp regardless of axis orientation. The OF v13 implementation
+   handles identity (u = +z) cleanly and arbitrary axes through
+   the shortest-angle rotation; the antipodal case `u = -z` is the
+   theoretical degeneracy (any perpendicular axis is a valid
+   rotation axis). Not exercised by any shipped case, but worth
+   bench-testing before any tutorial uses a -z lamp axis.
 
 ## CI
 
