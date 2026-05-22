@@ -803,6 +803,52 @@ polyDualMesh structure as the flat-flat case plus:
   of polyDualMesh on the capsule's curved boundary, captured in
   "Open items — uvMesh helper" below.
 
+`tools/uvMesh/tests/` contains a **pytest unit-test suite** (~80
+tests, runs in <1 s) that complements the OpenFOAM smoke cases.
+Where the smoke cases check end-to-end mesh validity, the unit tests
+isolate single behaviours of the helper modules:
+
+- `test_geometry.py` — `Lamp` / `ReactorBody` dataclass validation,
+  `Lamp.length()`, `axis_unit()`, `has_hemisphere()`, n_axial auto-
+  sizing, endcap-shape error messages.
+- `test_hemisphere.py` — cubed-sphere vertex positions (cube
+  corners projected to spheres of the right radius), `_block_array`
+  index layout, dict population (5 blocks, 16 projection edges, 2
+  Sphere geometries, 10 boundary faces split inner/outer), all faces
+  also registered as global projection faces (regression guard for
+  the face-projection fix during the v0.2 derisk), and **signed cell
+  volume of every cap block must be positive for both axis_dir
+  values** — this caught the axis_dir=-1 side-block left-handedness
+  bug during the v0.2 development.
+- `test_annulus.py` — blockMeshDict file is emitted, flat-flat
+  lamp keeps the axis-aligned `theta = k·π/2` azimuth, hemisphere
+  lamp shifts to `π/4 + k·π/2`, tip patches appear iff the
+  corresponding end is hemispherical, single combined seam patch
+  per lamp regardless of cap shape.
+- `test_bulk.py` — `bulk_body.py` is valid Python (`ast.parse`),
+  `LAMP_CUTS` has the expected keys and reflects per-lamp endcap
+  flags, capsule subtraction (`addSphere` + `fuse`) only emitted
+  when a cap is hemispherical, seam-size auto-derivation matches
+  the annulus circumferential spacing.
+- `test_pipeline.py` — `_autoname_lamps` fills tip names only for
+  hemispherical caps and endcap names only for flat caps,
+  preserves user-supplied names, `build()` workspace layout (one
+  annulus subdir per lamp, bulk emitter + scratch case, executable
+  `Allrun.mesh`), `Allrun.mesh` transformPoints rotates `(0 0 1)`
+  to the lamp axis vector and translates to `axis_start`,
+  polyDualMesh runs at featureAngle 90 with the cellZone cleanup,
+  one `createNonConformalCouples` per lamp pairing
+  `reactor_seam_lamp{i}` with `lamp{i}_seam`.
+
+The unit tests run before the OpenFOAM regression cases in CI; a
+unit-test failure fails the build immediately (cheap signal). Run
+locally with:
+
+```sh
+pip install /code/tools/uvMesh[tests]
+cd tools/uvMesh && python3 -m pytest tests/
+```
+
 ---
 
 ## radiationDose Library
@@ -2183,7 +2229,8 @@ Remaining work queued behind real driver cases:
 `.github/workflows/ci.yml` runs on every pull request. Two top-level
 jobs:
 
-**`test`** (Docker-based, the OpenFOAM build and regression suite).
+**`test`** (Docker-based, the OpenFOAM build and regression suite,
+preceded by the uvmesh pytest unit suite).
 Detects whether the PR touches the `Dockerfile` (or
 `docker-publish.yml`):
 

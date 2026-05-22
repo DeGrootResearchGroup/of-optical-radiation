@@ -120,10 +120,17 @@ jobs:
                   set -e
                   # Install the in-tree uvmesh helper. The Docker image
                   # ships its dependencies (python3-gmsh, numpy,
-                  # blockmeshbuilder) but the helper itself is bind-
-                  # mounted from the checkout, so the install must run
-                  # inside the test container.
+                  # blockmeshbuilder, pytest) but the helper itself is
+                  # bind-mounted from the checkout, so the install must
+                  # run inside the test container.
                   pip3 install --quiet /code/tools/uvMesh
+                  # Run the uvmesh Python unit tests first -- they are
+                  # pure-Python and fast (<1 s for the full suite). A
+                  # failure here means the helper itself is broken and
+                  # there is no point running the OpenFOAM regression
+                  # cases (which would either fail with the same root
+                  # cause or, worse, produce subtly wrong meshes).
+                  ( cd /code/tools/uvMesh && python3 -m pytest tests/ )
                   ./Allwmake
                   cd tests && ./Alltest
               '

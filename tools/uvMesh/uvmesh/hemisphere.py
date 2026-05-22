@@ -299,33 +299,41 @@ def write_hemisphere_cap(
     # ---- 4 side blocks ----
     #
     # Each side block sits between two adjacent equator corners (in CCW
-    # order) and the corresponding two polar-cap corners. Side block k
-    # uses cap_signs[k] (first) and cap_signs[(k+1) % 4] (second).
+    # order around the equator viewed from +axis_dir) and the
+    # corresponding two polar-cap corners. Side block k uses
+    # cap_signs[k] (first) and cap_signs[(k+1) % 4] (second).
     #
     # Local axes (right-handed, k = outer-to-inner):
-    #   i = equator-to-pole (along the meridian)
-    #   j = first-to-second (CCW around the equator)
-    #   k = outer-to-inner (radial, into the lamp)
+    #   i = equator-to-pole (along the meridian; v0 at i_min, v1 at i_max)
+    #   j = first-to-second on the equator (v0 at j_min, v3 at j_max)
+    #   k = outer-to-inner (radial; v0 at k_min, v4 at k_max)
     #
-    # Quick handedness check for the East side (k = 3, first = SE,
-    # second = NE), axis_dir = +1: representative point at +x.
-    # i is +z (equator to pole), j is +y (SE to NE), k is -x (radial
-    # outer to inner). i x j = +z * +y = -x = k  --> right-handed. ✓
-    # For axis_dir = -1, i flips to -z and k flips to +x; still
-    # right-handed (sign flips cancel in i x j and in k separately).
-    #
-    # So a single vertex-order template works for both axis_dir cases.
+    # The handedness check for East side (k=3, first=SE, second=NE)
+    # at axis_dir=+1: representative point at +x. i is roughly +z
+    # (equator to pole goes up), j is +y (SE to NE), k is roughly -x
+    # (radial inward). i x j = ẑ x ŷ = -x̂ = k̂  -> right-handed. ✓
+    # For axis_dir=-1 the i axis flips its z component (equator to pole
+    # now goes -z), while k keeps -x. (i x j) . k flips sign -- the
+    # same vertex template is LEFT-HANDED for axis_dir=-1. To recover
+    # right-handedness, we swap j orientation (j goes second-to-first
+    # for axis_dir=-1); the corresponding swap in v0..v7 is documented
+    # below. The cap block does the analogous flip; see above.
     for k in range(4):
         nxt = (k + 1) % 4
+        if axis_dir == +1:
+            j_first, j_second = k, nxt
+        else:
+            # j now traverses the equator second -> first (CW from +z view).
+            j_first, j_second = nxt, k
         side_v = [
-            equator_outer[k],     # v0 = first equator outer
-            P_outer[k],           # v1 = first pole outer
-            P_outer[nxt],         # v2 = second pole outer
-            equator_outer[nxt],   # v3 = second equator outer
-            equator_inner[k],     # v4 = first equator inner
-            P_inner[k],           # v5 = first pole inner
-            P_inner[nxt],         # v6 = second pole inner
-            equator_inner[nxt],   # v7 = second equator inner
+            equator_outer[j_first],   # v0 = j-first equator outer
+            P_outer[j_first],         # v1 = j-first pole outer
+            P_outer[j_second],        # v2 = j-second pole outer
+            equator_outer[j_second],  # v3 = j-second equator outer
+            equator_inner[j_first],   # v4 = j-first equator inner
+            P_inner[j_first],         # v5 = j-first pole inner
+            P_inner[j_second],        # v6 = j-second pole inner
+            equator_inner[j_second],  # v7 = j-second equator inner
         ]
         bmd.add_hexblock(HexBlock(
             _block_array(side_v),

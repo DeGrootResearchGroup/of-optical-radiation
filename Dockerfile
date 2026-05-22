@@ -57,6 +57,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --no-cache-dir \
         numpy \
+        pytest \
         git+https://github.com/NauticalMile64/blockmeshbuilder.git
 
 WORKDIR /case
