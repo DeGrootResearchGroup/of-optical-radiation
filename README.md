@@ -235,7 +235,8 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 `pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`.
 
-mesh tooling: `uvMeshSmoke`, `uvMeshSmokeHemisphere`.
+mesh tooling: `uvMeshSmoke`, `uvMeshSmokeHemisphere`,
+`uvMeshSmokeHemisphereStructured`.
 
 ### What's in `tutorials/`
 
@@ -367,7 +368,7 @@ tools/uvMesh/            Python helper (pip-installable as `uvmesh`):
                          polyDualMesh -> mergeMeshes ->
                          createNonConformalCouples).
 
-tests/                   25 regression cases + Alltest harness (CI runs this)
+tests/                   26 regression cases + Alltest harness (CI runs this)
 tutorials/               4 pedagogical cases (run on demand by users)
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)

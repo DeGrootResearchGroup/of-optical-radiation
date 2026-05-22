@@ -19,11 +19,13 @@ import os
 import numpy as np
 from blockmeshbuilder import BlockMeshDict, BoundaryTag, TubeBlockStruct
 
-from .geometry import Lamp
+from .cap_extension import write_morphed_cap
+from .geometry import Lamp, ReactorBody
 from .hemisphere import write_hemisphere_cap
 
 
-def write_annulus_dict(lamp: Lamp, case_dir: str) -> None:
+def write_annulus_dict(lamp: Lamp, case_dir: str,
+                       body: ReactorBody | None = None) -> None:
     """Write `<case_dir>/system/blockMeshDict` for one lamp's annulus.
 
     The cylindrical portion is a full 2*pi azimuth (4 quadrant blocks),
@@ -92,41 +94,89 @@ def write_annulus_dict(lamp: Lamp, case_dir: str) -> None:
     # hemispherical seam faces accumulate into the same patch
     # (blockmeshbuilder's name-clash check rejects two BoundaryTag
     # objects with the same name even if their type matches).
+    # For bulk_cells == "structured", the outer surface of the cap is
+    # a CYLINDER + DISC envelope (extended past axis_end by
+    # cap_extension_factor * annulus_outer_radius). Otherwise it's the
+    # standard cubed-sphere shell that hemisphere.py emits.
+    use_structured = (
+        body is not None and body.bulk_cells == "structured"
+    )
+    cap_ext_L = (
+        (body.cap_extension_factor if use_structured else 0.0)
+        * lamp.annulus_outer_radius
+    )
+
     if lamp.endcap_a_shape == "hemisphere":
         tip_a = BoundaryTag(lamp.tip_patch_name_a, type_='wall')
-        write_hemisphere_cap(
-            bmd=bmd,
-            equator_inner=[struct.baked_vertices[ 0, k, 0] for k in range(4)],
-            equator_outer=[struct.baked_vertices[-1, k, 0] for k in range(4)],
-            centre=(0.0, 0.0, 0.0),
-            r_inner=lamp.sleeve_radius,
-            r_outer=lamp.annulus_outer_radius,
-            axis_dir=-1,
-            n_radial=lamp.n_radial,
-            n_polar=lamp.n_azimuth_per_quadrant,
-            tip_tag=tip_a,
-            seam_tag=seam,
-            end_label="A",
-            zone_tag_name=f"{lamp.sleeve_patch_name}_hemi_A",
-        )
+        if use_structured:
+            write_morphed_cap(
+                bmd=bmd,
+                equator_inner=[struct.baked_vertices[ 0, k, 0] for k in range(4)],
+                equator_outer=[struct.baked_vertices[-1, k, 0] for k in range(4)],
+                centre=(0.0, 0.0, 0.0),
+                r_inner=lamp.sleeve_radius,
+                r_outer=lamp.annulus_outer_radius,
+                axis_dir=-1,
+                L_ext=cap_ext_L,
+                n_radial=lamp.n_radial,
+                n_polar=lamp.n_azimuth_per_quadrant,
+                tip_tag=tip_a,
+                seam_tag=seam,
+                end_label="A",
+                zone_tag_name=f"{lamp.sleeve_patch_name}_capext_A",
+            )
+        else:
+            write_hemisphere_cap(
+                bmd=bmd,
+                equator_inner=[struct.baked_vertices[ 0, k, 0] for k in range(4)],
+                equator_outer=[struct.baked_vertices[-1, k, 0] for k in range(4)],
+                centre=(0.0, 0.0, 0.0),
+                r_inner=lamp.sleeve_radius,
+                r_outer=lamp.annulus_outer_radius,
+                axis_dir=-1,
+                n_radial=lamp.n_radial,
+                n_polar=lamp.n_azimuth_per_quadrant,
+                tip_tag=tip_a,
+                seam_tag=seam,
+                end_label="A",
+                zone_tag_name=f"{lamp.sleeve_patch_name}_hemi_A",
+            )
 
     if lamp.endcap_b_shape == "hemisphere":
         tip_b = BoundaryTag(lamp.tip_patch_name_b, type_='wall')
-        write_hemisphere_cap(
-            bmd=bmd,
-            equator_inner=[struct.baked_vertices[ 0, k, -1] for k in range(4)],
-            equator_outer=[struct.baked_vertices[-1, k, -1] for k in range(4)],
-            centre=(0.0, 0.0, length),
-            r_inner=lamp.sleeve_radius,
-            r_outer=lamp.annulus_outer_radius,
-            axis_dir=+1,
-            n_radial=lamp.n_radial,
-            n_polar=lamp.n_azimuth_per_quadrant,
-            tip_tag=tip_b,
-            seam_tag=seam,
-            end_label="B",
-            zone_tag_name=f"{lamp.sleeve_patch_name}_hemi_B",
-        )
+        if use_structured:
+            write_morphed_cap(
+                bmd=bmd,
+                equator_inner=[struct.baked_vertices[ 0, k, -1] for k in range(4)],
+                equator_outer=[struct.baked_vertices[-1, k, -1] for k in range(4)],
+                centre=(0.0, 0.0, length),
+                r_inner=lamp.sleeve_radius,
+                r_outer=lamp.annulus_outer_radius,
+                axis_dir=+1,
+                L_ext=cap_ext_L,
+                n_radial=lamp.n_radial,
+                n_polar=lamp.n_azimuth_per_quadrant,
+                tip_tag=tip_b,
+                seam_tag=seam,
+                end_label="B",
+                zone_tag_name=f"{lamp.sleeve_patch_name}_capext_B",
+            )
+        else:
+            write_hemisphere_cap(
+                bmd=bmd,
+                equator_inner=[struct.baked_vertices[ 0, k, -1] for k in range(4)],
+                equator_outer=[struct.baked_vertices[-1, k, -1] for k in range(4)],
+                centre=(0.0, 0.0, length),
+                r_inner=lamp.sleeve_radius,
+                r_outer=lamp.annulus_outer_radius,
+                axis_dir=+1,
+                n_radial=lamp.n_radial,
+                n_polar=lamp.n_azimuth_per_quadrant,
+                tip_tag=tip_b,
+                seam_tag=seam,
+                end_label="B",
+                zone_tag_name=f"{lamp.sleeve_patch_name}_hemi_B",
+            )
 
     os.makedirs(os.path.join(case_dir, 'system'), exist_ok=True)
     os.makedirs(os.path.join(case_dir, 'constant'), exist_ok=True)

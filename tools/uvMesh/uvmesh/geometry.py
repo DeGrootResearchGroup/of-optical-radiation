@@ -24,7 +24,7 @@ def _sub(a, b):
 
 
 _VALID_ENDCAP_SHAPES = ("flat", "hemisphere")
-_VALID_BULK_CELLS = ("polyhedral", "tet", "hybrid")
+_VALID_BULK_CELLS = ("polyhedral", "tet", "hybrid", "structured")
 
 
 @dataclass
@@ -157,6 +157,17 @@ class ReactorBody:
         polyhedral cells meet. Recommended default for hemispherical
         lamps.
 
+      * `"structured"` -- the cap region is filled with a 9-block
+        structured hex mesh (5 morphed cubed-sphere blocks + 4
+        disc-segment "wedge" blocks). The bulk's lamp cutout becomes
+        a simple cylinder (no hemispherical seam visible to the bulk
+        at all), and polyDualMesh dualises the bulk cleanly. The
+        downside is a more complex topology with degenerate-hex
+        disc-segment cells whose mesh quality is not guaranteed to
+        beat the hybrid path's 2 residual bad-pyramid faces.
+        Experimental in v0.5 -- use `"hybrid"` if `"structured"`
+        runs into issues.
+
     For hybrid bulks, two extra parameters control the cap zone shape:
       * `cap_zone_radius_factor` (default 1.5) -- cap zone cylinder
         radius as a multiple of `annulus_outer_radius`. The lamp seam
@@ -182,6 +193,10 @@ class ReactorBody:
     # Hybrid-bulk cap zone (ignored unless bulk_cells == "hybrid")
     cap_zone_radius_factor: float = 1.5
     cap_zone_axial_factor:  float = 1.5
+    # Structured-cap extension (ignored unless bulk_cells == "structured").
+    # The cap region extends past axis_end by `cap_extension_factor *
+    # annulus_outer_radius` along the lamp axis.
+    cap_extension_factor: float = 1.5
 
     def __post_init__(self):
         if self.box_min is not None and self.box_max is not None:

@@ -238,3 +238,26 @@ def test_reactor_body_cap_zone_params_user_override():
     )
     assert body.cap_zone_radius_factor == pytest.approx(2.0)
     assert body.cap_zone_axial_factor == pytest.approx(2.5)
+
+
+def test_reactor_body_accepts_structured_bulk_cells():
+    """'structured' fills the cap region with morphed cubed-sphere
+    blocks so the bulk sees a simple cylinder + disc cutout. Cheaper
+    than 'hybrid' (~14 % fewer cells in the smoke test) at the cost
+    of more residual bad face pyramids."""
+    body = ReactorBody(
+        box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+        bulk_cells="structured",
+    )
+    assert body.bulk_cells == "structured"
+    # Default cap-extension factor.
+    assert body.cap_extension_factor == pytest.approx(1.5)
+
+
+def test_reactor_body_structured_cap_factor_user_override():
+    body = ReactorBody(
+        box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+        bulk_cells="structured",
+        cap_extension_factor=2.0,
+    )
+    assert body.cap_extension_factor == pytest.approx(2.0)

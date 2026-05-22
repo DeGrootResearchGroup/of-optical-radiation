@@ -70,6 +70,19 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
     pad = 1e-3
     lamp_cuts = []
     for i, lamp in enumerate(lamps):
+        # For bulk_cells == "structured", the cap region (between the
+        # hemispherical lamp tip and the cylinder + disc envelope at
+        # z = axis_end + cap_extension_factor * annulus_outer_radius)
+        # is filled by the morphed cubed-sphere blocks. The bulk's
+        # lamp cutout becomes a CYLINDER (no sphere fuse) extended past
+        # axis_end by the same factor. The hemispherical lamp surface
+        # is INSIDE this cylinder cutout (covered by the structured
+        # cap), so the bulk doesn't see it. Same on the A side if
+        # endcap_a is hemispherical.
+        if body.bulk_cells == "structured":
+            cap_ext = body.cap_extension_factor * lamp.annulus_outer_radius
+        else:
+            cap_ext = 0.0
         lamp_cuts.append({
             "i":            i,
             "axis_start":   tuple(lamp.axis_start),
@@ -79,6 +92,8 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             "seam_name":    f"reactor_seam_lamp{i}",
             "endcap_a_hemi": lamp.endcap_a_shape == "hemisphere",
             "endcap_b_hemi": lamp.endcap_b_shape == "hemisphere",
+            "cap_ext_a":    cap_ext if lamp.endcap_a_shape == "hemisphere" else 0.0,
+            "cap_ext_b":    cap_ext if lamp.endcap_b_shape == "hemisphere" else 0.0,
         })
 
     script = dedent(f"""\
@@ -136,12 +151,27 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             radius = cut["radius"]
             pad = cut["pad"]
 
-            # Cylindrical body (always present)
-            start = (ax[0] - pad * ux, ax[1] - pad * uy, ax[2] - pad * uz)
+            # Cylindrical body. For bulk_cells == "structured" the
+            # cylinder extends past each hemispherical end by
+            # `cut["cap_ext_a"]` / `cap_ext_b"]` so the cylinder cutout
+            # also covers the structured cap region (the cap blocks fill
+            # the space between the lamp's hemispherical wall and the
+            # bulk's cylinder + disc cutout boundary).
+            cap_ext_a = cut.get("cap_ext_a", 0.0)
+            cap_ext_b = cut.get("cap_ext_b", 0.0)
+            start = (
+                ax[0] - (pad + cap_ext_a) * ux,
+                ax[1] - (pad + cap_ext_a) * uy,
+                ax[2] - (pad + cap_ext_a) * uz,
+            )
+            cyl_total_len = (
+                math.sqrt(dx*dx + dy*dy + dz*dz)
+                + 2 * pad + cap_ext_a + cap_ext_b
+            )
             extent = (
-                dx + 2 * pad * ux,
-                dy + 2 * pad * uy,
-                dz + 2 * pad * uz,
+                cyl_total_len * ux,
+                cyl_total_len * uy,
+                cyl_total_len * uz,
             )
             cyl_tag = gmsh.model.occ.addCylinder(
                 start[0], start[1], start[2],
@@ -153,11 +183,14 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             # Fuse a full sphere at each hemispherical end. The half of the
             # sphere inside the cylinder is absorbed; the half outside is the
             # hemispherical cap.
-            for is_hemi, centre in (
-                (cut["endcap_a_hemi"], ax),
-                (cut["endcap_b_hemi"], ay),
+            # SKIP this fusion for bulk_cells == "structured" -- the
+            # cylinder cutout already extends past the hemisphere; the
+            # structured cap fills the lamp-tip-to-disc volume.
+            for is_hemi, centre, ext in (
+                (cut["endcap_a_hemi"], ax, cap_ext_a),
+                (cut["endcap_b_hemi"], ay, cap_ext_b),
             ):
-                if not is_hemi:
+                if not is_hemi or ext > 0:
                     continue
                 sph_tag = gmsh.model.occ.addSphere(
                     centre[0], centre[1], centre[2], radius,
@@ -179,11 +212,18 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             )
             body_dimtag = cut_result[0]
 
-            # Axis-parameter range for seam classification: extends past
-            # axis_start by `radius` if endcap_a is hemispherical, past
-            # axis_end by `radius` if endcap_b is hemispherical.
-            s_lo = -radius if cut["endcap_a_hemi"] else 0.0
-            s_hi = length + radius if cut["endcap_b_hemi"] else length
+            # Axis-parameter range for seam classification. For
+            # hemispherical caps WITHOUT structured-cap extension the
+            # seam extends by `radius` (sphere fused at the end). For
+            # structured-cap mode (cap_ext > 0) the cylinder extends
+            # past the end by cap_ext (no sphere fuse). Flat caps don't
+            # extend the seam range.
+            s_lo = -cap_ext_a if cap_ext_a > 0 else (
+                -radius if cut["endcap_a_hemi"] else 0.0
+            )
+            s_hi = length + cap_ext_b if cap_ext_b > 0 else (
+                length + radius if cut["endcap_b_hemi"] else length
+            )
             lamp_axes.append((
                 ax, ay, length, (ux, uy, uz), radius,
                 cut["seam_name"], s_lo, s_hi,

@@ -789,9 +789,12 @@ on a single lamp inside a box body. Validates that:
 - `checkMesh` reports `Mesh OK` (NCC-coupled meshes report
   `Number of regions: 2+` — this is normal, not an error).
 
+There are TWO hemispherical-lamp smoke tests, one per recommended bulk
+strategy:
+
 `tests/uvMeshSmokeHemisphere` exercises the **flat-A + hemisphere-B**
-path on the same box body. Validates the same patch / NCC structure
-as the flat-flat case plus:
+path with `bulk_cells="hybrid"` (cap-zone tets + dualised bulk).
+Validates the same patch / NCC structure as the flat-flat case plus:
 
 - `lamp0_tip_B` patch exists (hemispherical lamp tip, ~500 faces =
   5 cubed-sphere blocks × 10² cells).
@@ -814,6 +817,22 @@ as the flat-flat case plus:
   explicitly asserts both element types are present and that
   `_uvMesh/hybrid_bulk/log.polyDualMesh` + `log.stitchMesh` are
   written (regression guards for the hybrid pipeline).
+
+`tests/uvMeshSmokeHemisphereStructured` exercises the same lamp +
+box but with `bulk_cells="structured"`. The cap region is replaced
+with a 5-block morphed cubed-sphere shell (`cap_extension.py`) whose
+outer surface maps onto a cylinder + flat disc envelope; the bulk's
+lamp cutout becomes a simple cylinder + disc with no curved capsule
+seam. polyDualMesh sees only flat/cylindrical surfaces on the bulk
+side and dualises cleanly. Observed at the shipped resolution:
+~13000 hex (annulus) + ~4600 polyhedra (bulk) = ~17600 total cells
+(14 % fewer than the hybrid path); max non-orth 68° (lower than
+hybrid's 89° — the structured cap's mapping doesn't have a polar
+singularity at the disc-cylinder edge); max skew 2.46; 15 bad face
+pyramids (0.02 % of total faces) at the 4 disc-segment regions where
+the polar cap's inscribed-square outer face leaves the bulk with a
+slightly non-convex cutout. Trade-off vs hybrid: cheaper but higher
+residual bad-cell count.
 
 `tools/uvMesh/tests/` contains a **pytest unit-test suite** (~80
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.
@@ -1879,6 +1898,25 @@ mesh tooling:
   Load-bearing for the hemisphere code path; will be the
   reference geometry for any future Sozzi-poly tutorial that
   models a submerged lamp tip.
+- **`uvMeshSmokeHemisphereStructured`** — sibling of
+  `uvMeshSmokeHemisphere` with the same lamp + slightly taller
+  box (z = 0.18) but `bulk_cells="structured"`. Exercises the
+  5-block morphed cubed-sphere cap (`cap_extension.py`) instead
+  of the hybrid subsetMesh path. Box height accommodates the cap
+  region's axial extent (z = 0.10 + `cap_extension_factor` ×
+  `annulus_outer_radius` = 0.13, plus headroom). Validates:
+  per-metric mesh quality (max non-orth < 90°, max skew < 4,
+  < 0.1 % bad face pyramids); same 12-patch set as
+  uvMeshSmokeHemisphere; structured bulk is all-polyhedral
+  (no tets — polyDualMesh ran on the entire bulk subset since
+  the cap region is in the annulus mesh, not the bulk); NCC fuse
+  produced ~9000 face couplings. Observed at the shipped
+  resolution: ~13000 hex (annulus), ~4600 polyhedra (bulk),
+  ~17600 total cells (14 % fewer than the hybrid path); max
+  non-orth 68° (better than hybrid's 89° — no polar singularity
+  in the cap topology); max skew 2.46; 15 bad face pyramids
+  out of 72k faces (0.021 %) at the disc-segment corners where
+  the bulk's non-convex cutout meets the cap.
 
 ### `tutorials/`
 
@@ -2218,7 +2256,24 @@ Remaining work queued behind real driver cases:
    rotation axis). Not exercised by any shipped case, but worth
    bench-testing before any tutorial uses a -z lamp axis.
 
-5. **Polyhedral bulk for hemispherical lamps.** v0.4 ships
+5. **9-block structured cap (full disc coverage).** v0.5 ships
+   `bulk_cells="structured"` with a 5-block morphed cubed-sphere
+   topology that leaves the 4 disc segments between the polar cap's
+   inscribed-square outer face and the disc edge as part of the
+   bulk's gmsh-meshed region. This produces ~15 bad face pyramids
+   (0.02 % of total faces) at the disc-segment corners where the
+   bulk's non-convex cutout meets the cap. A 9-block topology
+   would cover the disc segments fully with 4 additional
+   degenerate-hex "wedge" blocks (or with clean non-degenerate
+   blocks via added midpoint vertices on the chord/arc of each
+   segment); estimated ~200 LOC on top of the existing
+   `cap_extension.py`. Defer until a real driver case shows the
+   15 bad cells matter -- the 5-block path is already cheaper than
+   `"hybrid"` (~14 % fewer cells) with comparable mesh quality, and
+   the residual bad cells are at a non-critical location away from
+   the lamp's high-dose layer.
+
+6. **Polyhedral bulk for hemispherical lamps.** v0.4 ships
    hemispherical-lamp cases with `bulk_cells="hybrid"`: the cells
    inside a cylindrical cap zone around each hemispherical cap stay
    as tets while the rest of the bulk is dualised. polyDualMesh

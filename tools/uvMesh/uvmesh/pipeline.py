@@ -121,6 +121,11 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
     elif body.bulk_cells == "tet":
         lines.append("# Bulk: gmsh tet (kept as tets, polyDualMesh skipped --")
         lines.append("# see ReactorBody.bulk_cells docstring for the trade-off).")
+    elif body.bulk_cells == "structured":
+        lines.append("# Bulk: gmsh tet -> polyDualMesh. The lamp cutout is a")
+        lines.append("# simple cylinder + flat disc (the structured cap fills")
+        lines.append("# the lamp-tip-to-disc region in the annulus mesh), so")
+        lines.append("# polyDualMesh sees no curved capsule surface.")
     else:   # hybrid
         lines.append("# Bulk: hybrid. gmsh emits a tet mesh with two cellZones")
         lines.append("# (cap_zone near each hemispherical cap, bulk_zone elsewhere);")
@@ -136,7 +141,7 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
     lines.append("(")
     lines.append("    cd _uvMesh/bulk_body")
     lines.append("    runApplication gmshToFoam ../bulk.msh")
-    if body.bulk_cells == "polyhedral":
+    if body.bulk_cells in ("polyhedral", "structured"):
         lines.append("    runApplication polyDualMesh 90")
         # polyDualMesh leaves the cellZone built by gmshToFoam pointing at pre-
         # dual cell indices. Single-region bulks don't need it -- drop the file.
@@ -244,7 +249,7 @@ def build(case_dir: str, lamps: List[Lamp], body: ReactorBody) -> None:
         # Pre-clean so a re-run produces a deterministic blockMeshDict tree.
         if os.path.exists(os.path.join(annulus_dir, "system", "blockMeshDict")):
             os.remove(os.path.join(annulus_dir, "system", "blockMeshDict"))
-        write_annulus_dict(lamp, annulus_dir)
+        write_annulus_dict(lamp, annulus_dir, body=body)
         _write_stub_controldict(annulus_dir)
 
     # Bulk: emitter script + scratch OF case for gmshToFoam.
