@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Validate the uvMesh hemispherical-cap smoke test mesh.
+
+Pipeline regression for the cubed-sphere annular hemisphere path.
+Checks the same things the flat-flat smoke does (patches, NCC, dual
+mesh), plus hemisphere-specific patch names and a relaxed mesh-quality
+threshold.
+
+A small fraction (~0.3 %) of bulk-side polyhedral cells get bad face
+pyramids near the curved capsule seam -- a known polyDualMesh artifact
+on cylinder-sphere fused surfaces, see CLAUDE.md "Open items -- uvMesh
+helper". The validate therefore requires:
+  - reasonable cell volumes (no negative-volume cells -- min volume > 0)
+  - max non-orthogonality < 90 deg (the OpenFOAM "severely
+    non-orthogonal" threshold)
+  - max skewness < 12 (loose; the smoke test sees ~8.7)
+  - < 1 % of total faces flagged as incorrectly oriented pyramids
+Rather than asserting "Mesh OK".
+"""
+from __future__ import annotations
+
+import os
+import re
+import sys
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def read(path):
+    with open(path, "r") as fh:
+        return fh.read()
+
+
+def fail(msg):
+    print(f"VALIDATE FAIL: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def passed(msg):
+    print(f"  ok  {msg}")
+
+
+# 1. Mesh quality. checkMesh may fail on a small fraction of the
+#    polyDualMesh cells near the curved capsule seam; we allow that
+#    explicitly via per-metric thresholds, but disallow negative-volume
+#    cells (which would indicate a real topology bug, not a polyDualMesh
+#    quirk).
+log = read(os.path.join(HERE, "log.checkMesh"))
+
+m_min_vol = re.search(r"Min volume\s*=\s*([\d.eE+-]+)\.", log)
+if m_min_vol is None or float(m_min_vol.group(1)) <= 0:
+    fail("checkMesh: zero or negative cell volume present")
+passed(f"min cell volume {float(m_min_vol.group(1)):.3e} > 0")
+
+m_non_orth = re.search(r"Mesh non-orthogonality Max:\s*([\d.eE+-]+)", log)
+if m_non_orth is None:
+    fail("checkMesh log missing Max non-orthogonality")
+non_orth = float(m_non_orth.group(1))
+if non_orth >= 90.0:
+    fail(f"checkMesh max non-orthogonality {non_orth:.2f} >= 90 deg")
+passed(f"max non-orthogonality {non_orth:.2f} deg")
+
+m_skew = re.search(r"Max skewness\s*=\s*([\d.eE+-]+)", log)
+if m_skew is None:
+    fail("checkMesh log missing Max skewness")
+skew = float(m_skew.group(1))
+if skew >= 12.0:
+    fail(f"checkMesh max skewness {skew:.2f} >= 12.0")
+passed(f"max skewness {skew:.2f}")
+
+m_n_faces = re.search(r"faces:\s+(\d+)", log)
+if m_n_faces is None:
+    fail("checkMesh log missing total face count")
+total_faces = int(m_n_faces.group(1))
+
+m_bad = re.search(r"(\d+)\s+faces are incorrectly oriented", log)
+n_bad_pyramids = int(m_bad.group(1)) if m_bad else 0
+bad_frac = n_bad_pyramids / total_faces if total_faces else 0.0
+if bad_frac >= 0.01:
+    fail(
+        f"{n_bad_pyramids} bad face pyramids out of {total_faces} faces "
+        f"({100*bad_frac:.2f} %) >= 1 %"
+    )
+passed(f"bad face pyramids {n_bad_pyramids} / {total_faces} ({100*bad_frac:.3f} %)")
+
+# 2. Expected patches present.
+boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
+
+# Note vs the flat-flat smoke: `lamp0_endcap_B` is replaced by
+# `lamp0_tip_B`, the rest are the same set.
+expected_patches = {
+    # bulk patches
+    "bulkWall":           "patch",
+    "endcap_lo":          "patch",
+    "endcap_hi":          "patch",
+    "reactor_seam_lamp0": "patch",
+    # annulus patches (cylindrical + hemispherical)
+    "lamp0_wall":         "wall",
+    "lamp0_seam":         "patch",
+    "lamp0_endcap_A":     "wall",
+    "lamp0_tip_B":        "wall",
+    # NCC pair
+    "nonConformalCyclic_on_reactor_seam_lamp0": "nonConformalCyclic",
+    "nonConformalCyclic_on_lamp0_seam":         "nonConformalCyclic",
+    "nonConformalError_on_reactor_seam_lamp0":  "nonConformalError",
+    "nonConformalError_on_lamp0_seam":          "nonConformalError",
+}
+
+for patch_name, expected_type in expected_patches.items():
+    pat = re.compile(
+        rf"^\s*{re.escape(patch_name)}\s*\{{[^}}]*?\btype\s+(\S+?);",
+        re.MULTILINE | re.DOTALL,
+    )
+    m = pat.search(boundary)
+    if m is None:
+        fail(f"patch '{patch_name}' not found in constant/polyMesh/boundary")
+    if m.group(1) != expected_type:
+        fail(
+            f"patch '{patch_name}': expected type '{expected_type}', "
+            f"got '{m.group(1)}'"
+        )
+    passed(f"patch {patch_name} present with type {expected_type}")
+
+# 2a. Hemispherical-cap patch face count sanity. lamp0_tip_B should
+# have approximately n_polar^2 cells per block * 5 blocks =
+# n_azimuth_per_quadrant^2 * 5 = 10^2 * 5 = 500 faces.
+m_tip = re.search(
+    r"^\s*lamp0_tip_B\s*\{[^}]*?nFaces\s+(\d+);", boundary,
+    re.MULTILINE | re.DOTALL,
+)
+if m_tip is None:
+    fail("could not parse face count for lamp0_tip_B")
+n_tip = int(m_tip.group(1))
+if n_tip < 100 or n_tip > 5000:
+    fail(f"lamp0_tip_B has {n_tip} faces; expected ~500 (cubed-sphere 5x10x10)")
+passed(f"lamp0_tip_B has {n_tip} faces (cubed-sphere 5x10x10 ~= 500)")
+
+# 2b. Combined seam includes both cylindrical and hemispherical parts.
+# The flat-flat smoke had 800-face lamp0_seam (cylinder only); the
+# hemisphere case has +500 from the cap, so ~1300 total.
+m_seam = re.search(
+    r"^\s*lamp0_seam\s*\{[^}]*?nFaces\s+(\d+);", boundary,
+    re.MULTILINE | re.DOTALL,
+)
+if m_seam is None:
+    fail("could not parse face count for lamp0_seam")
+n_seam = int(m_seam.group(1))
+if n_seam < 1000:
+    fail(
+        f"lamp0_seam has only {n_seam} faces; expected > 1000 "
+        f"(cylinder + hemisphere). Hemisphere may not have been merged."
+    )
+passed(f"lamp0_seam has {n_seam} faces (cylinder + hemisphere combined)")
+
+# 3. NCC fuse worked.
+ncc_log = read(os.path.join(HERE, "log.createNonConformalCouples"))
+m = re.search(r"(\d+)\s+couplings calculated", ncc_log)
+if m is None:
+    fail("createNonConformalCouples log does not report couplings count")
+n_couplings = int(m.group(1))
+if n_couplings < 100:
+    fail(f"createNonConformalCouples produced only {n_couplings} couplings (<100)")
+passed(f"createNonConformalCouples produced {n_couplings} face couplings")
+
+for label in ("Source", "Target"):
+    m = re.search(
+        rf"{label} min/average/max coverage = [\d.eE+-]+/([\d.eE+-]+)/[\d.eE+-]+",
+        ncc_log,
+    )
+    if m is None:
+        fail(f"createNonConformalCouples log missing {label} coverage line")
+    avg_cov = float(m.group(1))
+    if avg_cov < 0.9:
+        fail(f"createNonConformalCouples {label} avg coverage {avg_cov:.3f} < 0.9")
+    passed(f"createNonConformalCouples {label} avg coverage {avg_cov:.4f}")
+
+# 4. polyDualMesh really ran.
+bulk_log = read(
+    os.path.join(HERE, "_uvMesh", "bulk_body", "log.polyDualMesh")
+)
+if "Writing dual mesh" not in bulk_log:
+    fail("polyDualMesh log does not confirm 'Writing dual mesh'")
+passed("polyDualMesh wrote dual mesh (polyhedra)")
+
+print()
+print("uvMeshSmokeHemisphere: all checks passed.")

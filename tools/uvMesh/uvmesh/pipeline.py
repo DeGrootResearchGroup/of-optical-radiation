@@ -51,10 +51,19 @@ def _autoname_lamps(lamps: List[Lamp]) -> None:
             lamp.sleeve_patch_name = f"lamp{i}_wall"
         if not lamp.seam_patch_name:
             lamp.seam_patch_name = f"lamp{i}_seam"
-        if not lamp.endcap_a_patch_name:
+        # Flat end caps emit the *_endcap_{A,B} patch (wall); hemispherical
+        # end caps emit *_tip_{A,B} instead (the curved lamp tip surface).
+        # We auto-fill the relevant name based on the shape so the user
+        # gets a sensible patch name in either case without having to set
+        # all four explicitly.
+        if lamp.endcap_a_shape == "flat" and not lamp.endcap_a_patch_name:
             lamp.endcap_a_patch_name = f"lamp{i}_endcap_A"
-        if not lamp.endcap_b_patch_name:
+        if lamp.endcap_b_shape == "flat" and not lamp.endcap_b_patch_name:
             lamp.endcap_b_patch_name = f"lamp{i}_endcap_B"
+        if lamp.endcap_a_shape == "hemisphere" and not lamp.tip_patch_name_a:
+            lamp.tip_patch_name_a = f"lamp{i}_tip_A"
+        if lamp.endcap_b_shape == "hemisphere" and not lamp.tip_patch_name_b:
+            lamp.tip_patch_name_b = f"lamp{i}_tip_B"
 
 
 def _fmt_vec(v) -> str:

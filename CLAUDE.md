@@ -650,12 +650,15 @@ lamps = [
         annulus_outer_radius=0.02,         # NCC seam radius
         # n_radial / n_azimuth_per_quadrant / n_axial defaults are
         # tuned for visible-UV cases; override if needed
+        endcap_a_shape="flat",             # default; or "hemisphere"
+        endcap_b_shape="hemisphere",       # cubed-sphere annular cap at
+                                           # axis_end (see below)
     ),
 ]
 body = ReactorBody(
     box_min=(-0.04, -0.04, 0.0),
-    box_max=( 0.04,  0.04, 0.1),
-    bulk_cell_size=0.008,
+    box_max=( 0.04,  0.04, 0.15),         # taller box so the hemispherical
+    bulk_cell_size=0.008,                  # cap fits with margin
 )
 build(case_dir=".", lamps=lamps, body=body)
 ```
@@ -683,19 +686,65 @@ The call writes:
 
 Per lamp `i` (0-based):
 
-| Annulus side              | Bulk side                  |
-|---------------------------|----------------------------|
-| `lamp{i}_wall` (sleeve)   | (no bulk match)            |
-| `lamp{i}_seam`            | `reactor_seam_lamp{i}`     |
-| `lamp{i}_endcap_A` (start)| (no bulk match)            |
-| `lamp{i}_endcap_B` (end)  | (no bulk match)            |
+| Annulus side              | Bulk side                  | Notes |
+|---------------------------|----------------------------|-------|
+| `lamp{i}_wall` (cylindrical sleeve only) | (no bulk match) | Always present. |
+| `lamp{i}_seam`            | `reactor_seam_lamp{i}`     | Cylindrical + hemispherical seam combined when an end cap is hemispherical. Single NCC pair per lamp regardless of cap shape. |
+| `lamp{i}_endcap_A` (start)| (no bulk match)            | Present only when `endcap_a_shape == "flat"` (default). |
+| `lamp{i}_endcap_B` (end)  | (no bulk match)            | Present only when `endcap_b_shape == "flat"` (default). |
+| `lamp{i}_tip_A`           | (no bulk match)            | Present only when `endcap_a_shape == "hemisphere"`. The hemispherical lamp tip at the `axis_start` side; split from `lamp{i}_wall` so distinct BCs can apply. |
+| `lamp{i}_tip_B`           | (no bulk match)            | Same on the B side (`axis_end`). |
 
 `createNonConformalCouples lamp{i}_seam reactor_seam_lamp{i}` fuses
-the two seams. The annulus end caps are walls by default (suitable
-for a lamp end cap or flush termination); a "submerged" lamp tip
-with fluid wrapping the end would need a second NCC pair against a
-matching bulk face — not supported by v0.1, planned for the
-Sozzi-poly tutorial follow-up (see deferred work below).
+the two seams (single fuse covers cylindrical and hemispherical parts).
+The annulus end caps are walls when flat; hemispherical caps replace
+the flat disc with a 5-block cubed-sphere annular shell whose inner
+sphere is `lamp{i}_tip_{A,B}` and whose outer sphere accumulates into
+`lamp{i}_seam`. The bulk-side capsule cutout (cylinder ∪ sphere) is
+produced via `gmsh.model.occ.fuse` and the seam classifier extends
+its axis-parameter range by `annulus_outer_radius` on each
+hemispherical end.
+
+### Hemispherical end cap
+
+Setting `endcap_a_shape="hemisphere"` or `endcap_b_shape="hemisphere"`
+replaces the flat annular-disc end cap with a **5-block cubed-sphere
+annular shell** wrapping a hemispherical lamp tip. The hemispherical
+cap sits centred on `axis_start` (A end) or `axis_end` (B end) with
+radii `sleeve_radius` (lamp tip) and `annulus_outer_radius` (seam),
+extending `annulus_outer_radius` past the cylindrical lamp body
+along the lamp axis.
+
+Topology choice: **cubed-sphere / butterfly**. The polar cap is one
+hex block (`n_azimuth_per_quadrant × n_azimuth_per_quadrant × n_radial`
+cells) and the four side blocks fan out to the equator. Hex quality
+is uniform — no polar singularity. The alternative 4-block sweep
+would have a degenerate edge at the pole right where the high-G
+attenuation layer matters most.
+
+Conformal join: the cubed-sphere's 4 equator corners sit at
+`theta = π/4 + k·π/2`. When any cap is hemispherical, the cylinder's
+`TubeBlockStruct` quadrant anchors shift by 45° (to the same angles)
+so the cylinder end ring shares its 8 vertices with the hemisphere's
+equator corners. The smoke test (flat-flat path) keeps the original
+`theta = k·π/2` anchors and is bit-for-bit unchanged.
+
+Face projection: each of the 10 sphere-bound boundary faces (5 inner
++ 5 outer per hemisphere) is added to both `bmd.faces` (for
+blockMesh's `project face ... sphereName` directive) and the relevant
+boundary patch. Without face projection, blockMesh interpolates the
+face interior linearly between projected corners — a flat polygon
+inside the sphere; with face projection blockMesh samples the sphere
+at every cell-face vertex. Two `Sphere` geometries register per
+hemisphere (inner / outer).
+
+Right-handedness: the hex blocks use **k = outer-to-inner radial**.
+At the pole the radial direction is the axis, and choosing
+inner-to-outer for k yields left-handed blocks (negative cell
+volumes) for one of the two `axis_dir` cases. With k =
+outer-to-inner the cap block's vertex layout flips between
+`axis_dir = +1` (i = east-to-west) and `axis_dir = -1` (i =
+west-to-east); the side blocks use the same template for both.
 
 ### Pipeline pitfalls already absorbed
 
@@ -726,8 +775,8 @@ silently. Recorded here so they don't get reintroduced.
 
 ### Coverage
 
-`tests/uvMeshSmoke` exercises the helper end-to-end on a single
-lamp inside a box body. Validates that:
+`tests/uvMeshSmoke` exercises the **flat-flat** helper path end-to-end
+on a single lamp inside a box body. Validates that:
 
 - All 12 expected patches (4 bulk + 4 annulus + 4 NCC) land in
   `constant/polyMesh/boundary` with the right `type`.
@@ -737,6 +786,22 @@ lamp inside a box body. Validates that:
   against silently falling back to the input tet mesh).
 - `checkMesh` reports `Mesh OK` (NCC-coupled meshes report
   `Number of regions: 2+` — this is normal, not an error).
+
+`tests/uvMeshSmokeHemisphere` exercises the **flat-A + hemisphere-B**
+path on the same box body. Validates the same patch / NCC /
+polyDualMesh structure as the flat-flat case plus:
+
+- `lamp0_tip_B` patch exists (hemispherical lamp tip, ~500 faces =
+  5 cubed-sphere blocks × 10² cells).
+- `lamp0_seam` face count > 1000 (cylinder seam 800 + hemisphere
+  seam 500 combined into one patch).
+- Per-metric mesh quality thresholds rather than asserting
+  `Mesh OK`: max non-orthogonality < 90°, max skewness < 12, less
+  than 1% of faces flagged as incorrectly oriented pyramids.
+  polyDualMesh produces ~40 bad face pyramids (0.06% of total) at
+  the cylinder-sphere junction on the bulk side — a known artifact
+  of polyDualMesh on the capsule's curved boundary, captured in
+  "Open items — uvMesh helper" below.
 
 ---
 
@@ -1711,27 +1776,47 @@ radiationDose:
 
 mesh tooling:
 
-- **`uvMeshSmoke`** — exercises the `uvmesh` helper end-to-end on
-  a 1 m x 0.1 m x 0.1 m box body with a single z-axis lamp
-  (sleeve r=0.01, annulus seam r=0.02, length 0.1). `mesh.py`
-  imports `uvmesh.Lamp` + `uvmesh.ReactorBody` + `uvmesh.build`,
-  declares one lamp + body, calls `build()`. Allrun runs the
-  emitted `_uvMesh/Allrun.mesh` which: (a) blockMesh per lamp
-  annulus + transformPoints, (b) gmsh + gmshToFoam +
-  polyDualMesh for the bulk (with cellZone cleanup),
-  (c) mergeMeshes everything into `constant/polyMesh`,
-  (d) createNonConformalCouples per seam pair, (e) checkMesh.
-  Validate asserts: `checkMesh` reports `Mesh OK`; all 12
-  expected patches (4 bulk + 4 annulus + 4 NCC machinery) are
-  present with the correct types; `createNonConformalCouples`
-  produced ≥ 100 face couplings and ≥ 90 % average coverage on
-  both source and target; `polyDualMesh` actually wrote a dual
-  mesh (guard against silent fallback to the input tet mesh).
-  Observed at the shipped resolution: ~7972 NCC couplings,
-  99.99 % average coverage on both sides, ~3800 polyhedral
-  cells in the bulk, ~8000 hex cells in the annulus.
-  Load-bearing for the helper API; future Sozzi-poly tutorial
-  will validate against paper data.
+- **`uvMeshSmoke`** — exercises the `uvmesh` helper's flat-flat
+  end-cap path end-to-end on a 0.08 m x 0.08 m x 0.1 m box body
+  with a single z-axis lamp (sleeve r=0.01, annulus seam r=0.02,
+  length 0.1). `mesh.py` imports `uvmesh.Lamp` +
+  `uvmesh.ReactorBody` + `uvmesh.build`, declares one lamp +
+  body, calls `build()`. Allrun runs the emitted
+  `_uvMesh/Allrun.mesh` which: (a) blockMesh per lamp annulus +
+  transformPoints, (b) gmsh + gmshToFoam + polyDualMesh for the
+  bulk (with cellZone cleanup), (c) mergeMeshes everything into
+  `constant/polyMesh`, (d) createNonConformalCouples per seam
+  pair, (e) checkMesh. Validate asserts: `checkMesh` reports
+  `Mesh OK`; all 12 expected patches (4 bulk + 4 annulus + 4 NCC
+  machinery) are present with the correct types;
+  `createNonConformalCouples` produced ≥ 100 face couplings and
+  ≥ 90 % average coverage on both source and target;
+  `polyDualMesh` actually wrote a dual mesh (guard against silent
+  fallback to the input tet mesh). Observed at the shipped
+  resolution: ~7972 NCC couplings, 99.99 % average coverage on
+  both sides, ~3800 polyhedral cells in the bulk, ~8000 hex
+  cells in the annulus. Load-bearing for the helper API;
+  future Sozzi-poly tutorial will validate against paper data.
+- **`uvMeshSmokeHemisphere`** — sibling of `uvMeshSmoke` with
+  one of the lamp end caps set to `endcap_b_shape="hemisphere"`,
+  exercising the cubed-sphere annular cap path. Box stretched
+  to z = 0.15 so the hemispherical cap (z = 0.10 to 0.12) fits
+  with margin. Validates: the new patch set (12 patches, with
+  `lamp0_endcap_B` replaced by `lamp0_tip_B`); `lamp0_tip_B`
+  has ~500 faces (5 cubed-sphere blocks × 10² cells per block);
+  `lamp0_seam` has > 1000 faces (cylinder 800 + hemisphere 500
+  combined); NCC fuse produced ~11176 face couplings at 99.99 %
+  coverage; min cell volume > 0 (no negative-volume cells);
+  max non-orthogonality < 90°, max skewness < 12, < 1 % of total
+  faces flagged as bad face pyramids. Observed at the shipped
+  resolution: ~13000 annulus hex cells (8000 cylinder + 5000
+  hemisphere from 5 × 10³), ~3900 bulk polyhedral cells, max
+  non-orth 88.97°, max skew 8.69, 40 bad face pyramids out of
+  67k total faces (0.06 % -- known polyDualMesh artifact at the
+  capsule's cylinder-sphere junction, see "Open items" below).
+  Load-bearing for the hemisphere code path; will be the
+  reference geometry for any future Sozzi-poly tutorial that
+  models a submerged lamp tip.
 
 ### `tutorials/`
 
@@ -2031,9 +2116,9 @@ passes are deferred:
 
 ## Open items — uvMesh helper
 
-The v0.1 helper covers what the smoke test exercises: one or more
-lamps with arbitrary axis orientation inside a box-bounded reactor
-body. Three extensions are queued behind real driver cases:
+The v0.2 helper covers flat or hemispherical end caps on lamps with
+arbitrary axis orientation inside a box-bounded reactor body.
+Remaining work queued behind real driver cases:
 
 1. **STL-driven reactor body.** Today `ReactorBody` requires
    `box_min` / `box_max`; `stl_path` raises `NotImplementedError`.
@@ -2044,18 +2129,38 @@ body. Three extensions are queued behind real driver cases:
 
 2. **Sozzi-poly tutorial.** Replace the snappy bulk in
    `tutorials/uvReactorSozzi2006(-DOM)` with the uvmesh hybrid
-   pipeline. Two design decisions land at the same time: (a)
-   STL-driven body (above), and (b) lamp-tip handling — the Sozzi
-   lamp has a hemispherical tip embedded in fluid, so the annulus
-   downstream end cap meets a bulk-side disc face at x=0.810 m.
-   Either add a second NCC pair per lamp (annulus end cap ↔ bulk
-   disc face) and grow the helper API with a `flush` vs
-   `submerged` flag, or simplify the lamp to a full-length cylinder
-   (loses end-cap emission, matches the analytical-G version's
-   infinite-line-source assumption). Validation is against
-   the existing Sozzi log-reduction window and the paper.
+   pipeline. Now blocked only on item (1) — the lamp-tip story is
+   handled by v0.2's hemispherical cap (`endcap_b_shape="hemisphere"`
+   centred at `axis_end`, fluid wraps the cap, single NCC pair per
+   lamp combining cylindrical and hemispherical seam). Sozzi's
+   lamp ends at x = 0.810 inside the L-shape body; a hemispherical
+   cap of radius `sleeve_radius` at `axis_end = (0.810, 0, 0)`
+   models the tip exactly. Validation is against the existing
+   Sozzi log-reduction window and the paper.
 
-3. **Radial grading and per-lamp resolution overrides.**
+3. **polyDualMesh quality at capsule junctions.** The
+   `uvMeshSmokeHemisphere` case produces ~40 bad face pyramids
+   (0.06 % of total faces) in the bulk polyhedral mesh near the
+   cylinder-sphere fusion seam. Max non-orthogonality 88.97° (just
+   under the 90° hard limit); max skewness 8.69. The bad cells are
+   intrinsic to polyDualMesh on this geometry — none of the utility's
+   flags (`-concaveMultiCells`, `-doNotPreserveFaceZones`,
+   `-splitAllFaces`, varying feature angle 45..180°) eliminate them.
+   Coarser meshes have fewer bad cells, finer meshes have more,
+   suggesting a constant-fraction algorithmic artifact. Three
+   follow-on paths if these cells become a problem: (a) add a thin
+   prism layer between the gmsh tet bulk and the capsule surface so
+   polyDualMesh's dual cells against the curved boundary are
+   regularized; (b) post-process the polyMesh through
+   `polyMesh::cellShapes` or a custom smoother to relax the bad
+   cells; (c) replace the gmsh + polyDualMesh leg with
+   `foamyHexMesh` for the bulk (Foundation-native, may handle the
+   junction differently). Not implemented today; the bad cells are
+   localized and do not appear to affect DOM or Lagrangian
+   tracking, but a real solver run on Sozzi-poly will be the
+   confirming test.
+
+4. **Radial grading and per-lamp resolution overrides.**
    `Lamp.radial_grading` is accepted but currently no-op — the
    annulus radial cells are uniform. Wiring it through
    blockmeshbuilder's per-block grading records would let users
@@ -2064,7 +2169,7 @@ body. Three extensions are queued behind real driver cases:
    forward compatibility so the Sozzi-poly tutorial doesn't have
    to rename it later.
 
-4. **Lamp-axis edge cases.** The pipeline emits
+5. **Lamp-axis edge cases.** The pipeline emits
    `transformPoints "rotate=((0 0 1) (u_x u_y u_z))"` for every
    lamp regardless of axis orientation. The OF v13 implementation
    handles identity (u = +z) cleanly and arbitrary axes through

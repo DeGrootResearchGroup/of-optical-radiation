@@ -59,19 +59,26 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
     if band is None:
         band = 2 * seam_size
 
-    # Each lamp's cylindrical cut: axis as world-coord pair + radius + bulk
-    # patch name. Pad by `pad` past each end so the cut robustly punches
-    # through the body even when an endpoint sits exactly on a face.
+    # Each lamp's cut: axis as world-coord pair + radius + bulk patch name +
+    # endcap-shape flags. The bulk subtracts a *capsule* (cylinder fused with
+    # a sphere at each hemispherical end) when an endcap is hemispherical;
+    # otherwise just a cylinder. Pad by `pad` past each end so the cut
+    # robustly punches through the body even when an endpoint sits exactly
+    # on a face. (Padding only applies to the cylindrical portion -- the
+    # spherical cap already extends `radius` past the axis endpoint and
+    # doesn't need extra padding.)
     pad = 1e-3
     lamp_cuts = []
     for i, lamp in enumerate(lamps):
         lamp_cuts.append({
-            "i": i,
-            "axis_start": tuple(lamp.axis_start),
-            "axis_end":   tuple(lamp.axis_end),
-            "radius":     lamp.annulus_outer_radius,
-            "pad":        pad,
-            "seam_name":  f"reactor_seam_lamp{i}",
+            "i":            i,
+            "axis_start":   tuple(lamp.axis_start),
+            "axis_end":     tuple(lamp.axis_end),
+            "radius":       lamp.annulus_outer_radius,
+            "pad":          pad,
+            "seam_name":    f"reactor_seam_lamp{i}",
+            "endcap_a_hemi": lamp.endcap_a_shape == "hemisphere",
+            "endcap_b_hemi": lamp.endcap_b_shape == "hemisphere",
         })
 
     script = dedent(f"""\
@@ -109,8 +116,13 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         )
         body_dimtag = (3, box)
 
-        # Cut each lamp's cylinder out of the body. Track lamp index per
-        # axis so we can re-identify the seam surface afterwards.
+        # Cut each lamp's capsule (cylinder, with optional hemispherical end
+        # caps fused at axis_start or axis_end) out of the body. Track lamp
+        # geometry per axis so we can re-identify the seam surfaces afterwards.
+        # The seam centroid lies on the lamp axis line by symmetry (the
+        # capsule is axisymmetric), so a single d_perp test catches both the
+        # cylindrical and hemispherical parts of the seam; the axis-parameter
+        # range is extended by `radius` on the hemispherical end(s).
         lamp_axes = []
         for cut in LAMP_CUTS:
             ax = cut["axis_start"]
@@ -118,33 +130,67 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             dx = ay[0] - ax[0]; dy = ay[1] - ax[1]; dz = ay[2] - ax[2]
             length = math.sqrt(dx*dx + dy*dy + dz*dz)
             ux = dx / length; uy = dy / length; uz = dz / length
+            radius = cut["radius"]
             pad = cut["pad"]
+
+            # Cylindrical body (always present)
             start = (ax[0] - pad * ux, ax[1] - pad * uy, ax[2] - pad * uz)
             extent = (
                 dx + 2 * pad * ux,
                 dy + 2 * pad * uy,
                 dz + 2 * pad * uz,
             )
-            cyl = gmsh.model.occ.addCylinder(
+            cyl_tag = gmsh.model.occ.addCylinder(
                 start[0], start[1], start[2],
                 extent[0], extent[1], extent[2],
-                cut["radius"],
+                radius,
             )
+            tool_dimtag = (3, cyl_tag)
+
+            # Fuse a full sphere at each hemispherical end. The half of the
+            # sphere inside the cylinder is absorbed; the half outside is the
+            # hemispherical cap.
+            for is_hemi, centre in (
+                (cut["endcap_a_hemi"], ax),
+                (cut["endcap_b_hemi"], ay),
+            ):
+                if not is_hemi:
+                    continue
+                sph_tag = gmsh.model.occ.addSphere(
+                    centre[0], centre[1], centre[2], radius,
+                )
+                fused, _ = gmsh.model.occ.fuse(
+                    [tool_dimtag], [(3, sph_tag)], removeTool=True,
+                )
+                assert len(fused) == 1, (
+                    f"Lamp {{cut['i']}} capsule fuse produced {{len(fused)}} pieces"
+                )
+                tool_dimtag = fused[0]
+
             cut_result, _ = gmsh.model.occ.cut(
-                [body_dimtag], [(3, cyl)], removeTool=True,
+                [body_dimtag], [tool_dimtag], removeTool=True,
             )
             assert len(cut_result) == 1, (
                 f"Lamp {{cut['i']}} cut produced {{len(cut_result)}} pieces; "
-                "the lamp cylinder must lie entirely within the body."
+                "the lamp capsule must lie entirely within the body."
             )
             body_dimtag = cut_result[0]
-            lamp_axes.append((ax, ay, length, (ux, uy, uz), cut["radius"], cut["seam_name"]))
+
+            # Axis-parameter range for seam classification: extends past
+            # axis_start by `radius` if endcap_a is hemispherical, past
+            # axis_end by `radius` if endcap_b is hemispherical.
+            s_lo = -radius if cut["endcap_a_hemi"] else 0.0
+            s_hi = length + radius if cut["endcap_b_hemi"] else length
+            lamp_axes.append((
+                ax, ay, length, (ux, uy, uz), radius,
+                cut["seam_name"], s_lo, s_hi,
+            ))
 
         gmsh.model.occ.synchronize()
         vol_tag = body_dimtag[1]
 
         # Classify each bounding surface.
-        seam_groups = {{name: [] for _, _, _, _, _, name in lamp_axes}}
+        seam_groups = {{name: [] for _, _, _, _, _, name, _, _ in lamp_axes}}
         wall_tags      = []
         endcap_lo_tags = []
         endcap_hi_tags = []
@@ -162,15 +208,19 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             if flat_z and abs(zmin - bz_max) < TOL:
                 endcap_hi_tags.append(tag); continue
 
-            # Seam detection: surface centroid lies on a lamp axis within the
-            # axis's parametric range. Distance from centroid to the line is
-            # the perpendicular distance; the projection parameter `s` must
-            # be in [0, length].
+            # Seam detection: surface centroid lies on a lamp axis within
+            # the axis's (possibly hemisphere-extended) parametric range.
+            # `s_lo` and `s_hi` are -radius / length+radius when the
+            # corresponding end is hemispherical, otherwise 0 / length.
+            # Distance from centroid to the line is the perpendicular
+            # distance; the capsule's axisymmetry guarantees the centroid
+            # of any seam face (cylindrical or hemispherical) is on the
+            # axis line.
             seam_match = None
-            for (ax, _ay, length, u, _radius, name) in lamp_axes:
+            for (ax, _ay, length, u, _radius, name, s_lo, s_hi) in lamp_axes:
                 rx = cx - ax[0]; ry = cy - ax[1]; rz = cz - ax[2]
                 s = rx*u[0] + ry*u[1] + rz*u[2]
-                if not (-TOL <= s <= length + TOL):
+                if not (s_lo - TOL <= s <= s_hi + TOL):
                     continue
                 # Perpendicular component
                 px = rx - s*u[0]; py = ry - s*u[1]; pz = rz - s*u[2]
