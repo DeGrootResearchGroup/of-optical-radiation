@@ -84,6 +84,7 @@ opticalRadiation.
 | `libopticalRadiationModule` | `Foam::solvers::opticalRadiation` solver module for `foamMultiRun` | `$FOAM_USER_LIBBIN/libopticalRadiationModule.so` |
 | `libradiationDose` | Shared library — Lagrangian dose tracker function object + RTS-selectable seeding/dispersion models | `$FOAM_USER_LIBBIN/libradiationDose.so` |
 | `setFluenceRate` | Standalone utility — writes the analytical infinite-line-source fluence rate `G(r)` to a time directory | `$FOAM_USER_APPBIN/setFluenceRate` |
+| `uvmesh` | Python helper (pip-installable from `tools/uvMesh/`) — hybrid O-grid-annulus + polyhedral-bulk mesh generator for UV reactor cases | site-packages (`pip install /code/tools/uvMesh`) |
 
 Two ways to embed radiation in a multi-physics case:
 - For pure-radiation regions inside a multi-region case, use the
@@ -104,6 +105,10 @@ Source layout (OpenFOAM-style):
 - `applications/modules/opticalRadiation/`     — solver module.
 - `applications/utilities/setFluenceRate/`     — analytical-G writer
   utility, used by the radiationDose Sozzi tutorial.
+- `tools/uvMesh/`                              — Python mesh-tooling
+  package (`uvmesh`); blockmeshbuilder O-grid annulus + gmsh
+  polyhedral bulk + NCC fuse pipeline. Compiled libs depend on
+  nothing in `tools/`; the helper is a separate Python install.
 
 ### Class Hierarchy
 
@@ -294,7 +299,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Twenty-three regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Twenty-seven regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -614,6 +619,323 @@ Cross-region refractive-index BCs work either through:
 
 The `tutorials/refractiveInterface2D` case (pedagogical) and
 `tests/refractiveCoupledMatch` (regression) exercise the first path.
+
+---
+
+## uvMesh Python helper (`tools/uvMesh/`)
+
+### Purpose
+
+A pip-installable Python package (`uvmesh`) that generates hybrid
+meshes for UV reactor cases: a structured **O-grid annulus** around
+each lamp (via blockmeshbuilder's `TubeBlockStruct`) joined to a
+**polyhedral bulk** (via gmsh tet meshing + OpenFOAM's
+`polyDualMesh`) using OpenFOAM's `nonConformalCyclic` patch pair
+(AMI-weighted partition-of-unity coupling, no remesh-and-pray
+required when the two pieces have mismatched face counts).
+
+The motivation is mesh quality near the lamp wall, which is exactly
+where dose accuracy matters most (κ·r ≫ 1 attenuation layer, near-
+wall particles dominate `maxDose`). snappyHexMesh produces faceted
+boundary layers against curved walls; the O-grid annulus gives
+cells whose faces are radially aligned, with arbitrary grading
+toward the sleeve wall. Polyhedral bulk replaces snappy's
+hex-with-prismatic-transitions with isotropic ~14-faces/cell
+polyhedra throughout — the same cell topology that makes STAR-CCM+'s
+polyhedral mesher popular, available here without the licence.
+
+### Public API
+
+```python
+from uvmesh import Lamp, ReactorBody, build
+
+lamps = [
+    Lamp(
+        axis_start=(0.0, 0.0, 0.0),       # world coords (m)
+        axis_end  =(0.0, 0.0, 0.1),
+        sleeve_radius=0.01,                # lamp/sleeve OD/2
+        annulus_outer_radius=0.02,         # NCC seam radius
+        # n_radial / n_azimuth_per_quadrant / n_axial defaults are
+        # tuned for visible-UV cases; override if needed
+        endcap_a_shape="flat",             # default; or "hemisphere"
+        endcap_b_shape="hemisphere",       # cubed-sphere annular cap at
+                                           # axis_end (see below)
+    ),
+]
+body = ReactorBody(
+    box_min=(-0.04, -0.04, 0.0),
+    box_max=( 0.04,  0.04, 0.15),         # taller box so the hemispherical
+    bulk_cell_size=0.008,                  # cap fits with margin
+    bulk_cells="hybrid",                   # default for hemispherical lamps; see
+                                           # the 4-way comparison below. Alts:
+                                           # "structured" (cheap pure-poly bulk),
+                                           # "structured_full" (research-grade
+                                           # full-disc NCC match), "tet"
+                                           # (skip polyDualMesh entirely).
+)
+build(case_dir=".", lamps=lamps, body=body)
+```
+
+The call writes:
+
+- `<case>/_uvMesh/annulus_lamp{i}/`        one per lamp; blockMesh
+  case directory with a blockMeshDict for the O-grid annulus in
+  lamp-local coordinates (axis along +z, axis_start at origin).
+- `<case>/_uvMesh/bulk_body.py`            gmsh Python script that
+  builds the reactor body, subtracts a cylinder per lamp at the
+  lamp's `annulus_outer_radius`, classifies surfaces, sets up a
+  Distance + Threshold refinement field near each seam (matching
+  the annulus circumferential spacing), and writes `bulk.msh`.
+- `<case>/_uvMesh/bulk_body/`              OF case directory used as
+  scratch for `gmshToFoam` + `polyDualMesh`.
+- `<case>/_uvMesh/Allrun.mesh`             shell driver that runs
+  the full pipeline: blockMesh per lamp + transformPoints into
+  world coordinates, gmsh + gmshToFoam + polyDualMesh for the bulk
+  (with cellZone cleanup post-dual), seeds `<case>/constant/polyMesh`
+  with the bulk, then mergeMeshes each annulus and
+  createNonConformalCouples per seam pair. Final checkMesh.
+
+### Patch naming convention
+
+Per lamp `i` (0-based):
+
+| Annulus side              | Bulk side                  | Notes |
+|---------------------------|----------------------------|-------|
+| `lamp{i}_wall` (cylindrical sleeve only) | (no bulk match) | Always present. |
+| `lamp{i}_seam`            | `reactor_seam_lamp{i}`     | Cylindrical + hemispherical seam combined when an end cap is hemispherical. Single NCC pair per lamp regardless of cap shape. |
+| `lamp{i}_endcap_A` (start)| (no bulk match)            | Present only when `endcap_a_shape == "flat"` (default). |
+| `lamp{i}_endcap_B` (end)  | (no bulk match)            | Present only when `endcap_b_shape == "flat"` (default). |
+| `lamp{i}_tip_A`           | (no bulk match)            | Present only when `endcap_a_shape == "hemisphere"`. The hemispherical lamp tip at the `axis_start` side; split from `lamp{i}_wall` so distinct BCs can apply. |
+| `lamp{i}_tip_B`           | (no bulk match)            | Same on the B side (`axis_end`). |
+
+`createNonConformalCouples lamp{i}_seam reactor_seam_lamp{i}` fuses
+the two seams (single fuse covers cylindrical and hemispherical parts).
+The annulus end caps are walls when flat; hemispherical caps replace
+the flat disc with a 5-block cubed-sphere annular shell whose inner
+sphere is `lamp{i}_tip_{A,B}` and whose outer sphere accumulates into
+`lamp{i}_seam`. The bulk-side capsule cutout (cylinder ∪ sphere) is
+produced via `gmsh.model.occ.fuse` and the seam classifier extends
+its axis-parameter range by `annulus_outer_radius` on each
+hemispherical end.
+
+### Hemispherical end cap
+
+Setting `endcap_a_shape="hemisphere"` or `endcap_b_shape="hemisphere"`
+replaces the flat annular-disc end cap with a **5-block cubed-sphere
+annular shell** wrapping a hemispherical lamp tip. The hemispherical
+cap sits centred on `axis_start` (A end) or `axis_end` (B end) with
+radii `sleeve_radius` (lamp tip) and `annulus_outer_radius` (seam),
+extending `annulus_outer_radius` past the cylindrical lamp body
+along the lamp axis.
+
+Topology choice: **cubed-sphere / butterfly**. The polar cap is one
+hex block (`n_azimuth_per_quadrant × n_azimuth_per_quadrant × n_radial`
+cells) and the four side blocks fan out to the equator. Hex quality
+is uniform — no polar singularity. The alternative 4-block sweep
+would have a degenerate edge at the pole right where the high-G
+attenuation layer matters most.
+
+Conformal join: the cubed-sphere's 4 equator corners sit at
+`theta = π/4 + k·π/2`. When any cap is hemispherical, the cylinder's
+`TubeBlockStruct` quadrant anchors shift by 45° (to the same angles)
+so the cylinder end ring shares its 8 vertices with the hemisphere's
+equator corners. The smoke test (flat-flat path) keeps the original
+`theta = k·π/2` anchors and is bit-for-bit unchanged.
+
+Face projection: each of the 10 sphere-bound boundary faces (5 inner
++ 5 outer per hemisphere) is added to both `bmd.faces` (for
+blockMesh's `project face ... sphereName` directive) and the relevant
+boundary patch. Without face projection, blockMesh interpolates the
+face interior linearly between projected corners — a flat polygon
+inside the sphere; with face projection blockMesh samples the sphere
+at every cell-face vertex. Two `Sphere` geometries register per
+hemisphere (inner / outer).
+
+Right-handedness: the hex blocks use **k = outer-to-inner radial**.
+At the pole the radial direction is the axis, and choosing
+inner-to-outer for k yields left-handed blocks (negative cell
+volumes) for one of the two `axis_dir` cases. With k =
+outer-to-inner the cap block's vertex layout flips between
+`axis_dir = +1` (i = east-to-west) and `axis_dir = -1` (i =
+west-to-east); the side blocks use the same template for both.
+
+### Pipeline pitfalls already absorbed
+
+These were caught during the derisk and the helper now handles them
+silently. Recorded here so they don't get reintroduced.
+
+- **gmsh drops 3D elements without a Physical Volume.** Default
+  `Mesh.SaveAll=0` writes only elements that belong to a Physical
+  Group; surface elements are tagged by patch, volume elements need
+  a `Physical Volume("fluid")` to be tagged. Without it, gmshToFoam
+  reads zero cells. The bulk emitter always declares the Physical
+  Volume; Allrun.mesh deletes the stale cellZone after polyDualMesh
+  to keep checkMesh happy (the dual mesh has fewer cells than the
+  tet mesh the cellZone was built against).
+- **OF v13's `transformPoints` takes a single string.** Older
+  per-flag forms (`-rotate ... -translate ...`) error out. The
+  helper emits `transformPoints "rotate=((0 0 1) (u_x u_y u_z)),
+  translate=(x y z)"` — operations applied in listed order.
+- **`mergeMeshes` auto-renames colliding patches.** End-cap patches
+  must have lamp-unique names so they aren't collapsed across the
+  bulk + annulus pieces. The `lamp{i}_endcap_A/B` convention keeps
+  them distinct.
+- **PyPI's `gmsh` wheel is x86_64-only.** Apple-Silicon containers
+  (linuxArm64) need `apt install python3-gmsh` instead. The
+  Dockerfile uses the apt path; pyproject.toml lists neither gmsh
+  nor blockmeshbuilder as a hard pip dependency to keep the
+  helper installable from either route.
+
+### Coverage
+
+`tests/uvMeshSmoke` exercises the **flat-flat** helper path end-to-end
+on a single lamp inside a box body. Validates that:
+
+- All 12 expected patches (4 bulk + 4 annulus + 4 NCC) land in
+  `constant/polyMesh/boundary` with the right `type`.
+- `createNonConformalCouples` reports ≥ 100 couplings and ≥ 90%
+  average coverage on both source and target.
+- `polyDualMesh` actually wrote a dual mesh (regression guard
+  against silently falling back to the input tet mesh).
+- `checkMesh` reports `Mesh OK` (NCC-coupled meshes report
+  `Number of regions: 2+` — this is normal, not an error).
+
+There are TWO hemispherical-lamp smoke tests, one per recommended bulk
+strategy:
+
+`tests/uvMeshSmokeHemisphere` exercises the **flat-A + hemisphere-B**
+path with `bulk_cells="hybrid"` (cap-zone tets + dualised bulk).
+Validates the same patch / NCC structure as the flat-flat case plus:
+
+- `lamp0_tip_B` patch exists (hemispherical lamp tip, ~500 faces =
+  5 cubed-sphere blocks × 10² cells).
+- `lamp0_seam` face count > 1000 (cylinder seam 800 + hemisphere
+  seam 500 combined into one patch).
+- Mesh quality: max non-orth < 90° (~89° observed; the cubed-sphere
+  annular polar singularity sets this), max skew < 4 (~1.78
+  observed), bad face pyramids < 0.1 % of total faces (~2 out of
+  ~72k observed; residual at the cap-bulk stitch interface, see
+  ReactorBody docstring).
+- The case uses `ReactorBody.bulk_cells="hybrid"`: a cylindrical
+  cap-zone around each hemispherical cap stays as tets, the rest
+  of the bulk is dualised. The cap zone insulates polyDualMesh
+  from the curved capsule seam (where its obtuse-tet dualization
+  fails in the all-polyhedral path) without the ~4x cell-count
+  cost of the all-tet path. ~20k total cells (vs ~17k all-poly
+  with bad cells, vs ~30k all-tet).
+- The bulk is therefore mixed (~3000 tetrahedra in the cap zone,
+  ~3300 polyhedra in the dualised bulk zone); the validate
+  explicitly asserts both element types are present and that
+  `_uvMesh/hybrid_bulk/log.polyDualMesh` + `log.stitchMesh` are
+  written (regression guards for the hybrid pipeline).
+
+`tests/uvMeshSmokeHemisphereStructured` exercises the same lamp +
+box but with `bulk_cells="structured"`. The cap region is replaced
+with a 5-block morphed cubed-sphere shell (`cap_extension.py`) whose
+outer surface maps onto a cylinder + flat disc envelope; the bulk's
+lamp cutout becomes a simple cylinder + disc with no curved capsule
+seam. polyDualMesh sees only flat/cylindrical surfaces on the bulk
+side and dualises cleanly -- checkMesh reports `Mesh OK`. Observed
+at the shipped resolution: ~13000 hex (annulus) + ~4600 polyhedra
+(bulk) = ~17600 total cells (14 % fewer than the hybrid path); max
+non-orth 68° (lower than hybrid's 89° — the structured cap's
+mapping doesn't have a polar singularity at the disc-cylinder
+edge); max skew 1.54; 0 bad face pyramids. The 4 disc-segment
+regions between the polar cap's inscribed-square outer face and
+the disc edge are part of the bulk's gmsh-meshed region, leaving
+~10 % per-face NCC deficit on the bulk side (source coverage
+~0.91, target coverage ~0.95). Trade-off vs `structured_full`:
+slightly simpler annulus topology but distributed NCC orphan
+slivers on the disc segments.
+
+`tests/uvMeshSmokeHemisphereStructuredFull` exercises
+`bulk_cells="structured_full"` on the same lamp + box. Same 5-block
+cubed-sphere topology as `structured`, but the polar cap's outer
+edges are projected onto a `searchableCylinder` geometry at radius
+`annulus_outer_radius` so the polar cap's outer face covers the
+FULL disc (with curved arc edges) instead of just the inscribed
+square; side blocks' outer faces are face-projected onto the same
+cylinder so they follow the cylinder side exactly. This eliminates
+the 4 disc-segment regions that `structured` leaves for the bulk to
+mesh — the annulus side now provides true pure-hex coverage of the
+cap region. Observed at the shipped resolution: same ~13000 hex
++ ~4600 polyhedra cell count as `structured`; NCC coverage
+**0.99985 / 0.99993 average** (vs 0.91 / 0.95 for `structured` --
+the full disc covers all bulk-side seam faces); max non-orth
+60.24° (vs 68° for `structured`); max skew 1.54; 0 bad face
+pyramids. Recommended over `structured` whenever NCC coverage
+matters more than the wall-time savings of not running
+cylinder-edge projection (research-paper-grade comparisons,
+fine-resolution dose work near the lamp tip).
+
+The coverage jump from `structured`'s ~0.92 average to
+`structured_full`'s ~0.9999 came partly from a **bulk-side bug
+fix**: the cylinder cutout used to pad past `axis_end + cap_ext_b`
+by `pad = 1 mm` on the structured-cap side, leaving the bulk's
+disc top 1 mm above the annulus's polar cap top. The seam
+classifier dropped the disc-top surface into `bulkWall` (since
+`s > s_hi`) and the annulus's polar cap face became a distributed
+orphan against the cylinder side surface; the thin 1 mm lip region
+also produced ~15 polyDualMesh face-pyramid artifacts. The fix
+zeros the pad on cap_ext > 0 sides so the disc top sits exactly
+at the annulus's polar cap top, aligning the two surfaces for NCC
+and removing the lip artifact -- a regression invariant in
+`tests/uvMesh/tests/test_bulk.py::test_cap_ext_side_has_no_extra_pad`.
+
+#### 4-way comparison (smoke-test resolutions)
+
+| `bulk_cells`        | Annulus cells | Bulk cells | NCC coverage (src / tgt) | Max non-orth | Bad face pyramids | When to pick |
+|---------------------|---------------|------------|--------------------------|--------------|-------------------|--------------|
+| `"polyhedral"`      | n/a            | n/a (fails for hemispherical lamps) | n/a | n/a | ~40 (broken) | flat-flat lamps only |
+| `"hybrid"`          | ~12000 hex     | ~3000 tet + ~3300 poly | 1.00 / 1.00 | 89° | ~2 | balanced default for hemispherical lamps |
+| `"structured"`      | ~13000 hex     | ~4600 poly | 0.91 / 0.95 | 68° | 0 | cheaper annulus topology than structured_full; NCC mismatch on disc segments tolerable |
+| `"structured_full"` | ~13000 hex     | ~4600 poly | 0.99984 / 0.99992 | 60° | 0 | research-grade conformal NCC; recommended for fine-resolution dose work |
+
+`tools/uvMesh/tests/` contains a **pytest unit-test suite** (~80
+tests, runs in <1 s) that complements the OpenFOAM smoke cases.
+Where the smoke cases check end-to-end mesh validity, the unit tests
+isolate single behaviours of the helper modules:
+
+- `test_geometry.py` — `Lamp` / `ReactorBody` dataclass validation,
+  `Lamp.length()`, `axis_unit()`, `has_hemisphere()`, n_axial auto-
+  sizing, endcap-shape error messages.
+- `test_hemisphere.py` — cubed-sphere vertex positions (cube
+  corners projected to spheres of the right radius), `_block_array`
+  index layout, dict population (5 blocks, 16 projection edges, 2
+  Sphere geometries, 10 boundary faces split inner/outer), all faces
+  also registered as global projection faces (regression guard for
+  the face-projection fix during the v0.2 derisk), and **signed cell
+  volume of every cap block must be positive for both axis_dir
+  values** — this caught the axis_dir=-1 side-block left-handedness
+  bug during the v0.2 development.
+- `test_annulus.py` — blockMeshDict file is emitted, flat-flat
+  lamp keeps the axis-aligned `theta = k·π/2` azimuth, hemisphere
+  lamp shifts to `π/4 + k·π/2`, tip patches appear iff the
+  corresponding end is hemispherical, single combined seam patch
+  per lamp regardless of cap shape.
+- `test_bulk.py` — `bulk_body.py` is valid Python (`ast.parse`),
+  `LAMP_CUTS` has the expected keys and reflects per-lamp endcap
+  flags, capsule subtraction (`addSphere` + `fuse`) only emitted
+  when a cap is hemispherical, seam-size auto-derivation matches
+  the annulus circumferential spacing.
+- `test_pipeline.py` — `_autoname_lamps` fills tip names only for
+  hemispherical caps and endcap names only for flat caps,
+  preserves user-supplied names, `build()` workspace layout (one
+  annulus subdir per lamp, bulk emitter + scratch case, executable
+  `Allrun.mesh`), `Allrun.mesh` transformPoints rotates `(0 0 1)`
+  to the lamp axis vector and translates to `axis_start`,
+  polyDualMesh runs at featureAngle 90 with the cellZone cleanup,
+  one `createNonConformalCouples` per lamp pairing
+  `reactor_seam_lamp{i}` with `lamp{i}_seam`.
+
+The unit tests run before the OpenFOAM regression cases in CI; a
+unit-test failure fails the build immediately (cheap signal). Run
+locally with:
+
+```sh
+pip install /code/tools/uvMesh[tests]
+cd tools/uvMesh && python3 -m pytest tests/
+```
 
 ---
 
@@ -1289,7 +1611,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Twenty-three cases.
+  Twenty-seven cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1586,6 +1908,97 @@ radiationDose:
   must enter every batch in lockstep so the Cloud constructor's
   `MPI_Alltoall` doesn't deadlock when the local seed count is 0).
 
+mesh tooling:
+
+- **`uvMeshSmoke`** — exercises the `uvmesh` helper's flat-flat
+  end-cap path end-to-end on a 0.08 m x 0.08 m x 0.1 m box body
+  with a single z-axis lamp (sleeve r=0.01, annulus seam r=0.02,
+  length 0.1). `mesh.py` imports `uvmesh.Lamp` +
+  `uvmesh.ReactorBody` + `uvmesh.build`, declares one lamp +
+  body, calls `build()`. Allrun runs the emitted
+  `_uvMesh/Allrun.mesh` which: (a) blockMesh per lamp annulus +
+  transformPoints, (b) gmsh + gmshToFoam + polyDualMesh for the
+  bulk (with cellZone cleanup), (c) mergeMeshes everything into
+  `constant/polyMesh`, (d) createNonConformalCouples per seam
+  pair, (e) checkMesh. Validate asserts: `checkMesh` reports
+  `Mesh OK`; all 12 expected patches (4 bulk + 4 annulus + 4 NCC
+  machinery) are present with the correct types;
+  `createNonConformalCouples` produced ≥ 100 face couplings and
+  ≥ 90 % average coverage on both source and target;
+  `polyDualMesh` actually wrote a dual mesh (guard against silent
+  fallback to the input tet mesh). Observed at the shipped
+  resolution: ~7972 NCC couplings, 99.99 % average coverage on
+  both sides, ~3800 polyhedral cells in the bulk, ~8000 hex
+  cells in the annulus. Load-bearing for the helper API;
+  future Sozzi-poly tutorial will validate against paper data.
+- **`uvMeshSmokeHemisphere`** — sibling of `uvMeshSmoke` with
+  one of the lamp end caps set to `endcap_b_shape="hemisphere"`,
+  exercising the cubed-sphere annular cap path. Box stretched
+  to z = 0.15 so the hemispherical cap (z = 0.10 to 0.12) fits
+  with margin. The case sets `bulk_cells="hybrid"`:
+  cells inside a cylindrical cap-zone around each hemispherical
+  cap stay as tets, the rest of the bulk is dualised (see the
+  helper's `ReactorBody` docstring). Validates: per-metric mesh
+  quality (max non-orth < 90°, max skew < 4, < 0.1 % bad face
+  pyramids); the new patch set (12 patches, with
+  `lamp0_endcap_B` replaced by `lamp0_tip_B`); `lamp0_tip_B`
+  has ~500 faces (5 cubed-sphere blocks × 10² cells per block);
+  `lamp0_seam` has > 1000 faces (cylinder 800 + hemisphere 500
+  combined); NCC fuse produced ~15000 face couplings at 99.99 %
+  coverage; bulk is mixed tets + polyhedra (regression guard
+  for the hybrid path); `_uvMesh/hybrid_bulk/log.polyDualMesh`
+  and `log.stitchMesh` both present. Observed at the shipped
+  resolution: ~13000 annulus hex cells (8000 cylinder + 5000
+  hemisphere from 5 × 10³), ~3000 cap-zone tet cells, ~3300
+  bulk polyhedral cells, max non-orth 89.1°, max skew 1.78,
+  2 bad face pyramids out of 72k total faces (0.003 %).
+  Load-bearing for the hemisphere code path; will be the
+  reference geometry for any future Sozzi-poly tutorial that
+  models a submerged lamp tip.
+- **`uvMeshSmokeHemisphereStructured`** — sibling of
+  `uvMeshSmokeHemisphere` with the same lamp + slightly taller
+  box (z = 0.18) but `bulk_cells="structured"`. Exercises the
+  5-block morphed cubed-sphere cap (`cap_extension.py`) instead
+  of the hybrid subsetMesh path. Box height accommodates the cap
+  region's axial extent (z = 0.10 + `cap_extension_factor` ×
+  `annulus_outer_radius` = 0.13, plus headroom). Validates:
+  per-metric mesh quality (max non-orth < 90°, max skew < 4,
+  < 0.1 % bad face pyramids); same 12-patch set as
+  uvMeshSmokeHemisphere; structured bulk is all-polyhedral
+  (no tets — polyDualMesh ran on the entire bulk subset since
+  the cap region is in the annulus mesh, not the bulk); NCC fuse
+  produced ~10000 face couplings. Observed at the shipped
+  resolution: ~13000 hex (annulus), ~4600 polyhedra (bulk),
+  ~17600 total cells (14 % fewer than the hybrid path); max
+  non-orth 68° (better than hybrid's 89° — no polar singularity
+  in the cap topology); max skew 1.54; 0 bad face pyramids
+  (checkMesh `Mesh OK`).
+- **`uvMeshSmokeHemisphereStructuredFull`** — sibling of
+  `uvMeshSmokeHemisphereStructured` with the same lamp + box
+  but `bulk_cells="structured_full"`. The polar cap's outer
+  edges are projected onto a `searchableCylinder` at radius
+  `annulus_outer_radius` so the polar cap's outer face covers
+  the FULL disc (curved arc edges) instead of just the
+  inscribed square; side blocks' outer faces are face-projected
+  onto the same cylinder. Eliminates the disc-segment gaps that
+  `structured` leaves for the bulk -- the annulus side now
+  provides true pure-hex coverage of the cap region.
+  Validates: same quality / patch checks as
+  `uvMeshSmokeHemisphereStructured`; in addition asserts the
+  bulk is dualised (no tets) and that
+  `_uvMesh/bulk_body/log.polyDualMesh` is present. Observed:
+  same ~13000 hex + ~4600 polyhedra cell count as `structured`
+  (the bulk-side cylinder cutout is identical); NCC fuse
+  ~11700 face couplings with **0.99985 / 0.99993 average
+  coverage** (vs 0.91 / 0.95 for `structured` -- the bulk-side
+  disc segments are no longer NCC orphans, and the disc-top
+  z-mismatch bug is fixed); max non-orth **60.24°** (better
+  than `structured`'s 68° -- the side-block outer faces conform
+  exactly to the cylinder); max skew 1.54; 0 bad face pyramids
+  (checkMesh `Mesh OK`). Designed for cases where mesh quality
+  near the lamp tip is critical (research-paper-grade
+  comparisons, fine-resolution dose work).
+
 ### `tutorials/`
 
 - **`uvReactorSozzi2006`** / **`uvReactorSozzi2006-DOM`** — Sozzi &
@@ -1880,12 +2293,96 @@ passes are deferred:
    chapter's OU-update derivation). Lower priority than the API
    reference -- the per-case READMEs are already good entry points.
 
+---
+
+## Open items — uvMesh helper
+
+The v0.2 helper covers flat or hemispherical end caps on lamps with
+arbitrary axis orientation inside a box-bounded reactor body.
+Remaining work queued behind real driver cases:
+
+1. **STL-driven reactor body.** Today `ReactorBody` requires
+   `box_min` / `box_max`; `stl_path` raises `NotImplementedError`.
+   The bulk emitter would need to `gmsh.merge(stl_path)` and adapt
+   the surface classification (the box-walls test relies on the
+   bbox-extent shape). The Sozzi STEP file's `make_geometry.py` is
+   a working template for the boolean + classification logic.
+
+2. **Sozzi-poly tutorial.** Replace the snappy bulk in
+   `tutorials/uvReactorSozzi2006(-DOM)` with the uvmesh hybrid
+   pipeline. Now blocked only on item (1) — the lamp-tip story is
+   handled by v0.2's hemispherical cap (`endcap_b_shape="hemisphere"`
+   centred at `axis_end`, fluid wraps the cap, single NCC pair per
+   lamp combining cylindrical and hemispherical seam). Sozzi's
+   lamp ends at x = 0.810 inside the L-shape body; a hemispherical
+   cap of radius `sleeve_radius` at `axis_end = (0.810, 0, 0)`
+   models the tip exactly. Validation is against the existing
+   Sozzi log-reduction window and the paper.
+
+3. **Radial grading and per-lamp resolution overrides.**
+   `Lamp.radial_grading` is accepted but currently no-op — the
+   annulus radial cells are uniform. Wiring it through
+   blockmeshbuilder's per-block grading records would let users
+   pack cells against the sleeve wall (where κ·r >> 1 attenuation
+   layer needs finer resolution); the parameter is held for
+   forward compatibility so the Sozzi-poly tutorial doesn't have
+   to rename it later.
+
+4. **Lamp-axis edge cases.** The pipeline emits
+   `transformPoints "rotate=((0 0 1) (u_x u_y u_z))"` for every
+   lamp regardless of axis orientation. The OF v13 implementation
+   handles identity (u = +z) cleanly and arbitrary axes through
+   the shortest-angle rotation; the antipodal case `u = -z` is the
+   theoretical degeneracy (any perpendicular axis is a valid
+   rotation axis). Not exercised by any shipped case, but worth
+   bench-testing before any tutorial uses a -z lamp axis.
+
+5. **Forcing cube-angle alignment of gmsh's polygonal facets on
+   the cylinder cutout.** With the pad fix landed, `structured_full`
+   already achieves ~0.9999 NCC coverage on the smoke geometry --
+   the residual ~0.01 % is gmsh's polygonal cylinder approximation
+   not lining up azimuthally with the annulus's cube-angle anchors
+   (`θ = π/4 + k·π/2`). Embedding 4 axial constraint lines on the
+   cylinder side (and 4 radial lines on the disc top) at the cube
+   angles via `gmsh.model.mesh.embed` would close that residual
+   further. Defer until a driver case shows the 0.01 % matters --
+   most production cases will refine the bulk seam mesh anyway,
+   which closes the polygonal-vs-curved gap by mesh density alone.
+
+6. **Polyhedral bulk for hemispherical lamps.** v0.4 ships
+   hemispherical-lamp cases with `bulk_cells="hybrid"`: the cells
+   inside a cylindrical cap zone around each hemispherical cap stay
+   as tets while the rest of the bulk is dualised. polyDualMesh
+   doesn't see the curved capsule seam (it's hidden inside the
+   tet-only cap zone) and dualises the bulk cleanly. The cap-bulk
+   stitch interface leaves a small residual of bad face pyramids
+   (~2 out of ~72k faces, 0.003 %, vs ~40 / 67k = 0.06 % in the
+   all-polyhedral path) but the quality is otherwise close to the
+   all-tet path's checkMesh-OK result, at ~30 % the cell-count cost
+   (20k vs 30k for the smoke test, vs 17k all-poly-with-bad-cells).
+   Two follow-on paths if the residual stitch-interface bad cells
+   become a problem: (a) a true prism-layer extrusion in gmsh (the
+   OCC "thicken" operation; would replace the stitched interface
+   with a conformal prism shell -- nontrivial because gmsh 4.8's
+   BoundaryLayer field is 2D-only); (b) replace the gmsh +
+   polyDualMesh leg with `foamyHexMesh` for the bulk. The cap-zone
+   shape (cylinder radius `cap_zone_radius_factor *
+   annulus_outer_radius`, axial extent set by
+   `cap_zone_axial_factor`) is tunable on `ReactorBody` for cases
+   that need a different geometry. The original investigation that
+   ruled out simpler fixes (snappyHexMesh layers refuse to extrude
+   through pre-existing bad cells; gmsh tet algorithm sweep all
+   converge to the same bad cells; doubling annulus_outer_radius
+   makes quality WORSE) is captured in the v0.3 / v0.4 commit
+   messages.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request. Two top-level
 jobs:
 
-**`test`** (Docker-based, the OpenFOAM build and regression suite).
+**`test`** (Docker-based, the OpenFOAM build and regression suite,
+preceded by the uvmesh pytest unit suite).
 Detects whether the PR touches the `Dockerfile` (or
 `docker-publish.yml`):
 

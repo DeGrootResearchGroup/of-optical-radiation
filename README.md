@@ -158,7 +158,7 @@ Build products:
 
 The case suite is split into two trees:
 
-- **`tests/`** -- 23 regression cases run by CI on every PR. Synthetic
+- **`tests/`** -- 27 regression cases run by CI on every PR. Synthetic
   geometries (slabs, boxes) chosen for closed-form analytical
   references (E_2 integrals, Schwarzschild-Milne, Beer-Lambert, etc.)
   plus three bit-for-bit cross-case identity checks. What you re-run
@@ -179,7 +179,7 @@ The case suite is split into two trees:
 
 ```sh
 cd tests
-./Alltest    # all 21 cases + 3 cross-case diffs; what CI runs
+./Alltest    # all 27 cases + 3 cross-case diffs; what CI runs
 ```
 
 ### Run an individual test or tutorial
@@ -234,6 +234,9 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 `pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`.
+
+mesh tooling: `uvMeshSmoke`, `uvMeshSmokeHemisphere`,
+`uvMeshSmokeHemisphereStructured`, `uvMeshSmokeHemisphereStructuredFull`.
 
 ### What's in `tutorials/`
 
@@ -355,7 +358,17 @@ applications/
     modules/opticalRadiation/        DOM solver module for foamMultiRun
     utilities/setFluenceRate/        analytical radial G writer
 
-tests/                   23 regression cases + Alltest harness (CI runs this)
+tools/uvMesh/            Python helper (pip-installable as `uvmesh`):
+                         hybrid O-grid-annulus + polyhedral-bulk mesh
+                         generator for UV reactor cases. Each case
+                         declares lamps + body and calls `build()` to
+                         emit blockMesh + gmsh scripts and an
+                         Allrun.mesh that runs the full pipeline
+                         (blockMesh per lamp -> gmsh tet bulk ->
+                         polyDualMesh -> mergeMeshes ->
+                         createNonConformalCouples).
+
+tests/                   27 regression cases + Alltest harness (CI runs this)
 tutorials/               4 pedagogical cases (run on demand by users)
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)

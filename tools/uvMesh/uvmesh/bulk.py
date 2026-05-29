@@ -1,0 +1,446 @@
+"""Bulk-region tet emitter (gmsh Python API).
+
+Writes a Python script `bulk_body.py` into the workspace that, when run,
+emits `bulk.msh` -- a tet volume mesh of the reactor body with one
+cylindrical hole subtracted per lamp (at the lamp's annulus_outer_radius).
+Physical Surfaces are emitted for each patch so `gmshToFoam` recovers
+them as named boundaries.
+
+The script is emitted as a standalone .py file rather than executed in
+the calling process so the gmsh session is fully isolated (gmsh's global
+state can interact badly across multiple `initialize()/finalize()` cycles
+in long-lived processes).
+"""
+from __future__ import annotations
+
+import os
+from textwrap import dedent
+from typing import List
+
+from .geometry import Lamp, ReactorBody
+
+
+def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> None:
+    """Write `<case_dir>/bulk_body.py` (the gmsh emitter for the bulk mesh).
+
+    The emitted script:
+      1. Builds the reactor body (box for v0.1; STL deferred).
+      2. Cuts a cylindrical volume per lamp at radius
+         `annulus_outer_radius`, padded slightly past each axis end so the
+         boolean is robust to floating-point endpoint matching.
+      3. Classifies the resulting surfaces into:
+            <body.wall_patch_name>
+            <body.endcap_lo_patch_name>, <body.endcap_hi_patch_name>
+            <lamp.seam_patch_name (renamed to reactor_seam_lamp{i})>
+            ... per lamp ...
+      4. Adds a Distance + Threshold field around each seam so the bulk
+         cells near the AMI match the annulus's circumferential spacing.
+      5. Writes `bulk.msh` (msh2 format -- gmshToFoam can read it).
+
+    Patch naming on the BULK side uses `reactor_seam_lamp{i}` to make the
+    NCC fuse pair (lamp{i}_seam, reactor_seam_lamp{i}) unambiguous.
+    """
+    if body.box_min is None or body.box_max is None:
+        raise NotImplementedError("Only box-bounded ReactorBody supported in v0.1")
+
+    # Resolve seam refinement size: default to annulus circumferential spacing
+    # 2*pi*r_seam / (4*nt_per_quad). Pick the tightest across lamps so the
+    # seam-side weights line up. Bulk away from seams uses body.bulk_cell_size.
+    seam_size = body.near_lamp_cell_size
+    if seam_size is None:
+        sizes = [
+            2 * 3.141592653589793 * lamp.annulus_outer_radius
+            / (4 * lamp.n_azimuth_per_quadrant)
+            for lamp in lamps
+        ]
+        seam_size = min(sizes) if sizes else body.bulk_cell_size
+
+    band = body.near_lamp_band_thickness
+    if band is None:
+        band = 2 * seam_size
+
+    # Each lamp's cut: axis as world-coord pair + radius + bulk patch name +
+    # endcap-shape flags. The bulk subtracts a *capsule* (cylinder fused with
+    # a sphere at each hemispherical end) when an endcap is hemispherical;
+    # otherwise just a cylinder. Pad by `pad` past each end so the cut
+    # robustly punches through the body even when an endpoint sits exactly
+    # on a face. (Padding only applies to the cylindrical portion -- the
+    # spherical cap already extends `radius` past the axis endpoint and
+    # doesn't need extra padding.)
+    pad = 1e-3
+    lamp_cuts = []
+    for i, lamp in enumerate(lamps):
+        # For bulk_cells in ("structured", "structured_full"), the
+        # cap region (between the hemispherical lamp tip and the
+        # cylinder + disc envelope at z = axis_end +
+        # cap_extension_factor * annulus_outer_radius) is filled by
+        # the morphed cubed-sphere blocks. The bulk's lamp cutout
+        # becomes a CYLINDER (no sphere fuse) extended past axis_end
+        # by the same factor. The hemispherical lamp surface is
+        # INSIDE this cylinder cutout (covered by the structured
+        # cap), so the bulk doesn't see it. Same on the A side if
+        # endcap_a is hemispherical. `structured_full` projects the
+        # cap's outer face onto the cylinder + disc envelope (so
+        # there are no disc-segment gaps) but the bulk-side
+        # cylinder cutout is identical to the basic structured path.
+        if body.bulk_cells in ("structured", "structured_full"):
+            cap_ext = body.cap_extension_factor * lamp.annulus_outer_radius
+        else:
+            cap_ext = 0.0
+        lamp_cuts.append({
+            "i":            i,
+            "axis_start":   tuple(lamp.axis_start),
+            "axis_end":     tuple(lamp.axis_end),
+            "radius":       lamp.annulus_outer_radius,
+            "pad":          pad,
+            "seam_name":    f"reactor_seam_lamp{i}",
+            "endcap_a_hemi": lamp.endcap_a_shape == "hemisphere",
+            "endcap_b_hemi": lamp.endcap_b_shape == "hemisphere",
+            "cap_ext_a":    cap_ext if lamp.endcap_a_shape == "hemisphere" else 0.0,
+            "cap_ext_b":    cap_ext if lamp.endcap_b_shape == "hemisphere" else 0.0,
+        })
+
+    script = dedent(f"""\
+        #!/usr/bin/env python3
+        \"\"\"Generated by uvmesh.bulk.write_bulk_script(); do not edit by hand.\"\"\"
+        import math
+        import os
+        import sys
+
+        import gmsh
+
+        HERE = os.path.dirname(os.path.abspath(__file__))
+        TOL  = 1e-6
+
+        BOX_MIN = {tuple(body.box_min)!r}
+        BOX_MAX = {tuple(body.box_max)!r}
+        WALL_NAME      = {body.wall_patch_name!r}
+        ENDCAP_LO_NAME = {body.endcap_lo_patch_name!r}
+        ENDCAP_HI_NAME = {body.endcap_hi_patch_name!r}
+        LAMP_CUTS = {lamp_cuts!r}
+        SEAM_SIZE = {seam_size!r}
+        BULK_SIZE = {body.bulk_cell_size!r}
+        BAND      = {band!r}
+        BULK_CELLS = {body.bulk_cells!r}
+        CAP_ZONE_RADIUS_FACTOR = {body.cap_zone_radius_factor!r}
+        CAP_ZONE_AXIAL_FACTOR  = {body.cap_zone_axial_factor!r}
+
+        gmsh.initialize()
+        gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.model.add("uvmesh-bulk")
+
+        # Box body
+        bx_min, by_min, bz_min = BOX_MIN
+        bx_max, by_max, bz_max = BOX_MAX
+        box = gmsh.model.occ.addBox(
+            bx_min, by_min, bz_min,
+            bx_max - bx_min, by_max - by_min, bz_max - bz_min,
+        )
+        body_dimtag = (3, box)
+
+        # Cut each lamp's capsule (cylinder, with optional hemispherical end
+        # caps fused at axis_start or axis_end) out of the body. Track lamp
+        # geometry per axis so we can re-identify the seam surfaces afterwards.
+        # The seam centroid lies on the lamp axis line by symmetry (the
+        # capsule is axisymmetric), so a single d_perp test catches both the
+        # cylindrical and hemispherical parts of the seam; the axis-parameter
+        # range is extended by `radius` on the hemispherical end(s).
+        lamp_axes = []
+        for cut in LAMP_CUTS:
+            ax = cut["axis_start"]
+            ay = cut["axis_end"]
+            dx = ay[0] - ax[0]; dy = ay[1] - ax[1]; dz = ay[2] - ax[2]
+            length = math.sqrt(dx*dx + dy*dy + dz*dz)
+            ux = dx / length; uy = dy / length; uz = dz / length
+            radius = cut["radius"]
+            pad = cut["pad"]
+
+            # Cylindrical body. For bulk_cells == "structured" /
+            # "structured_full" the cylinder extends past each hemispherical
+            # end by `cut["cap_ext_a"]` / `cap_ext_b"]` so the cylinder
+            # cutout also covers the structured cap region (the cap blocks
+            # fill the space between the lamp's hemispherical wall and
+            # the bulk's cylinder + disc cutout boundary).
+            #
+            # Pad: extends the cylinder slightly past the axis endpoint
+            # so the boolean is robust when the endpoint sits exactly on
+            # a box face. Only needed on FLAT ends -- on cap_ext > 0
+            # ends the cylinder's far disc must align EXACTLY with the
+            # annulus's structured cap polar block (at `axis_end + cap_ext_b`
+            # / `axis_start - cap_ext_a`) so the disc top couples conformally
+            # via NCC; pulling the disc 1 mm past that point (the previous
+            # behaviour) misclassified the disc top as a wall and gave a
+            # 1mm z-offset orphan band on the annulus's polar cap face.
+            cap_ext_a = cut.get("cap_ext_a", 0.0)
+            cap_ext_b = cut.get("cap_ext_b", 0.0)
+            pad_a = 0.0 if cap_ext_a > 0 else pad
+            pad_b = 0.0 if cap_ext_b > 0 else pad
+            start = (
+                ax[0] - (pad_a + cap_ext_a) * ux,
+                ax[1] - (pad_a + cap_ext_a) * uy,
+                ax[2] - (pad_a + cap_ext_a) * uz,
+            )
+            cyl_total_len = (
+                math.sqrt(dx*dx + dy*dy + dz*dz)
+                + pad_a + pad_b + cap_ext_a + cap_ext_b
+            )
+            extent = (
+                cyl_total_len * ux,
+                cyl_total_len * uy,
+                cyl_total_len * uz,
+            )
+            cyl_tag = gmsh.model.occ.addCylinder(
+                start[0], start[1], start[2],
+                extent[0], extent[1], extent[2],
+                radius,
+            )
+            tool_dimtag = (3, cyl_tag)
+
+            # Fuse a full sphere at each hemispherical end. The half of the
+            # sphere inside the cylinder is absorbed; the half outside is the
+            # hemispherical cap.
+            # SKIP this fusion for bulk_cells == "structured" -- the
+            # cylinder cutout already extends past the hemisphere; the
+            # structured cap fills the lamp-tip-to-disc volume.
+            for is_hemi, centre, ext in (
+                (cut["endcap_a_hemi"], ax, cap_ext_a),
+                (cut["endcap_b_hemi"], ay, cap_ext_b),
+            ):
+                if not is_hemi or ext > 0:
+                    continue
+                sph_tag = gmsh.model.occ.addSphere(
+                    centre[0], centre[1], centre[2], radius,
+                )
+                fused, _ = gmsh.model.occ.fuse(
+                    [tool_dimtag], [(3, sph_tag)], removeTool=True,
+                )
+                assert len(fused) == 1, (
+                    f"Lamp {{cut['i']}} capsule fuse produced {{len(fused)}} pieces"
+                )
+                tool_dimtag = fused[0]
+
+            cut_result, _ = gmsh.model.occ.cut(
+                [body_dimtag], [tool_dimtag], removeTool=True,
+            )
+            assert len(cut_result) == 1, (
+                f"Lamp {{cut['i']}} cut produced {{len(cut_result)}} pieces; "
+                "the lamp capsule must lie entirely within the body."
+            )
+            body_dimtag = cut_result[0]
+
+            # Axis-parameter range for seam classification. For
+            # hemispherical caps WITHOUT structured-cap extension the
+            # seam extends by `radius` (sphere fused at the end). For
+            # structured-cap mode (cap_ext > 0) the cylinder extends
+            # past the end by cap_ext (no sphere fuse). Flat caps don't
+            # extend the seam range.
+            s_lo = -cap_ext_a if cap_ext_a > 0 else (
+                -radius if cut["endcap_a_hemi"] else 0.0
+            )
+            s_hi = length + cap_ext_b if cap_ext_b > 0 else (
+                length + radius if cut["endcap_b_hemi"] else length
+            )
+            lamp_axes.append((
+                ax, ay, length, (ux, uy, uz), radius,
+                cut["seam_name"], s_lo, s_hi,
+            ))
+
+        # ----------------------------------------------------------------
+        # Hybrid bulk: fragment a cylindrical cap-zone around each
+        # hemispherical cap. Inside the cap zone the bulk stays as tets;
+        # outside, polyDualMesh dualises. Splitting it here -- before the
+        # mesh exists -- means gmsh meshes the two zones conformally
+        # (shared face/vertex IDs at the interface) and gmshToFoam
+        # creates the cellZones that the Allrun.mesh pipeline's
+        # `subsetMesh` step will pull apart.
+        # ----------------------------------------------------------------
+        cap_zone_specs = []  # list of (cz_radius, cz_z_lo, cz_z_hi) per hemispherical cap
+        if BULK_CELLS == "hybrid":
+            for cut in LAMP_CUTS:
+                if not cut["endcap_b_hemi"]:
+                    continue  # endcap_a hemisphere not exercised by smoke test
+                ay = cut["axis_end"]
+                radius = cut["radius"]
+                cz_r = CAP_ZONE_RADIUS_FACTOR * radius
+                cz_z_lo = ay[2] - radius
+                cz_z_hi = ay[2] + CAP_ZONE_AXIAL_FACTOR * radius
+                # Lamp-local +z axis for the cap-zone cylinder; for v0.4
+                # we only emit hybrid bulks for z-axis lamps. Multi-axis
+                # support is the same change in 3 places (the cylinder
+                # start + dir + the classifier's bbox check) -- defer
+                # until needed.
+                cz_start = (ay[0], ay[1], cz_z_lo)
+                cz_len = cz_z_hi - cz_z_lo
+                cz_dir = (0.0, 0.0, cz_len)
+                cz_cyl = gmsh.model.occ.addCylinder(*cz_start, *cz_dir, cz_r)
+                frag, frag_map = gmsh.model.occ.fragment(
+                    [body_dimtag], [(3, cz_cyl)], removeTool=True,
+                )
+                body_outputs = frag_map[0]
+                cyl_outputs = frag_map[1]
+                cap_volumes = [d for d in body_outputs if d in cyl_outputs]
+                body_only   = [d for d in body_outputs if d not in cyl_outputs]
+                cyl_only    = [d for d in cyl_outputs  if d not in body_outputs]
+                for d in cyl_only:
+                    gmsh.model.occ.remove([d], recursive=True)
+                cap_zone_specs.append({{
+                    "radius": cz_r, "z_lo": cz_z_lo, "z_hi": cz_z_hi,
+                    "volumes": cap_volumes,
+                }})
+                if not body_only:
+                    raise RuntimeError(
+                        "Cap-zone fragment left no body remainder; cap_zone "
+                        "cylinder must lie entirely within the body."
+                    )
+                body_dimtag = body_only[0]
+                if len(body_only) > 1:
+                    fused, _ = gmsh.model.occ.fuse(
+                        [body_dimtag], body_only[1:], removeTool=True,
+                    )
+                    body_dimtag = fused[0]
+
+        gmsh.model.occ.synchronize()
+        vol_tag = body_dimtag[1]
+
+        # Classify each bounding surface. Inspect both volumes (bulk +
+        # any cap-zone volumes from the hybrid fragment) so the
+        # cap-zone-interior surfaces (lamp seam pieces inside the cap
+        # zone) get classified too.
+        seam_groups = {{name: [] for _, _, _, _, _, name, _, _ in lamp_axes}}
+        wall_tags      = []
+        endcap_lo_tags = []
+        endcap_hi_tags = []
+        all_vol_dts = [(3, vol_tag)]
+        for spec in cap_zone_specs:
+            all_vol_dts.extend(spec["volumes"])
+
+        seen = set()
+        for vol_dt in all_vol_dts:
+            for dim, tag in gmsh.model.getBoundary([vol_dt], oriented=False):
+                if dim != 2 or tag in seen:
+                    continue
+                seen.add(tag)
+                xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(dim, tag)
+                cx, cy, cz = gmsh.model.occ.getCenterOfMass(dim, tag)
+                flat_z = abs(zmax - zmin) < TOL
+
+                # Cap-zone interface detection (hybrid only): surface bbox
+                # has max |x|, |y| ~ cap_zone radius, axial inside the
+                # cap-zone z range. The bbox test distinguishes it from
+                # the lamp seam (which has bbox radius == lamp radius
+                # < cap-zone radius).
+                is_capzone_iface = False
+                bbox_r = max(abs(xmin), abs(xmax), abs(ymin), abs(ymax))
+                for spec in cap_zone_specs:
+                    cz_r = spec["radius"]
+                    cz_z_lo = spec["z_lo"]
+                    cz_z_hi = spec["z_hi"]
+                    if (abs(bbox_r - cz_r) < TOL * 100
+                            and cz_z_lo - TOL <= zmin and zmax <= cz_z_hi + TOL):
+                        is_capzone_iface = True; break
+                    if flat_z and abs(zmin - cz_z_hi) < TOL and bbox_r < cz_r + TOL:
+                        is_capzone_iface = True; break
+                    if flat_z and abs(zmin - cz_z_lo) < TOL and bbox_r < cz_r + TOL:
+                        is_capzone_iface = True; break
+                if is_capzone_iface:
+                    continue   # interior face between bulk and cap zones
+
+                # Endcap detection: flat in z at the box z extents.
+                if flat_z and abs(zmin - bz_min) < TOL:
+                    endcap_lo_tags.append(tag); continue
+                if flat_z and abs(zmin - bz_max) < TOL:
+                    endcap_hi_tags.append(tag); continue
+
+                # Seam detection: surface centroid lies on a lamp axis within
+                # the axis's (possibly hemisphere-extended) parametric range.
+                # `s_lo` and `s_hi` are -radius / length+radius when the
+                # corresponding end is hemispherical, otherwise 0 / length.
+                # Distance from centroid to the line is the perpendicular
+                # distance; the capsule's axisymmetry guarantees the centroid
+                # of any seam face (cylindrical or hemispherical) is on the
+                # axis line.
+                seam_match = None
+                for (ax, _ay, length, u, _radius, name, s_lo, s_hi) in lamp_axes:
+                    rx = cx - ax[0]; ry = cy - ax[1]; rz = cz - ax[2]
+                    s = rx*u[0] + ry*u[1] + rz*u[2]
+                    if not (s_lo - TOL <= s <= s_hi + TOL):
+                        continue
+                    # Perpendicular component
+                    px = rx - s*u[0]; py = ry - s*u[1]; pz = rz - s*u[2]
+                    d_perp = math.sqrt(px*px + py*py + pz*pz)
+                    if d_perp < TOL:
+                        seam_match = name
+                        break
+                if seam_match is not None:
+                    seam_groups[seam_match].append(tag)
+                    continue
+
+                wall_tags.append(tag)
+
+        def add_physical(dim, tags, name):
+            if not tags:
+                return
+            pg = gmsh.model.addPhysicalGroup(dim, tags)
+            gmsh.model.setPhysicalName(dim, pg, name)
+            print(f"  {{name:<40}} {{len(tags):>3}} surface(s) tags={{tags}}", file=sys.stderr)
+
+        print("Physical groups:", file=sys.stderr)
+        add_physical(2, wall_tags, WALL_NAME)
+        add_physical(2, endcap_lo_tags, ENDCAP_LO_NAME)
+        add_physical(2, endcap_hi_tags, ENDCAP_HI_NAME)
+        for seam_name, seam_tags in seam_groups.items():
+            add_physical(2, seam_tags, seam_name)
+            if not seam_tags:
+                raise RuntimeError(
+                    f"Bulk classification failed: no surface classified as "
+                    f"seam '{{seam_name}}'. Lamp axis may not intersect the body."
+                )
+
+        # Tag the volume as a Physical Group so gmsh exports the tet elements.
+        # Without this, gmsh's default SaveAll=0 drops volume elements that
+        # don't belong to any physical group and gmshToFoam reads zero cells.
+        # For hybrid bulks we tag the bulk and cap zones as SEPARATE Physical
+        # Volumes; gmshToFoam creates corresponding cellZones that the
+        # Allrun.mesh `subsetMesh` step uses to split them apart.
+        if BULK_CELLS == "hybrid" and cap_zone_specs:
+            pg_bulk = gmsh.model.addPhysicalGroup(3, [vol_tag])
+            gmsh.model.setPhysicalName(3, pg_bulk, "bulk_zone")
+            cap_vol_tags = []
+            for spec in cap_zone_specs:
+                cap_vol_tags.extend(d[1] for d in spec["volumes"])
+            pg_cap = gmsh.model.addPhysicalGroup(3, cap_vol_tags)
+            gmsh.model.setPhysicalName(3, pg_cap, "cap_zone")
+            print(f"  bulk_zone vol={{vol_tag}}, cap_zone vols={{cap_vol_tags}}",
+                  file=sys.stderr)
+        else:
+            # polyDualMesh-friendly cellZone gets cleaned up in Allrun.mesh;
+            # tet path keeps it. Naming doesn't matter for these modes.
+            pg_vol = gmsh.model.addPhysicalGroup(3, [vol_tag])
+            gmsh.model.setPhysicalName(3, pg_vol, "fluid")
+
+        # Mesh sizing fields.
+        all_seam_tags = [t for tags in seam_groups.values() for t in tags]
+        if all_seam_tags:
+            dist_f = gmsh.model.mesh.field.add("Distance")
+            gmsh.model.mesh.field.setNumbers(dist_f, "SurfacesList", all_seam_tags)
+            thr_f = gmsh.model.mesh.field.add("Threshold")
+            gmsh.model.mesh.field.setNumber(thr_f, "InField", dist_f)
+            gmsh.model.mesh.field.setNumber(thr_f, "SizeMin", SEAM_SIZE)
+            gmsh.model.mesh.field.setNumber(thr_f, "SizeMax", BULK_SIZE)
+            gmsh.model.mesh.field.setNumber(thr_f, "DistMin", 0.0)
+            gmsh.model.mesh.field.setNumber(thr_f, "DistMax", BAND)
+            gmsh.model.mesh.field.setAsBackgroundMesh(thr_f)
+
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", SEAM_SIZE)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", BULK_SIZE)
+        gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
+        gmsh.model.mesh.generate(3)
+        gmsh.write(os.path.join(HERE, "bulk.msh"))
+        gmsh.finalize()
+        print("Wrote", os.path.join(HERE, "bulk.msh"), file=sys.stderr)
+        """)
+
+    out_path = os.path.join(case_dir, "bulk_body.py")
+    with open(out_path, "w") as fh:
+        fh.write(script)
+    os.chmod(out_path, 0o755)

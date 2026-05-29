@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Validate the uvMesh smoke test mesh.
+
+Pipeline regression. Checks:
+
+  1. checkMesh declared "Mesh OK".
+  2. The expected patch list and types are present after merge + NCC.
+  3. The NCC fuse produced non-zero face couplings (i.e. the AMI weights
+     are actually being computed, not silently empty).
+  4. Bulk converted to polyhedral (polyDualMesh output, not raw tets).
+
+Exits 0 if all checks pass, 1 otherwise.
+"""
+from __future__ import annotations
+
+import os
+import re
+import sys
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def read(path):
+    with open(path, "r") as fh:
+        return fh.read()
+
+
+def fail(msg):
+    print(f"VALIDATE FAIL: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def passed(msg):
+    print(f"  ok  {msg}")
+
+
+# 1. checkMesh OK
+log = read(os.path.join(HERE, "log.checkMesh"))
+if not re.search(r"^Mesh OK\.?\s*$", log, re.MULTILINE):
+    fail("checkMesh did not report 'Mesh OK'")
+passed("checkMesh reported Mesh OK")
+
+# 2. Expected patches present. We don't pin face counts because they
+# depend on gmsh's adaptive tet count (driven by the Distance+Threshold
+# refinement field) and a future gmsh upgrade could shift them by a few
+# percent. We do pin the patch *names* and *types* -- those are part of
+# the helper's contract.
+boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
+
+expected_patches = {
+    # bulk patches
+    "bulkWall":           "patch",
+    "endcap_lo":          "patch",
+    "endcap_hi":          "patch",
+    "reactor_seam_lamp0": "patch",
+    # annulus patches
+    "lamp0_wall":         "wall",
+    "lamp0_seam":         "patch",
+    "lamp0_endcap_A":     "wall",
+    "lamp0_endcap_B":     "wall",
+    # NCC pair (created by createNonConformalCouples)
+    "nonConformalCyclic_on_reactor_seam_lamp0": "nonConformalCyclic",
+    "nonConformalCyclic_on_lamp0_seam":         "nonConformalCyclic",
+    "nonConformalError_on_reactor_seam_lamp0":  "nonConformalError",
+    "nonConformalError_on_lamp0_seam":          "nonConformalError",
+}
+
+for patch_name, expected_type in expected_patches.items():
+    # Each patch in the boundary file has the form
+    #    <name>\n    {\n        type    <type>;\n        ... }\n
+    pat = re.compile(
+        rf"^\s*{re.escape(patch_name)}\s*\{{[^}}]*?\btype\s+(\S+?);",
+        re.MULTILINE | re.DOTALL,
+    )
+    m = pat.search(boundary)
+    if m is None:
+        fail(f"patch '{patch_name}' not found in constant/polyMesh/boundary")
+    if m.group(1) != expected_type:
+        fail(
+            f"patch '{patch_name}': expected type '{expected_type}', "
+            f"got '{m.group(1)}'"
+        )
+    passed(f"patch {patch_name} present with type {expected_type}")
+
+# 3. NCC couplings non-zero. The createNonConformalCouples log reports
+# `<N> couplings calculated`; require at least 100 for a single lamp at
+# this resolution. The annulus has 800 faces and the bulk seam has
+# O(1000) -- expect couplings in the low thousands.
+ncc_log = read(os.path.join(HERE, "log.createNonConformalCouples"))
+m = re.search(r"(\d+)\s+couplings calculated", ncc_log)
+if m is None:
+    fail("createNonConformalCouples log does not report a couplings count")
+n_couplings = int(m.group(1))
+if n_couplings < 100:
+    fail(f"createNonConformalCouples produced only {n_couplings} couplings (<100)")
+passed(f"createNonConformalCouples produced {n_couplings} face couplings")
+
+# Target coverage on both sides should be ~99% or better. Below 90% means
+# the AMI weights are missing a large fraction of the seam -- usually a
+# sign that the annulus and bulk seams don't actually coincide in space.
+for label in ("Source", "Target"):
+    m = re.search(
+        rf"{label} min/average/max coverage = [\d.eE+-]+/([\d.eE+-]+)/[\d.eE+-]+",
+        ncc_log,
+    )
+    if m is None:
+        fail(f"createNonConformalCouples log missing {label} coverage line")
+    avg_cov = float(m.group(1))
+    if avg_cov < 0.9:
+        fail(f"createNonConformalCouples {label} avg coverage {avg_cov:.3f} < 0.9")
+    passed(f"createNonConformalCouples {label} avg coverage {avg_cov:.4f}")
+
+# 4. Bulk really is polyhedral (not raw tets). After polyDualMesh, the
+# bulk's checkMesh should report polyhedra: > 0 and tetrahedra: 0.
+bulk_log = read(
+    os.path.join(HERE, "_uvMesh", "bulk_body", "log.polyDualMesh")
+)
+if "Writing dual mesh" not in bulk_log:
+    fail("polyDualMesh log does not confirm 'Writing dual mesh'")
+passed("polyDualMesh wrote dual mesh (polyhedra)")
+
+print()
+print("uvMeshSmoke: all checks passed.")

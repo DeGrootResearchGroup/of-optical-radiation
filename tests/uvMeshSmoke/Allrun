@@ -1,0 +1,12 @@
+#!/bin/sh
+. "$(dirname "$0")/../lib/AllrunPreamble.sh"
+
+# Regenerate the meshing workspace from the case's lamp + body description.
+python3 mesh.py
+
+# Drive the per-piece blockMesh / gmsh / polyDualMesh / mergeMeshes /
+# createNonConformalCouples / checkMesh pipeline. The Allrun.mesh script
+# was emitted by the build() call above.
+./_uvMesh/Allrun.mesh
+
+# ----------------------------------------------------------------------------

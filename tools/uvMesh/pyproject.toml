@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uvmesh"
+version = "0.6.2"
+description = "Hybrid O-grid-annulus + polyhedral-bulk mesh generator for UV reactor cases"
+requires-python = ">=3.8"
+# blockmeshbuilder is pinned from upstream and must be installed separately:
+#   pip install git+https://github.com/NauticalMile64/blockmeshbuilder.git
+# gmsh's Python bindings come from the system gmsh package (apt: python3-gmsh)
+# -- PyPI's `gmsh` wheel is x86_64 only, so the apt route is the only option
+# on arm64. Neither is listed here as a hard pip dependency.
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+tests = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["uvmesh*"]

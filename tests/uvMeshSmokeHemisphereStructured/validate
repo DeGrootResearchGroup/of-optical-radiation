@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Validate the uvMesh structured-cap smoke test mesh.
+
+The structured cap (5 morphed cubed-sphere blocks per hemispherical
+end) replaces the bulk's hemispherical cutout with a cylinder + flat
+disc envelope. polyDualMesh on the bulk sees only flat/cylindrical
+surfaces; the bulk dualises cleanly with checkMesh reporting Mesh OK.
+
+The 5-block topology leaves the 4 disc-segment regions between the
+polar cap's inscribed-square outer face and the disc edge in the bulk,
+so the NCC pair has ~10 % per-face area deficit on the bulk side
+(disc segments + chord-vs-arc cylinder slivers). For full-disc
+coverage with arc-projected polar cap edges, use
+`bulk_cells="structured_full"` instead.
+
+Validates:
+  - max non-orth < 90 deg
+  - max skewness < 4 (OF's failure threshold)
+  - bad face pyramids < 0.1 % of total faces (0 observed)
+  - all expected patches present with correct types
+  - bulk is mixed hex (annulus) + polyhedra (dualised bulk)
+"""
+from __future__ import annotations
+
+import os
+import re
+import sys
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def read(path):
+    with open(path, "r") as fh:
+        return fh.read()
+
+
+def fail(msg):
+    print(f"VALIDATE FAIL: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def passed(msg):
+    print(f"  ok  {msg}")
+
+
+log = read(os.path.join(HERE, "log.checkMesh"))
+
+m_min_vol = re.search(r"Min volume\s*=\s*([\d.eE+-]+)\.", log)
+min_vol = float(m_min_vol.group(1)) if m_min_vol else None
+if min_vol is None or min_vol <= 0:
+    fail(f"checkMesh: zero or negative cell volume (min volume = {min_vol})")
+passed(f"min cell volume {min_vol:.3e} > 0")
+
+m_non_orth = re.search(r"Mesh non-orthogonality Max:\s*([\d.eE+-]+)", log)
+non_orth = float(m_non_orth.group(1)) if m_non_orth else None
+if non_orth is None or non_orth >= 90.0:
+    fail(f"checkMesh max non-orthogonality {non_orth} >= 90 deg")
+passed(f"max non-orthogonality {non_orth:.2f} deg")
+
+m_skew = re.search(r"Max skewness\s*=\s*([\d.eE+-]+)", log)
+skew = float(m_skew.group(1)) if m_skew else None
+if skew is None or skew >= 4.0:
+    fail(f"checkMesh max skewness {skew} >= 4.0")
+passed(f"max skewness {skew:.2f}")
+
+m_total_faces = re.search(r"^\s*faces:\s+(\d+)", log, re.MULTILINE)
+m_bad_pyr = re.search(r"(\d+)\s+faces are incorrectly oriented", log)
+total_faces = int(m_total_faces.group(1)) if m_total_faces else 0
+n_bad = int(m_bad_pyr.group(1)) if m_bad_pyr else 0
+bad_frac = n_bad / total_faces if total_faces else 0.0
+# After the pad fix, the disc-cylinder corner no longer produces
+# polyDualMesh face-pyramid artifacts. Observed: 0 on the smoke
+# geometry. Leave the 0.1 % envelope as a generous regression guard
+# in case finer refinement reintroduces them.
+if bad_frac >= 0.001:
+    fail(
+        f"{n_bad} bad face pyramids / {total_faces} faces "
+        f"({100*bad_frac:.3f}%) >= 0.1%"
+    )
+passed(f"bad face pyramids {n_bad} / {total_faces} ({100*bad_frac:.4f}%)")
+
+boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
+
+expected_patches = {
+    "bulkWall":           "patch",
+    "endcap_lo":          "patch",
+    "endcap_hi":          "patch",
+    "reactor_seam_lamp0": "patch",
+    "lamp0_wall":         "wall",
+    "lamp0_seam":         "patch",
+    "lamp0_endcap_A":     "wall",
+    "lamp0_tip_B":        "wall",
+    "nonConformalCyclic_on_reactor_seam_lamp0": "nonConformalCyclic",
+    "nonConformalCyclic_on_lamp0_seam":         "nonConformalCyclic",
+    "nonConformalError_on_reactor_seam_lamp0":  "nonConformalError",
+    "nonConformalError_on_lamp0_seam":          "nonConformalError",
+}
+
+for patch_name, expected_type in expected_patches.items():
+    pat = re.compile(
+        rf"^\s*{re.escape(patch_name)}\s*\{{[^}}]*?\btype\s+(\S+?);",
+        re.MULTILINE | re.DOTALL,
+    )
+    m = pat.search(boundary)
+    if m is None:
+        fail(f"patch '{patch_name}' not found in constant/polyMesh/boundary")
+    if m.group(1) != expected_type:
+        fail(
+            f"patch '{patch_name}': expected type '{expected_type}', "
+            f"got '{m.group(1)}'"
+        )
+    passed(f"patch {patch_name} present with type {expected_type}")
+
+# Bulk is dualised polyhedra (no tets) -- regression guard against
+# bulk_cells="structured" silently falling back to a tet bulk.
+m_hex = re.search(r"^\s*hexahedra:\s+(\d+)", log, re.MULTILINE)
+m_tets = re.search(r"^\s*tetrahedra:\s+(\d+)", log, re.MULTILINE)
+m_polys = re.search(r"^\s*polyhedra:\s+(\d+)", log, re.MULTILINE)
+n_hex = int(m_hex.group(1)) if m_hex else 0
+n_tets = int(m_tets.group(1)) if m_tets else 0
+n_polys = int(m_polys.group(1)) if m_polys else 0
+if n_tets != 0:
+    fail(f"bulk has {n_tets} tetrahedra; expected 0 (polyDualMesh must dualise)")
+if n_hex == 0:
+    fail("no hexahedra; annulus mesh missing")
+if n_polys == 0:
+    fail("no polyhedra; polyDualMesh probably didn't run")
+passed(f"structured bulk: {n_hex} hex (annulus) + {n_polys} polyhedra (bulk) + 0 tets")
+
+# polyDualMesh log under bulk_body (regression guard).
+poly_log = os.path.join(HERE, "_uvMesh", "bulk_body", "log.polyDualMesh")
+if not os.path.exists(poly_log):
+    fail(f"missing log.polyDualMesh at {poly_log}")
+passed("polyDualMesh log present (bulk was dualised)")
+
+# NCC fuse.
+ncc_log = read(os.path.join(HERE, "log.createNonConformalCouples"))
+m = re.search(r"(\d+)\s+couplings calculated", ncc_log)
+if m is None or int(m.group(1)) < 100:
+    fail("createNonConformalCouples produced too few couplings")
+passed(f"createNonConformalCouples produced {m.group(1)} face couplings")
+
+print()
+print("uvMeshSmokeHemisphereStructured: all checks passed.")
