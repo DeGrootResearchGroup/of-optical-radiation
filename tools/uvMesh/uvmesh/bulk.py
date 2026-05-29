@@ -46,10 +46,19 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
     # Resolve seam refinement size: default to annulus circumferential spacing
     # 2*pi*r_seam / (4*nt_per_quad). Pick the tightest across lamps so the
     # seam-side weights line up. Bulk away from seams uses body.bulk_cell_size.
+    # For matryoshka the seam sits at outer_cap_radius_factor *
+    # annulus_outer_radius (larger than the standard seam), so the
+    # azimuthal pitch is also larger -- match it on the bulk side.
     seam_size = body.near_lamp_cell_size
     if seam_size is None:
+        if body.bulk_cells == "structured_matryoshka":
+            seam_radius_of = lambda lamp: (
+                body.outer_cap_radius_factor * lamp.annulus_outer_radius
+            )
+        else:
+            seam_radius_of = lambda lamp: lamp.annulus_outer_radius
         sizes = [
-            2 * 3.141592653589793 * lamp.annulus_outer_radius
+            2 * 3.141592653589793 * seam_radius_of(lamp)
             / (4 * lamp.n_azimuth_per_quadrant)
             for lamp in lamps
         ]
@@ -83,15 +92,28 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         # cap's outer face onto the cylinder + disc envelope (so
         # there are no disc-segment gaps) but the bulk-side
         # cylinder cutout is identical to the basic structured path.
-        if body.bulk_cells in ("structured", "structured_full"):
-            cap_ext = body.cap_extension_factor * lamp.annulus_outer_radius
+        #
+        # For bulk_cells == "structured_matryoshka", the lamp's
+        # structured region extends radially out to
+        # outer_cap_radius_factor * annulus_outer_radius (anywhere from
+        # 1.5 to 3 times the standard annulus seam radius). The lamp
+        # cutout radius therefore moves outward AND the cap extension
+        # is now anchored to the LARGER outer radius. Same cylinder +
+        # disc envelope shape -- just at a bigger size.
+        if body.bulk_cells == "structured_matryoshka":
+            lamp_cut_radius = body.outer_cap_radius_factor * lamp.annulus_outer_radius
+            cap_ext = body.cap_extension_factor * lamp_cut_radius
+        elif body.bulk_cells in ("structured", "structured_full"):
+            lamp_cut_radius = lamp.annulus_outer_radius
+            cap_ext = body.cap_extension_factor * lamp_cut_radius
         else:
+            lamp_cut_radius = lamp.annulus_outer_radius
             cap_ext = 0.0
         lamp_cuts.append({
             "i":            i,
             "axis_start":   tuple(lamp.axis_start),
             "axis_end":     tuple(lamp.axis_end),
-            "radius":       lamp.annulus_outer_radius,
+            "radius":       lamp_cut_radius,
             "pad":          pad,
             "seam_name":    f"reactor_seam_lamp{i}",
             "endcap_a_hemi": lamp.endcap_a_shape == "hemisphere",

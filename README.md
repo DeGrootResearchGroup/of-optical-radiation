@@ -166,7 +166,7 @@ Build products:
 
 The case suite is split into two trees:
 
-- **`tests/`** -- 27 regression cases run by CI on every PR. Synthetic
+- **`tests/`** -- 28 regression cases run by CI on every PR. Synthetic
   geometries (slabs, boxes) chosen for closed-form analytical
   references (E_2 integrals, Schwarzschild-Milne, Beer-Lambert, etc.)
   plus three bit-for-bit cross-case identity checks. What you re-run
@@ -187,7 +187,7 @@ The case suite is split into two trees:
 
 ```sh
 cd tests
-./Alltest    # all 27 cases + 3 cross-case diffs; what CI runs
+./Alltest    # all 28 cases + 3 cross-case diffs; what CI runs
 ```
 
 ### Run an individual test or tutorial
@@ -245,7 +245,8 @@ radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 `pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`.
 
 mesh tooling: `uvMeshSmoke`, `uvMeshSmokeHemisphere`,
-`uvMeshSmokeHemisphereStructured`, `uvMeshSmokeHemisphereStructuredFull`.
+`uvMeshSmokeHemisphereStructured`, `uvMeshSmokeHemisphereStructuredFull`,
+`uvMeshSmokeHemisphereStructuredMatryoshka`.
 
 ### What's in `tutorials/`
 
@@ -377,7 +378,7 @@ tools/uvMesh/            Python helper (pip-installable as `uvmesh`):
                          polyDualMesh -> mergeMeshes ->
                          createNonConformalCouples).
 
-tests/                   27 regression cases + Alltest harness (CI runs this)
+tests/                   28 regression cases + Alltest harness (CI runs this)
 tutorials/               4 pedagogical cases (run on demand by users)
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)

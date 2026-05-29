@@ -52,10 +52,36 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
     # is unchanged.
     azimuth_offset = math.pi / 4 if lamp.has_hemisphere() else 0.0
 
-    rs = np.array([lamp.sleeve_radius, lamp.annulus_outer_radius])
+    # `structured_matryoshka` mode adds a SECOND radial layer to the body
+    # cylinder, between annulus_outer_radius and outer_cap_radius. This
+    # extends the cylindrical part of the lamp's structured region
+    # outward and gives the outer cap a body-cylinder ring to land its
+    # equator on. The seam patch (NCC target) moves from r =
+    # annulus_outer_radius to r = outer_cap_radius.
+    use_matryoshka = (
+        body is not None and body.bulk_cells == "structured_matryoshka"
+    )
+    if use_matryoshka:
+        r_outer_cap = body.outer_cap_radius_factor * lamp.annulus_outer_radius
+        rs = np.array([
+            lamp.sleeve_radius,
+            lamp.annulus_outer_radius,
+            r_outer_cap,
+        ])
+        # Auto-balance the outer body layer's radial cell count so its
+        # cell size matches the inner layer's. Without this, a cell-size
+        # jump at r=annulus_outer_radius produces high skew / non-orth
+        # cells at the body's inter-layer boundary. The same balancing
+        # applies to the outer cap's n_radial below.
+        inner_width = lamp.annulus_outer_radius - lamp.sleeve_radius
+        outer_width = r_outer_cap - lamp.annulus_outer_radius
+        n_radial_outer = max(1, round(lamp.n_radial * outer_width / inner_width))
+        nr = np.array([lamp.n_radial, n_radial_outer])
+    else:
+        rs = np.array([lamp.sleeve_radius, lamp.annulus_outer_radius])
+        nr = np.array([lamp.n_radial])
     ts = np.array([azimuth_offset + k * math.pi / 2 for k in range(5)])
     zs = np.array([0.0, length])
-    nr = np.array([lamp.n_radial])
     nt = np.array([lamp.n_azimuth_per_quadrant] * 4)
     nz = np.array([lamp.n_axial])
 
@@ -66,6 +92,9 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
     seam   = BoundaryTag(lamp.seam_patch_name,   type_='patch')
 
     # boundary_tags last index: 0=radial, 1=azimuthal, 2=axial.
+    # For matryoshka the middle radial layer (between annulus_outer_radius
+    # and outer_cap_radius) is interior; only the innermost (r=sleeve_radius)
+    # is the lamp wall and the outermost (r=outer_cap_radius) is the seam.
     struct.boundary_tags[ 0, :, :, 0] = sleeve    # r-min (inner)
     struct.boundary_tags[-1, :, :, 0] = seam      # r-max (outer = seam)
 
@@ -108,84 +137,147 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
     full_disc = (
         body is not None and body.bulk_cells == "structured_full"
     )
-    cap_ext_L = (
-        (body.cap_extension_factor if use_structured else 0.0)
-        * lamp.annulus_outer_radius
-    )
+    # For matryoshka, the cap extension is anchored to the OUTER cap radius
+    # (not annulus_outer_radius) because that's the radius of the outer
+    # envelope. For structured / structured_full the extension is anchored
+    # to annulus_outer_radius (the only cap radius in those modes).
+    if use_matryoshka:
+        r_cap = body.outer_cap_radius_factor * lamp.annulus_outer_radius
+        cap_ext_L = body.cap_extension_factor * r_cap
+    elif use_structured:
+        cap_ext_L = body.cap_extension_factor * lamp.annulus_outer_radius
+    else:
+        cap_ext_L = 0.0
+
+    def _emit_cap(end_label, axial_idx, axis_dir, centre, tip_patch_name):
+        """Emit the cap blocks for one end (A or B) of the lamp.
+
+        `axial_idx` is 0 for the A end (z=0 in lamp-local frame) or -1
+        for the B end (z=length). `axis_dir` is -1 for A, +1 for B. The
+        cap topology selected by `body.bulk_cells` determines which
+        emitter(s) are called and how the body cylinder's end-ring
+        vertices are sliced.
+
+        Matryoshka chains two cap layers:
+        - inner cap (hemisphere.py) between r=sleeve_radius and
+          r=annulus_outer_radius -- a true cubed-sphere annular shell
+          wrapping the lamp tip;
+        - outer cap (cap_extension.py) between r=annulus_outer_radius
+          and r=outer_cap_radius -- a morphed cubed-sphere shell whose
+          outer envelope is a cylinder + flat disc, where the NCC seam
+          lives.
+        The two layers share the middle-sphere Sphere geometry, the
+        cube-corner P vertices on the middle sphere, and the body's
+        end-ring vertices at r=annulus_outer_radius. The shared layer
+        is interior (no boundary patch).
+        """
+        tip = BoundaryTag(tip_patch_name, type_='wall')
+        if use_matryoshka:
+            # Inner cap: r=sleeve_radius -> r=annulus_outer_radius.
+            # Outer faces are interior (shared with outer cap), so
+            # outer_is_seam=False and the outer projection edges are
+            # deferred to the outer cap (add_outer_edges=False).
+            sphere_inner_i, sphere_middle, p_inner_i, p_outer_i = \
+                write_hemisphere_cap(
+                    bmd=bmd,
+                    equator_inner=[struct.baked_vertices[ 0, k, axial_idx]
+                                   for k in range(4)],
+                    equator_outer=[struct.baked_vertices[ 1, k, axial_idx]
+                                   for k in range(4)],
+                    centre=centre,
+                    r_inner=lamp.sleeve_radius,
+                    r_outer=lamp.annulus_outer_radius,
+                    axis_dir=axis_dir,
+                    n_radial=lamp.n_radial,
+                    n_polar=lamp.n_azimuth_per_quadrant,
+                    tip_tag=tip,
+                    seam_tag=None,        # outer faces are interior
+                    end_label=end_label,
+                    zone_tag_name=f"{lamp.sleeve_patch_name}_matrA_{end_label}",
+                    outer_is_seam=False,
+                    add_outer_edges=False,
+                )
+            # Outer cap: r=annulus_outer_radius -> r=outer_cap_radius.
+            # Inner faces are interior (shared with inner cap's outer
+            # faces). The shared sphere geometry, cube-corner vertices,
+            # and inner-sphere projection edges are reused from the
+            # inner cap so the dict has one canonical set of each.
+            # n_radial matches the auto-balanced outer body layer so
+            # the radial cell size stays uniform across the cap.
+            write_morphed_cap(
+                bmd=bmd,
+                equator_inner=[struct.baked_vertices[ 1, k, axial_idx]
+                               for k in range(4)],
+                equator_outer=[struct.baked_vertices[-1, k, axial_idx]
+                               for k in range(4)],
+                centre=centre,
+                r_inner=lamp.annulus_outer_radius,
+                r_outer=r_cap,
+                axis_dir=axis_dir,
+                L_ext=cap_ext_L,
+                n_radial=int(n_radial_outer),
+                n_polar=lamp.n_azimuth_per_quadrant,
+                tip_tag=None,             # inner faces are interior
+                seam_tag=seam,
+                end_label=end_label,
+                zone_tag_name=f"{lamp.sleeve_patch_name}_matrB_{end_label}",
+                full_disc_coverage=True,
+                sphere_inner_geom=sphere_middle,
+                p_inner_existing=p_outer_i,
+                inner_is_tip=False,
+                add_inner_edges=False,
+            )
+        elif use_structured:
+            write_morphed_cap(
+                bmd=bmd,
+                equator_inner=[struct.baked_vertices[ 0, k, axial_idx]
+                               for k in range(4)],
+                equator_outer=[struct.baked_vertices[-1, k, axial_idx]
+                               for k in range(4)],
+                centre=centre,
+                r_inner=lamp.sleeve_radius,
+                r_outer=lamp.annulus_outer_radius,
+                axis_dir=axis_dir,
+                L_ext=cap_ext_L,
+                n_radial=lamp.n_radial,
+                n_polar=lamp.n_azimuth_per_quadrant,
+                tip_tag=tip,
+                seam_tag=seam,
+                end_label=end_label,
+                zone_tag_name=f"{lamp.sleeve_patch_name}_capext_{end_label}",
+                full_disc_coverage=full_disc,
+            )
+        else:
+            write_hemisphere_cap(
+                bmd=bmd,
+                equator_inner=[struct.baked_vertices[ 0, k, axial_idx]
+                               for k in range(4)],
+                equator_outer=[struct.baked_vertices[-1, k, axial_idx]
+                               for k in range(4)],
+                centre=centre,
+                r_inner=lamp.sleeve_radius,
+                r_outer=lamp.annulus_outer_radius,
+                axis_dir=axis_dir,
+                n_radial=lamp.n_radial,
+                n_polar=lamp.n_azimuth_per_quadrant,
+                tip_tag=tip,
+                seam_tag=seam,
+                end_label=end_label,
+                zone_tag_name=f"{lamp.sleeve_patch_name}_hemi_{end_label}",
+            )
 
     if lamp.endcap_a_shape == "hemisphere":
-        tip_a = BoundaryTag(lamp.tip_patch_name_a, type_='wall')
-        if use_structured:
-            write_morphed_cap(
-                bmd=bmd,
-                equator_inner=[struct.baked_vertices[ 0, k, 0] for k in range(4)],
-                equator_outer=[struct.baked_vertices[-1, k, 0] for k in range(4)],
-                centre=(0.0, 0.0, 0.0),
-                r_inner=lamp.sleeve_radius,
-                r_outer=lamp.annulus_outer_radius,
-                axis_dir=-1,
-                L_ext=cap_ext_L,
-                n_radial=lamp.n_radial,
-                n_polar=lamp.n_azimuth_per_quadrant,
-                tip_tag=tip_a,
-                seam_tag=seam,
-                end_label="A",
-                zone_tag_name=f"{lamp.sleeve_patch_name}_capext_A",
-                full_disc_coverage=full_disc,
-            )
-        else:
-            write_hemisphere_cap(
-                bmd=bmd,
-                equator_inner=[struct.baked_vertices[ 0, k, 0] for k in range(4)],
-                equator_outer=[struct.baked_vertices[-1, k, 0] for k in range(4)],
-                centre=(0.0, 0.0, 0.0),
-                r_inner=lamp.sleeve_radius,
-                r_outer=lamp.annulus_outer_radius,
-                axis_dir=-1,
-                n_radial=lamp.n_radial,
-                n_polar=lamp.n_azimuth_per_quadrant,
-                tip_tag=tip_a,
-                seam_tag=seam,
-                end_label="A",
-                zone_tag_name=f"{lamp.sleeve_patch_name}_hemi_A",
-            )
-
+        _emit_cap(
+            end_label="A", axial_idx=0, axis_dir=-1,
+            centre=(0.0, 0.0, 0.0),
+            tip_patch_name=lamp.tip_patch_name_a,
+        )
     if lamp.endcap_b_shape == "hemisphere":
-        tip_b = BoundaryTag(lamp.tip_patch_name_b, type_='wall')
-        if use_structured:
-            write_morphed_cap(
-                bmd=bmd,
-                equator_inner=[struct.baked_vertices[ 0, k, -1] for k in range(4)],
-                equator_outer=[struct.baked_vertices[-1, k, -1] for k in range(4)],
-                centre=(0.0, 0.0, length),
-                r_inner=lamp.sleeve_radius,
-                r_outer=lamp.annulus_outer_radius,
-                axis_dir=+1,
-                L_ext=cap_ext_L,
-                n_radial=lamp.n_radial,
-                n_polar=lamp.n_azimuth_per_quadrant,
-                tip_tag=tip_b,
-                seam_tag=seam,
-                end_label="B",
-                zone_tag_name=f"{lamp.sleeve_patch_name}_capext_B",
-                full_disc_coverage=full_disc,
-            )
-        else:
-            write_hemisphere_cap(
-                bmd=bmd,
-                equator_inner=[struct.baked_vertices[ 0, k, -1] for k in range(4)],
-                equator_outer=[struct.baked_vertices[-1, k, -1] for k in range(4)],
-                centre=(0.0, 0.0, length),
-                r_inner=lamp.sleeve_radius,
-                r_outer=lamp.annulus_outer_radius,
-                axis_dir=+1,
-                n_radial=lamp.n_radial,
-                n_polar=lamp.n_azimuth_per_quadrant,
-                tip_tag=tip_b,
-                seam_tag=seam,
-                end_label="B",
-                zone_tag_name=f"{lamp.sleeve_patch_name}_hemi_B",
-            )
+        _emit_cap(
+            end_label="B", axial_idx=-1, axis_dir=+1,
+            centre=(0.0, 0.0, length),
+            tip_patch_name=lamp.tip_patch_name_b,
+        )
 
     os.makedirs(os.path.join(case_dir, 'system'), exist_ok=True)
     os.makedirs(os.path.join(case_dir, 'constant'), exist_ok=True)

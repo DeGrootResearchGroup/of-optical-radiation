@@ -24,7 +24,10 @@ def _sub(a, b):
 
 
 _VALID_ENDCAP_SHAPES = ("flat", "hemisphere")
-_VALID_BULK_CELLS = ("polyhedral", "tet", "hybrid", "structured", "structured_full")
+_VALID_BULK_CELLS = (
+    "polyhedral", "tet", "hybrid",
+    "structured", "structured_full", "structured_matryoshka",
+)
 
 
 @dataclass
@@ -180,6 +183,28 @@ class ReactorBody:
         for cases where mesh quality near the lamp is critical
         (research-paper comparisons, fine-resolution dose work).
 
+      * `"structured_matryoshka"` -- TWO concentric structured cap
+        layers, pushing the cube-corner topological defects radially
+        outward away from the lamp wall. The INNER cap (between
+        `sleeve_radius` and `annulus_outer_radius`) uses a true
+        cubed-sphere annular shell (`hemisphere.py`) -- inner sphere
+        to outer sphere, no flat disc, no cylinder/disc corner. All
+        cells in the high-G near-wall layer are uniform spherical
+        hex. The OUTER cap (between `annulus_outer_radius` and
+        `outer_cap_radius_factor * annulus_outer_radius`, default
+        `2.0` so the outer radius is twice the annulus seam) uses
+        the morphed cubed-sphere shell (`cap_extension.py`) with
+        full-disc coverage on its outer cylinder + disc envelope.
+        The 4 cube-corner topological features still exist but live
+        on the OUTER cap's disc edge, at twice the radius from the
+        lamp wall -- well into the low-G zone where dose accuracy is
+        much less sensitive. The cylinder body also gains a second
+        radial layer between `annulus_outer_radius` and the outer
+        radius. The NCC seam moves to the OUTER cap's envelope; the
+        bulk's lamp cutout is the larger cylinder + flat disc.
+        Designed for UV reactor cases where the radiation field's
+        accuracy near the lamp tip is the binding constraint.
+
     For hybrid bulks, two extra parameters control the cap zone shape:
       * `cap_zone_radius_factor` (default 1.5) -- cap zone cylinder
         radius as a multiple of `annulus_outer_radius`. The lamp seam
@@ -190,6 +215,14 @@ class ReactorBody:
         lamp axis, on the hemispherical-cap side. The cap zone's
         lower z bound is `axis_end - annulus_outer_radius` (one
         radius back into the lamp's cylindrical extent).
+
+    For structured_matryoshka bulks:
+      * `outer_cap_radius_factor` (default 2.0) -- outer cap radius
+        as a multiple of `annulus_outer_radius`. Must be > 1.0; the
+        NCC seam sits at `outer_cap_radius_factor * annulus_outer_radius`.
+        Larger values push the cube-corner defects further from the
+        lamp wall but increase cell count proportionally to the
+        radial extent.
     """
 
     box_min: Optional[tuple] = None
@@ -205,10 +238,17 @@ class ReactorBody:
     # Hybrid-bulk cap zone (ignored unless bulk_cells == "hybrid")
     cap_zone_radius_factor: float = 1.5
     cap_zone_axial_factor:  float = 1.5
-    # Structured-cap extension (ignored unless bulk_cells == "structured").
-    # The cap region extends past axis_end by `cap_extension_factor *
-    # annulus_outer_radius` along the lamp axis.
+    # Structured-cap extension (ignored unless bulk_cells == "structured" /
+    # "structured_full" / "structured_matryoshka"). The outer cap region
+    # extends past axis_end by `cap_extension_factor * r_outer_cap` along
+    # the lamp axis, where r_outer_cap = annulus_outer_radius for
+    # structured / structured_full and outer_cap_radius_factor *
+    # annulus_outer_radius for matryoshka.
     cap_extension_factor: float = 1.5
+    # Matryoshka outer cap radius (ignored unless bulk_cells ==
+    # "structured_matryoshka"). The outer cap (and the NCC seam) lives
+    # at radius outer_cap_radius_factor * annulus_outer_radius.
+    outer_cap_radius_factor: float = 2.0
 
     def __post_init__(self):
         if self.box_min is not None and self.box_max is not None:
@@ -232,4 +272,12 @@ class ReactorBody:
             raise ValueError(
                 f"ReactorBody.bulk_cells: must be one of {_VALID_BULK_CELLS}, "
                 f"got {self.bulk_cells!r}"
+            )
+        if (self.bulk_cells == "structured_matryoshka"
+                and self.outer_cap_radius_factor <= 1.0):
+            raise ValueError(
+                f"ReactorBody.outer_cap_radius_factor must be > 1.0 for "
+                f"bulk_cells='structured_matryoshka' (the outer cap radius "
+                f"must exceed the inner cap radius); got "
+                f"{self.outer_cap_radius_factor}"
             )

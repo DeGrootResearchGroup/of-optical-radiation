@@ -132,6 +132,15 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
         lines.append("# (no inscribed-square disc segments), so the bulk's lamp")
         lines.append("# cutout is a pure cylinder + flat disc with no segment")
         lines.append("# corners for polyDualMesh to choke on.")
+    elif body.bulk_cells == "structured_matryoshka":
+        lines.append("# Bulk: gmsh tet -> polyDualMesh. The annulus uses TWO")
+        lines.append("# concentric structured cap layers -- the inner cap")
+        lines.append("# (cubed-sphere shell) wraps the lamp wall, the outer")
+        lines.append("# cap (morphed cubed-sphere with cylinder + disc envelope)")
+        lines.append("# pushes the topological cube-corner defects out to twice")
+        lines.append("# the radius. The bulk's lamp cutout is the LARGER")
+        lines.append("# cylinder + disc at outer_cap_radius_factor *")
+        lines.append("# annulus_outer_radius.")
     else:   # hybrid
         lines.append("# Bulk: hybrid. gmsh emits a tet mesh with two cellZones")
         lines.append("# (cap_zone near each hemispherical cap, bulk_zone elsewhere);")
@@ -147,7 +156,9 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
     lines.append("(")
     lines.append("    cd _uvMesh/bulk_body")
     lines.append("    runApplication gmshToFoam ../bulk.msh")
-    if body.bulk_cells in ("polyhedral", "structured", "structured_full"):
+    if body.bulk_cells in (
+        "polyhedral", "structured", "structured_full", "structured_matryoshka",
+    ):
         lines.append("    runApplication polyDualMesh 90")
         # polyDualMesh leaves the cellZone built by gmshToFoam pointing at pre-
         # dual cell indices. Single-region bulks don't need it -- drop the file.
