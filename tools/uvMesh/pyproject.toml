@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uvmesh"
-version = "0.6.1"
+version = "0.6.2"
 description = "Hybrid O-grid-annulus + polyhedral-bulk mesh generator for UV reactor cases"
 requires-python = ">=3.8"
 # blockmeshbuilder is pinned from upstream and must be installed separately:

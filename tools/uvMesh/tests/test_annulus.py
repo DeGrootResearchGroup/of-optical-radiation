@@ -237,6 +237,61 @@ def test_structured_body_invokes_morphed_cap(hemisphere_lamp, tmp_path):
     assert "cyl_B_outer_morphed" not in text
 
 
+def test_structured_full_cylinder_z_range_extends_past_cap(hemisphere_lamp, tmp_path):
+    """The morphed cylinder's axial range must extend FAR beyond the
+    cap region. `searchableCylinder::findNearest` returns no-op when
+    the query point sits at the cylinder's axial boundary -- and the
+    polar cap face's boundary vertices are at exactly `z_top`. A
+    cylinder defined only between `centre` and `z_top` leaves those
+    vertices on the chord between cube-corner D_top vertices, which
+    collapses the polar cap face to an inscribed square (~64 % of
+    the disc) and undoes the structured_full topology.
+
+    Regression invariant: the cylinder's z range (for our z-axis
+    hemisphere_lamp fixture with centre z=0.10 and z_top=0.13)
+    must extend at least 1 m below and 1 m above the cap so the
+    boundary vertices land well inside the parametric domain."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0),
+        box_max=( 0.04,  0.04, 0.18),
+        bulk_cell_size=0.008,
+        bulk_cells="structured_full",
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    hemisphere_lamp.seam_patch_name = "lamp0_seam"
+    hemisphere_lamp.endcap_a_patch_name = "lamp0_endcap_A"
+    hemisphere_lamp.tip_patch_name_b = "lamp0_tip_B"
+    from uvmesh.annulus import write_annulus_dict
+    write_annulus_dict(hemisphere_lamp, str(tmp_path), body=body)
+    text = (tmp_path / "system" / "blockMeshDict").read_text()
+    # Extract the morphed cylinder definition.
+    import re
+    m = re.search(
+        r"cyl_B_outer_morphed[\w-]*\s*\{[^}]*?point1\s*\(\s*([\d.eE+-]+)\s+"
+        r"([\d.eE+-]+)\s+([\d.eE+-]+)\s*\)[^}]*?point2\s*\(\s*([\d.eE+-]+)\s+"
+        r"([\d.eE+-]+)\s+([\d.eE+-]+)\s*\)",
+        text, re.DOTALL,
+    )
+    assert m is not None, "cyl_B_outer_morphed definition not found"
+    z1 = float(m.group(3))
+    z2 = float(m.group(6))
+    # For the smoke geometry (centre z=0.10, z_top=0.13), the axial
+    # range must extend at least 1 m beyond the cap region in both
+    # directions so findNearest queries at the polar cap boundary
+    # z=z_top land well inside the parametric domain.
+    z_min = min(z1, z2)
+    z_max = max(z1, z2)
+    assert z_min < 0.10 - 1.0, (
+        f"morphed cylinder z_min = {z_min} must be < -0.9 to keep "
+        f"polar cap boundary projection robust"
+    )
+    assert z_max > 0.13 + 1.0, (
+        f"morphed cylinder z_max = {z_max} must be > 1.13 to keep "
+        f"polar cap boundary projection robust"
+    )
+
+
 def test_structured_full_body_adds_outer_cylinder_geometry(hemisphere_lamp, tmp_path):
     """When `body.bulk_cells == 'structured_full'`, the cap's outer
     edges and side-block outer faces are projected onto a Cylinder

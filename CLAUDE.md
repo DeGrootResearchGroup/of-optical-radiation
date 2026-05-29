@@ -882,7 +882,7 @@ and removing the lip artifact -- a regression invariant in
 | `"polyhedral"`      | n/a            | n/a (fails for hemispherical lamps) | n/a | n/a | ~40 (broken) | flat-flat lamps only |
 | `"hybrid"`          | ~12000 hex     | ~3000 tet + ~3300 poly | 1.00 / 1.00 | 89° | ~2 | balanced default for hemispherical lamps |
 | `"structured"`      | ~13000 hex     | ~4600 poly | 0.91 / 0.95 | 68° | 0 | cheaper annulus topology than structured_full; NCC mismatch on disc segments tolerable |
-| `"structured_full"` | ~13000 hex     | ~4600 poly | 0.9999 / 0.9999 | 60° | 0 | research-grade conformal NCC; recommended for fine-resolution dose work |
+| `"structured_full"` | ~13000 hex     | ~4600 poly | 0.99984 / 0.99992 | 60° | 0 | research-grade conformal NCC; recommended for fine-resolution dose work |
 
 `tools/uvMesh/tests/` contains a **pytest unit-test suite** (~80
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.

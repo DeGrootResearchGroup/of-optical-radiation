@@ -127,11 +127,25 @@ def write_morphed_cap(
     cyl_outer = None
     if full_disc_coverage:
         # Cylinder axis aligned with the lamp axis (lamp-local +z). The
-        # `Point` pair gives 2 points on the cylinder axis. We use the
-        # equator centre and the top-disc centre.
+        # `Point` pair gives 2 points on the cylinder axis.
+        #
+        # IMPORTANT: extend the axial range FAR beyond the actual cap
+        # region. `searchableCylinder::findNearest` silently fails (no
+        # snap) when the query point sits at the axial boundary of the
+        # cylinder -- and the polar cap's outer face has all its boundary
+        # vertices exactly at `z_top`. A cylinder defined only between
+        # `centre` and `z_top` leaves those queries on the chord between
+        # the cube-corner D_top vertices instead of arc-projected onto
+        # the disc edge, collapsing the polar cap to an inscribed-square
+        # patch (~64 % of the disc). Extending the cylinder to a large
+        # axial range puts all of the cap region's z values comfortably
+        # inside the cylinder's parametric domain, so the projection
+        # snaps every boundary vertex onto the disc-edge circle.
+        # 1000*r_outer is well beyond any plausible reactor geometry.
+        ext = 1000.0 * r_outer
         cyl_outer = Cylinder(
-            Point((centre[0], centre[1], centre[2])),
-            Point((centre[0], centre[1], z_top)),
+            Point((centre[0], centre[1], min(centre[2], z_top) - ext)),
+            Point((centre[0], centre[1], max(centre[2], z_top) + ext)),
             r_outer,
             name=f"cyl_{end_label}_outer_morphed",
         )
