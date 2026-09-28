@@ -1,0 +1,61 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        // Diffuse Lambertian wall: radiance L_w = emissivePower / pi.
+        // emissivePower = 5 W/m^2 -> G_analytical(x=0) = 2*pi*L_w = 10.
+        type            diffuseEmitter;
+        nBands          1;
+        emissivePower   (5);
+        value           uniform 0;
+    }
+    radOut
+    {
+        // Black absorber: forces outgoing radiance to zero.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    sides
+    {
+        // Specular mirrors -> finite-y geometry behaves as 1-D plane-parallel.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  1;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

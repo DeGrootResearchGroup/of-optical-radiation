@@ -50,6 +50,13 @@ in absorbing/scattering participating media:
   a user-supplied total radiant flux per band), refractive
   transmissive interface (with the étendue-correct n² factor and
   full Fresnel reflectivity).
+- Optional incident-flux output: list patches under
+  `DOMCoeffs { incidentFluxPatches (floor walls); }` and the solver
+  writes `qin` [W/m²], the radiative flux arriving at each face of
+  those patches (summed over bands; zero on the internal field and on
+  every other patch). It is the boundary term of each ray's discrete
+  transport equation, so it balances the discrete energy budget
+  exactly and is what a black patch absorbs.
 - Standalone solver `opticalRadiationFoam`.
 - `fvModel` wrapper for embedding into any host solver via the
   `fvModels` dictionary, without modifying the host's source.
@@ -230,7 +237,8 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 `isotropicSlab2D`, `diffuseReflectionSlab2D`, `rayleighSlab2D`,
 `molecularAbsorptionSlab2D`, `mieScatteringSlab2D`,
 `refractiveCoupledMatch`, `fvModelMatch`, `iesEmitterMatch`,
-`cyclicMatch`, `nonConformalCyclicMatch`, `radiationCoupledMatch`.
+`cyclicMatch`, `nonConformalCyclicMatch`, `radiationCoupledMatch`,
+`incidentFluxSlab2D`.
 
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 `pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`.

@@ -299,7 +299,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Twenty-seven regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Twenty-eight regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -1611,7 +1611,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Twenty-seven cases.
+  Twenty-eight cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1664,6 +1664,14 @@ The case suite is split into two trees:
   the fvModel embedding path end-to-end; `Alltest` requires
   bit-for-bit `G` agreement with `diffuseSlab2D`. Test-grade
   replacement for the pedagogical `tutorials/fvModelChannel2D`.
+- **`incidentFluxSlab2D`** — `diffuseSlab2D` geometry, transparent,
+  two bands (exitance 5 and 3 W/m²), with
+  `incidentFluxPatches (radOut radSource)`. Every emitted ray ends at
+  the black `radOut` wall via the mirrors and the discrete transport is
+  conservative ray by ray, so `qin` there must be exactly 8 W/m² at any
+  angular resolution (observed: 8 to all 7 written digits), zero on
+  `radSource`, and exactly zero on the unrequested `sides`. Swapping the
+  outgoing and incoming pixel sums in `ray::qOut` fails all three checks.
 - **`iesEmitterMatch`** — small slab with the `iesEmitter` BC fed a
   synthetic Lambertian-shape IES file. Test-grade replacement for the
   pedagogical `tutorials/iesEmitter2D`.
@@ -2262,6 +2270,11 @@ guessed.
    summary stats over listed patches + log-reduction at
    user-supplied `kInact`. A per-material spectral reflectance
    database is a convenience layer that can land later.
+   **The instantaneous part now exists:** `DOMCoeffs {
+   incidentFluxPatches (...); }` writes `qin` [W/m^2] per face of the
+   listed patches (`DOM::updateIncidentFlux`, from `ray::qOut`). What
+   is still missing is the time integration and the dose / TLV
+   bookkeeping function object.
 
 ---
 

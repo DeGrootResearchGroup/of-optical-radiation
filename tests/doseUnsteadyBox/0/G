@@ -1,0 +1,42 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | radiationDose unsteady-mode regression          |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      G;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+// Uniform fluence-rate field. Held constant throughout the host
+// transient; the radiationDose function object re-looks it up
+// each execute() call from the registry, but no one writes to
+// it. Drives the analytical dose D = G * t * 0.1 = 10 * 2 * 0.1
+// = 2.0 mJ/cm^2 for every escaping particle.
+internalField   uniform 10;
+
+boundaryField
+{
+    inlet
+    {
+        type            zeroGradient;
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    walls
+    {
+        type            zeroGradient;
+    }
+}
+
+// ************************************************************************* //

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""
+Check the incident flux qin written on the requested patches of a
+transparent plane-parallel slab.
+
+Setup
+-----
+A diffuse emitter at x = 0 (exitance 5 and 3 W/m^2 in two bands), a
+black absorber at x = 1, specular mirrors on the two y-walls, and a
+transparent medium. Every ray emitted at radSource travels, via the
+mirrors, to radOut and nowhere else, and the discrete transport
+equation is conservative ray by ray. So on every face of radOut
+
+    qin = sum over bands of the exitance = 8 W/m^2
+
+to the solver tolerance, at any angular resolution -- the pixelated
+solid-angle integrals of d.n over each half-space are exact for faces
+normal to x. Nothing travels back towards the emitter, so qin on
+radSource is zero, and qin on sides (not listed in
+incidentFluxPatches) must be exactly zero.
+
+What this catches: using the inward rather than the outward pixel
+sums (radOut would read zero), a missing division by the face area
+(radOut would read 8 * 1e-3), a band sum dropping a band (5 or 3),
+and qin leaking onto an unrequested patch.
+"""
+
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_patch_scalar_field
+
+EXPECTED_OUT = 8.0
+TOLERANCE = 1e-6
+N_FACES_OUT = 10
+
+
+def main() -> int:
+    failures = []
+
+    out = read_patch_scalar_field("1/qin", "radOut")
+    if len(out) != N_FACES_OUT:
+        failures.append(f"radOut: expected {N_FACES_OUT} faces, got {len(out)}")
+    worst = max(abs(q - EXPECTED_OUT) / EXPECTED_OUT for q in out)
+    print(f"radOut    qin min {min(out):.9f}  max {max(out):.9f}  "
+          f"(expected {EXPECTED_OUT}); worst relative error {worst:.2e}")
+    if worst > TOLERANCE:
+        failures.append(f"radOut qin off by {worst:.2e} relative (> {TOLERANCE})")
+
+    source = read_patch_scalar_field("1/qin", "radSource")
+    print(f"radSource qin max |q| {max(abs(q) for q in source):.3e} (expected 0)")
+    if max(abs(q) for q in source) > TOLERANCE * EXPECTED_OUT:
+        failures.append("radSource qin is not zero")
+
+    sides = read_patch_scalar_field("1/qin", "sides")
+    print(f"sides     qin max |q| {max(abs(q) for q in sides):.3e} (not requested: exactly 0)")
+    if any(q != 0.0 for q in sides):
+        failures.append("qin is non-zero on sides, which was not requested")
+
+    for msg in failures:
+        print("FAIL:", msg)
+    if not failures:
+        print("PASS")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

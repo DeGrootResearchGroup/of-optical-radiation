@@ -115,6 +115,16 @@ private:
             surfaceScalarField& Ji1
         ) const;
 
+        //- The same pixel sums as computeFluxCoeffs_, for one set of
+        //  face area vectors Sf (the internal faces, or one patch).
+        //  Adds into J0 / J1, which must be sized like Sf.
+        void faceFluxCoeffs_
+        (
+            const vectorField& Sf,
+            scalarField& J0,
+            scalarField& J1
+        ) const;
+
 public:
 
     // Constructors
@@ -148,6 +158,16 @@ public:
 
             //- Update boundaries
             void updateBoundary();
+
+            //- Radiant flux this ray carries OUT of the domain through
+            //  each face of patch patchi, per unit face area [W/m^2]:
+            //  the face radiance times the pixelated solid-angle
+            //  integral of d.n over the pixels leaving through the
+            //  face. This is exactly the boundary term of the ray's
+            //  discrete transport equation, so summed over rays it is
+            //  the incident flux the patch absorbs or reflects, and
+            //  its area integral balances the discrete energy budget.
+            tmp<scalarField> qOut(const label patchi) const;
 
         // Access
 

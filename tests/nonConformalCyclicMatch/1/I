@@ -1,0 +1,84 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "1";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        type            diffuseEmitter;
+        refValue        nonuniform List<scalar> 10(9.268897e-310 0 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310);
+        refGradient     nonuniform List<scalar> 10(9.268897e-310 0 3.09582e-115 1.226044e+290 2.235988e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310);
+        valueFraction   nonuniform List<scalar> 10(9.268897e-310 0 2.357256e-20 6.577372e-22 2.301901e-20 -2.050823e-21 9.761434e-21 1.954707e-20 -1.011659e-21 -2.341613e-20);
+        value           nonuniform List<scalar> 10(9.268897e-310 0 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310 9.271156e-310);
+        nBands          2;
+        emissivePower   2{5};
+    }
+    radOut
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   0;
+        diffuseFraction   0;
+    }
+    sides
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   1;
+        diffuseFraction   0;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+    AMI_L
+    {
+        type            zeroGradient;
+    }
+    AMI_R
+    {
+        type            zeroGradient;
+    }
+    nonConformalCyclic_on_AMI_L
+    {
+        type            nonConformalCyclic;
+    }
+    nonConformalCyclic_on_AMI_R
+    {
+        type            nonConformalCyclic;
+    }
+    nonConformalError_on_AMI_L
+    {
+        type            nonConformalError;
+    }
+    nonConformalError_on_AMI_R
+    {
+        type            nonConformalError;
+    }
+}
+
+
+// ************************************************************************* //

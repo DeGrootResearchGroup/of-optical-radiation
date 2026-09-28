@@ -166,21 +166,37 @@ void Foam::optical::ray::computeFluxCoeffs_
     surfaceScalarField& Ji1
 ) const
 {
+    faceFluxCoeffs_
+    (
+        mesh_.Sf().primitiveField(),
+        Ji0.primitiveFieldRef(),
+        Ji1.primitiveFieldRef()
+    );
+
+    const surfaceVectorField::Boundary& Sf_bf = mesh_.Sf().boundaryField();
+    surfaceScalarField::Boundary& Ji0_bf = Ji0.boundaryFieldRef();
+    surfaceScalarField::Boundary& Ji1_bf = Ji1.boundaryFieldRef();
+
+    forAll(Sf_bf, patchi)
+    {
+        faceFluxCoeffs_(Sf_bf[patchi], Ji0_bf[patchi], Ji1_bf[patchi]);
+    }
+}
+
+
+void Foam::optical::ray::faceFluxCoeffs_
+(
+    const vectorField& Sf,
+    scalarField& J0,
+    scalarField& J1
+) const
+{
     const label npTheta = dom_.nPixelTheta();
     const label npPhi   = dom_.nPixelPhi();
     const scalar deltaTheta  = dom_.deltaTheta();
     const scalar deltaPhi    = dom_.deltaPhi();
     const scalar pixelDTheta = deltaTheta/npTheta;
     const scalar pixelDPhi   = deltaPhi  /npPhi;
-
-    const surfaceVectorField& Sf = mesh_.Sf();
-    const vectorField& Sf_int = Sf.primitiveField();
-    scalarField& Ji0_int = Ji0.primitiveFieldRef();
-    scalarField& Ji1_int = Ji1.primitiveFieldRef();
-
-    const surfaceVectorField::Boundary& Sf_bf = Sf.boundaryField();
-    surfaceScalarField::Boundary& Ji0_bf = Ji0.boundaryFieldRef();
-    surfaceScalarField::Boundary& Ji1_bf = Ji1.boundaryFieldRef();
 
     for (label i = 0; i < npTheta; i++)
     {
@@ -199,40 +215,34 @@ void Foam::optical::ray::computeFluxCoeffs_
                     pixelTheta, pixelPhi, pixelDTheta, pixelDPhi
                 );
 
-            forAll(Sf_int, fi)
+            forAll(Sf, fi)
             {
-                const scalar dpd = pixelDir & Sf_int[fi];
+                const scalar dpd = pixelDir & Sf[fi];
                 if (dpd > 0)
                 {
-                    Ji0_int[fi] += pixelFlux & Sf_int[fi];
+                    J0[fi] += pixelFlux & Sf[fi];
                 }
                 else if (dpd < 0)
                 {
-                    Ji1_int[fi] += pixelFlux & Sf_int[fi];
-                }
-            }
-
-            forAll(Sf_bf, patchi)
-            {
-                const fvsPatchField<vector>& Sfp  = Sf_bf[patchi];
-                fvsPatchField<scalar>&       Ji0p = Ji0_bf[patchi];
-                fvsPatchField<scalar>&       Ji1p = Ji1_bf[patchi];
-
-                forAll(Sfp, fi)
-                {
-                    const scalar dpd = pixelDir & Sfp[fi];
-                    if (dpd > 0)
-                    {
-                        Ji0p[fi] += pixelFlux & Sfp[fi];
-                    }
-                    else if (dpd < 0)
-                    {
-                        Ji1p[fi] += pixelFlux & Sfp[fi];
-                    }
+                    J1[fi] += pixelFlux & Sf[fi];
                 }
             }
         }
     }
+}
+
+
+Foam::tmp<Foam::scalarField>
+Foam::optical::ray::qOut(const label patchi) const
+{
+    const vectorField& Sfp = mesh_.Sf().boundaryField()[patchi];
+    scalarField Jout(Sfp.size(), 0.0);
+    scalarField Jin(Sfp.size(), 0.0);
+    faceFluxCoeffs_(Sfp, Jout, Jin);
+
+    return
+        Jout*I_().boundaryField()[patchi]
+       /mesh_.magSf().boundaryField()[patchi];
 }
 
 

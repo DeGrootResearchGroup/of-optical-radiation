@@ -1,0 +1,52 @@
+/*---------------------------------------------------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+Build  : 13-18870c24d21c
+Exec   : createNonConformalCouples -fields AMI_L AMI_R
+Date   : Sep 28 2026
+Time   : 22:23:42
+Host   : "7e717ddf5ab9"
+PID    : 2411
+I/O    : uncollated
+Case   : /code/tests/nonConformalCyclicMatch
+nProcs : 1
+sigFpe : Floating point exception trapping - not supported on this platform
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 10)
+allowSystemOperations : Allowing user-supplied system call operations
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Reading geometric fields
+
+Reading volScalarField I
+
+Adding nonConformalCyclic interfaces between patches: 
+    (AMI_L AMI_R)
+In regions: 
+    (region0 region0)
+Named:
+    (nonConformalCyclic_on_AMI_L nonConformalCyclic_on_AMI_R)
+With transform: 
+    transformType   none;
+
+patchToPatch: Calculating couplings between ...
+    source patch AMI_L with 10 faces and ...
+    target patch AMI_R with 13 faces
+    Source min/average/max coverage = 1/1/1
+    Target min/average/max coverage = 1/1/1
+    Source average openness/error/depth/angle = 5.421011e-17/6.319843e-16/5.235563e-16/0
+    Source max openness/error/depth/angle = 2.710505e-16/1.127019e-15/2.103012e-15/0
+    44 couplings calculated in 0.000367s
+fvMeshStitcher: Connecting
+    Cell min/average/max openness = 0/2.295091e-18/1.477033e-16
+    Cell min/average/max projected volume fraction = 0/1.946752e-15/1.498801e-14
+
+Writing mesh to 0
+
+End
+

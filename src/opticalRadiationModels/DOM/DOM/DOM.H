@@ -140,6 +140,16 @@ class DOM
         //- Pointer to phase function model
         autoPtr<phaseFunctionModel> phaseFunctionModel_;
 
+        //- Patches on which the incident flux is recorded (from the
+        //  optional DOMCoeffs entry incidentFluxPatches; empty by
+        //  default, in which case qin_ is never allocated)
+        labelHashSet incidentFluxPatches_;
+
+        //- Incident radiative flux [W/m^2] on the patches in
+        //  incidentFluxPatches_, summed over bands; the internal field
+        //  and every other patch hold zero. Written as "qin".
+        autoPtr<volScalarField> qin_;
+
     // Private member functions
 
         DOM(const DOM&) = delete;
@@ -184,6 +194,9 @@ public:
 
             //- Update G
             void updateG();
+
+            //- Update qin on the requested patches (no-op if none)
+            void updateIncidentFlux();
 
             //- Look up the registered DOM model from any object registry
             //  (typically a BC's `db()`). Replaces the
