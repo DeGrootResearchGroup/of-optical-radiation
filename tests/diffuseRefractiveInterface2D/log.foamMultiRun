@@ -8,9 +8,9 @@
 Build  : 13-18870c24d21c
 Exec   : foamMultiRun
 Date   : Sep 28 2026
-Time   : 22:23:25
-Host   : "7e717ddf5ab9"
-PID    : 2026
+Time   : 23:18:28
+Host   : "990b870a7045"
+PID    : 4081
 I/O    : uncollated
 Case   : /code/tests/diffuseRefractiveInterface2D
 nProcs : 1
@@ -6455,7 +6455,7 @@ mediumB DILUPBiCG:  Solving for I_0_30, Initial residual = 0.2058869, Final resi
 mediumB DILUPBiCG:  Solving for I_0_31, Initial residual = 0.1603955, Final residual = 8.082085e-08, No Iterations 14
         Time = 1s
         
-        ExecutionTime = 2.289437 s  ClockTime = 4 s
+        ExecutionTime = 2.275554 s  ClockTime = 4 s
         
         End
         

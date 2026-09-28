@@ -299,7 +299,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Twenty-eight regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Twenty-nine regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -470,8 +470,12 @@ re-litigate them.
   full `volScalarField`s, reused across all bands within the same
   outer iteration. At 1 M cells, 8 bytes/cell, an 8-band 8x16-angle
   3-D problem this works out to about 2 GB for the snapshot, on top
-  of the `nRay = nAngle * nBand` `I_j` fields themselves. The
-  snapshot exists to symmetrise the in-scatter coupling -- without
+  of the `nRay = nAngle * nBand` `I_j` fields themselves. **It is
+  allocated only when the phase function in-scatters** (lazily, in
+  the first `calculate()` that needs it), so a non-scattering medium
+  -- far-UV air, a clear-water reactor -- holds one field per ray, not
+  two: that halving is what lets 576 directions fit on a 2.5M-cell
+  room in 18 GB. The snapshot exists to symmetrise the in-scatter coupling -- without
   it, the per-ray sweep in `DOM::calculate` is Gauss-Seidel and
   oscillates on strongly-coupled cases (multi-band 3-D with
   anisotropic phase functions); see the three-bug-stack note above.
@@ -515,29 +519,37 @@ re-litigate them.
   comes from a per-band `power` [W].** The BC parses the candela
   table (LM-63 Type C only) via `iesPhotometry`, but every emitting
   ray `d` going INTO the domain through the patch gets
-  `L_d = (P_band / (A_patch * Phi_table)) * I_table(d) / max(d.n_avg, eps)`,
+  `L_d = (P_band / (A_patch * Phi_table)) * I_table(d) * Omega_d / (dAve_d . n_avg)`,
   where `Phi_table = sum over outgoing rays of I_table(d)*Omega_d`
-  (no cosine weight) and `n_avg` is the patch-averaged inward normal
-  computed globally (reduced across processors). With this
-  normalisation the patch's far-field emitted intensity is exactly
-  proportional to `I_table(d)` and the total emitted radiometric
-  flux is exactly `P_band` -- the candela vs W/sr question on the
-  IES file becomes irrelevant. The cos-floor `eps = 1e-3` drops
-  rays within ~3 deg of grazing to bound the divergent `I/cos`
-  ratio; below the angular resolution of any DOM grid we run
-  (`nPhi >= 4` -> 22.5 deg per cell) so the dropped flux is
-  negligible for well-behaved IES distributions. `fixtureAxis`
-  defines the global-frame direction of IES gamma=0 (the fixture's
-  nominal beam axis); `fixtureUp` defines IES h=0 in the plane
-  perpendicular to it (orthogonalised at construction). For
+  (no cosine weight), `n_avg` is the patch-averaged inward normal
+  computed globally (reduced across processors), and `dAve_d` is the
+  solid-angle integral of the direction over the ray's bin -- the
+  factor the transport multiplies the face radiance by. So the emitted
+  flux `sum_d L_d A_patch (dAve_d . n_avg)` is exactly `P_band` at any
+  angular resolution (for a flat patch whose plane no bin straddles),
+  and the emitted intensity per bin is `P I_table(d) / Phi_table`,
+  proportional to the table -- the candela vs W/sr question on the IES
+  file becomes irrelevant. ⚠️ Dividing by `cos(d, n_avg) Omega_d`
+  instead (which the two approach only as the bins shrink) misstates
+  the emitted power, in a grid-dependent direction: 7.6 % short at
+  `nTheta = 4` in 3-D, 8 % over at `nPhi = 4, nTheta = 2`
+  (`iesEmitterEnergy`), 22 % short on the 16-ray 2-D grid, where
+  `Omega_d = 2 dphi` but `dAve_d . n = pi sin(dphi/2) cos(phi_d)`.
+  That was the shipped normalisation until 2026-09-28; found by
+  integrating the new `qin` over every patch of a room lit by a
+  Care222 lamp (109.8 mW out of 118.8). The cos-floor `eps = 1e-3`
+  drops rays within ~3 deg of grazing, below the angular resolution
+  of any DOM grid we run (`nPhi >= 4` -> 22.5 deg per cell).
+  `fixtureAxis` defines the global-frame direction of IES gamma=0 (the
+  fixture's nominal beam axis); `fixtureUp` defines IES h=0 in the
+  plane perpendicular to it (orthogonalised at construction). For
   axisymmetric IES tables (single horizontal angle) `fixtureUp`
   doesn't matter -- supply any vector not collinear with
-  `fixtureAxis`. Validated by `iesEmitter2D` against the
-  plane-parallel `2*pi*L_w*E_2(kappa*x)` analytical with a
-  Lambertian-shape IES, where the cos-shape exactly cancels the
-  per-ray `I/cos` and the BC reduces to a constant Lambertian
-  radiance whose `L_w` is recomputed in the validate script from
-  `power / (A_patch * Phi_table_discrete)`.
+  `fixtureAxis`. Validated by `iesEmitter2D` / `iesEmitterMatch`
+  against the plane-parallel `2*pi*L_w*E_2(kappa*x)` analytical with a
+  Lambertian-shape IES, which makes every ray's radiance
+  `L_w = P / (pi A_patch)`, and by `iesEmitterEnergy`, whose incident
+  flux over every wall must total `P`.
 
 ### fvModel Wrapper (`src/opticalRadiationModels/fvModels/opticalRadiation/`)
 
@@ -1611,7 +1623,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Twenty-eight cases.
+  Twenty-nine cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -1675,6 +1687,13 @@ The case suite is split into two trees:
 - **`iesEmitterMatch`** — small slab with the `iesEmitter` BC fed a
   synthetic Lambertian-shape IES file. Test-grade replacement for the
   pedagogical `tutorials/iesEmitter2D`.
+- **`iesEmitterEnergy`** — the `iesHframeOrientation` box (coarsened to
+  20 x 10 x 10) on a deliberately coarse 16-ray grid, transparent, black
+  walls, `incidentFluxPatches (".*")`. Every emitted watt leaves through
+  the walls, so the area integral of `qin` over all six patches must be
+  the BC's `power` (1 W): observed 1.000000000 W (3.5e-10). Normalising
+  by `cos(d) Omega` instead of the bin integral `dAve . n` gives
+  1.082 W and fails it.
 - **`iesHframeOrientation`** — companion to `iesEmitterMatch` that
   pins down the BC's h-frame sign convention against a non-axisymmetric
   IES file. The Lambertian IES in `iesEmitterMatch` is rotationally

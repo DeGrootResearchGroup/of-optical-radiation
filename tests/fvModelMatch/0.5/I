@@ -23,10 +23,10 @@ boundaryField
     radSource
     {
         type            diffuseEmitter;
-        refValue        nonuniform List<scalar> 10(2.263469e-313 0 0 0 0 0 0 0 0 0);
-        refGradient     nonuniform List<scalar> 10(1.390664e-309 1.390664e-309 9.271168e-310 9.271168e-310 0 0 0 0 0 0);
-        valueFraction   nonuniform List<scalar> 10(1.390664e-309 1.390664e-309 0 0 0 0 0 0 0 0);
-        value           nonuniform List<scalar> 10(1.390664e-309 1.390664e-309 0 0 0 0 0 0 0 0);
+        refValue        nonuniform List<scalar> 10(2.263475e-313 0 0 0 0 0 0 0 0 0);
+        refGradient     nonuniform List<scalar> 10(1.390661e-309 1.390661e-309 9.271192e-310 9.271192e-310 0 0 0 0 0 0);
+        valueFraction   nonuniform List<scalar> 10(1.390661e-309 1.390661e-309 0 0 0 0 0 0 0 0);
+        value           nonuniform List<scalar> 10(1.390661e-309 1.390661e-309 0 0 0 0 0 0 0 0);
         nBands          2;
         emissivePower   2{5};
     }

@@ -116,6 +116,10 @@ class DOM
         //  outer iteration on strongly-coupled cases (multi-band 3-D
         //  with anisotropic phase function).
         //
+        //  Allocated only when the phase function in-scatters (on the
+        //  first calculate() that needs it), so a non-scattering medium
+        //  holds one radiance field per ray rather than two.
+        //
         //  Sized nAngle_, not nRay_: the in-scatter coupling is
         //  intra-band (extinction is diagonal in band, and the phase
         //  table only sums over rays in the same band as i), so the
@@ -141,8 +145,9 @@ class DOM
         autoPtr<phaseFunctionModel> phaseFunctionModel_;
 
         //- Patches on which the incident flux is recorded (from the
-        //  optional DOMCoeffs entry incidentFluxPatches; empty by
-        //  default, in which case qin_ is never allocated)
+        //  optional DOMCoeffs entry incidentFluxPatches, coupled patches
+        //  excluded; empty by default, in which case qin_ is never
+        //  allocated)
         labelHashSet incidentFluxPatches_;
 
         //- Incident radiative flux [W/m^2] on the patches in
@@ -157,6 +162,9 @@ class DOM
 
         //- Check that dimension of the mesh is valid for simulation
         void checkDim_();
+
+        //- Allocate ISnapshot_, one field per angle
+        void allocateSnapshot_();
 
         //- Set up a radiance ray
         void setRay_

@@ -23,10 +23,10 @@ boundaryField
     radSource
     {
         type            diffuseEmitter;
-        refValue        nonuniform List<scalar> 10(2.26348e-313 0 1.81082e+272 5.89991e+169 4.30779e-80 1.415869e+195 0 0 0 0);
-        refGradient     nonuniform List<scalar> 10(1.390661e-309 1.390661e-309 0 0 4.251086e+228 2.461634e-154 1.062549e-81 5.960859e+175 6.01347e-154 1.138173e+243);
-        valueFraction   nonuniform List<scalar> 10(1.390661e-309 1.390661e-309 0 0 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91);
-        value           nonuniform List<scalar> 10(9.269231e-310 0 1.81082e+272 5.89991e+169 4.30779e-80 6.153471e+223 6.216483e-310 9.271212e-310 4.940656e-324 2.371515e-322);
+        refValue        nonuniform List<scalar> 10(2.26347e-313 0 1.81082e+272 5.89991e+169 4.30779e-80 1.415869e+195 0 0 0 0);
+        refGradient     nonuniform List<scalar> 10(1.390662e-309 1.390662e-309 0 0 4.251086e+228 2.461634e-154 1.062549e-81 5.960859e+175 6.01347e-154 1.138173e+243);
+        valueFraction   nonuniform List<scalar> 10(1.390662e-309 1.390662e-309 0 0 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91);
+        value           nonuniform List<scalar> 10(9.268979e-310 0 1.81082e+272 5.89991e+169 4.30779e-80 6.153471e+223 6.216483e-310 9.271172e-310 4.940656e-324 2.371515e-322);
         nBands          2;
         emissivePower   2(5 3);
     }

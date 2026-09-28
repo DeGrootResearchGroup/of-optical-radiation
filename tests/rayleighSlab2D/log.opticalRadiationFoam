@@ -8,9 +8,9 @@
 Build  : 13-18870c24d21c
 Exec   : opticalRadiationFoam
 Date   : Sep 28 2026
-Time   : 22:23:42
-Host   : "7e717ddf5ab9"
-PID    : 2603
+Time   : 23:18:46
+Host   : "990b870a7045"
+PID    : 4646
 I/O    : uncollated
 Case   : /code/tests/rayleighSlab2D
 nProcs : 1
@@ -885,7 +885,7 @@ DILUPBiCG:  Solving for I_0_12, Initial residual = 6.018046e-07, Final residual 
 DILUPBiCG:  Solving for I_0_13, Initial residual = 7.750148e-07, Final residual = 7.750148e-07, No Iterations 0
 DILUPBiCG:  Solving for I_0_14, Initial residual = 8.62693e-07, Final residual = 8.62693e-07, No Iterations 0
 DILUPBiCG:  Solving for I_0_15, Initial residual = 6.201058e-07, Final residual = 6.201058e-07, No Iterations 0
-ExecutionTime = 0.23338 s  ClockTime = 1 s
+ExecutionTime = 0.243931 s  ClockTime = 0 s
 
 End
 

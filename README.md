@@ -54,7 +54,8 @@ in absorbing/scattering participating media:
   `DOMCoeffs { incidentFluxPatches (floor walls); }` and the solver
   writes `qin` [W/m²], the radiative flux arriving at each face of
   those patches (summed over bands; zero on the internal field and on
-  every other patch). It is the boundary term of each ray's discrete
+  every other patch). Coupled patches (processor boundaries, cyclics)
+  are never selected, so `(".*")` means every real surface. It is the boundary term of each ray's discrete
   transport equation, so it balances the discrete energy budget
   exactly and is what a black patch absorbs.
 - Standalone solver `opticalRadiationFoam`.
@@ -238,7 +239,7 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 `molecularAbsorptionSlab2D`, `mieScatteringSlab2D`,
 `refractiveCoupledMatch`, `fvModelMatch`, `iesEmitterMatch`,
 `cyclicMatch`, `nonConformalCyclicMatch`, `radiationCoupledMatch`,
-`incidentFluxSlab2D`.
+`incidentFluxSlab2D`, `iesEmitterEnergy`.
 
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 `pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`.

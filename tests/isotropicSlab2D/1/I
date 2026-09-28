@@ -26,7 +26,7 @@ boundaryField
         refValue        nonuniform List<scalar> 10(1.390665e-309 1.390665e-309 0 0 4.251086e+228 2.461634e-154 1.062549e-81 5.960859e+175 6.01347e-154 1.138173e+243);
         refGradient     nonuniform List<scalar> 10(1.390665e-309 1.390665e-309 0 0 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91);
         valueFraction   nonuniform List<scalar> 10(1.390665e-309 1.390665e-309 0 0 6.073008e+199 1.287714e+214 6.01347e-154 8.752961e+227 9.555038e+179 6.01347e-154);
-        value           nonuniform List<scalar> 10(2.263478e-313 0 1.991173e+161 1.063999e+248 2.116727e+214 2.216441e-312 0 0 0 0);
+        value           nonuniform List<scalar> 10(2.26347e-313 0 1.991173e+161 1.063999e+248 2.116727e+214 2.216441e-312 0 0 0 0);
         nBands          1;
         emissivePower   1(5);
     }

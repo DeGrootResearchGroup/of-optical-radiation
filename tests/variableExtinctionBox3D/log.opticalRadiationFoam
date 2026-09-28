@@ -8,9 +8,9 @@
 Build  : 13-18870c24d21c
 Exec   : opticalRadiationFoam
 Date   : Sep 28 2026
-Time   : 22:23:44
-Host   : "7e717ddf5ab9"
-PID    : 2728
+Time   : 23:18:47
+Host   : "990b870a7045"
+PID    : 4809
 I/O    : uncollated
 Case   : /code/tests/variableExtinctionBox3D
 nProcs : 1
@@ -3032,7 +3032,7 @@ smoothSolver:  Solving for I_3_46, Initial residual = 3.759448e-06, Final residu
 smoothSolver:  Solving for I_3_47, Initial residual = 5.20642e-06, Final residual = 1.181413e-07, No Iterations 1
 smoothSolver:  Solving for I_3_48, Initial residual = 1.775724e-06, Final residual = 2.706212e-07, No Iterations 1
 smoothSolver:  Solving for I_3_49, Initial residual = 3.752032e-06, Final residual = 7.851358e-07, No Iterations 1
-ExecutionTime = 2.138449 s  ClockTime = 2 s
+ExecutionTime = 2.142269 s  ClockTime = 2 s
 
 End
 

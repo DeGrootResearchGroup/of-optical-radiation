@@ -8,9 +8,9 @@
 Build  : 13-18870c24d21c
 Exec   : opticalRadiationFoam
 Date   : Sep 28 2026
-Time   : 22:23:25
-Host   : "7e717ddf5ab9"
-PID    : 2019
+Time   : 23:18:28
+Host   : "990b870a7045"
+PID    : 4069
 I/O    : uncollated
 Case   : /code/tests/cyclicMatch
 nProcs : 1
@@ -1600,7 +1600,7 @@ DILUPBiCG:  Solving for I_1_12, Initial residual = 8.016787e-07, Final residual 
 DILUPBiCG:  Solving for I_1_13, Initial residual = 8.567681e-07, Final residual = 8.567681e-07, No Iterations 0
 DILUPBiCG:  Solving for I_1_14, Initial residual = 9.231366e-07, Final residual = 9.231366e-07, No Iterations 0
 DILUPBiCG:  Solving for I_1_15, Initial residual = 8.265813e-07, Final residual = 8.265813e-07, No Iterations 0
-ExecutionTime = 0.348547 s  ClockTime = 1 s
+ExecutionTime = 0.380664 s  ClockTime = 1 s
 
 End
 

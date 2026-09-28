@@ -136,37 +136,6 @@ Foam::optical::DOM::DOM(const volScalarField& I)
 
     Info<< "DOM : Allocated " << IRay_.size() << " rays" << endl;
 
-    // Allocate the per-angle radiance snapshot (one volScalarField per
-    // angle in the current band, matching IRay_[rayId(iAngle, iBand)].I()
-    // in size and dimensions). Used by calculate() to freeze I_j values
-    // at the start of each outer iteration *within* a band so the
-    // in-scatter source uses a Jacobi update. Re-filled at the top of
-    // each per-band sweep; the same nAngle_ buffers are reused for
-    // every band (legal because the in-scatter coupling is intra-band).
-    // The seed copy is from band 0; subsequent overwrites in
-    // calculate() preserve only the volScalarField's mesh and
-    // dimensions, not its values.
-    ISnapshot_.setSize(nAngle_);
-    for (label iAngle = 0; iAngle < nAngle_; iAngle++)
-    {
-        ISnapshot_.set
-        (
-            iAngle,
-            new volScalarField
-            (
-                IOobject
-                (
-                    "ISnapshot_" + Foam::name(iAngle),
-                    mesh_.time().name(),
-                    mesh_,
-                    IOobject::NO_READ,
-                    IOobject::NO_WRITE
-                ),
-                IRay_[rayId(iAngle, 0)].I()
-            )
-        );
-    }
-
     forAll(GLambda_, iBand)
     {
         GLambda_.set
@@ -191,10 +160,20 @@ Foam::optical::DOM::DOM(const volScalarField& I)
 
     if (coeffs_.found("incidentFluxPatches"))
     {
-        incidentFluxPatches_ = mesh_.boundaryMesh().patchSet
+        // Coupled patches (processor boundaries of a parallel run,
+        // cyclics) are interfaces inside the domain, not surfaces, so a
+        // wildcard never selects them.
+        const labelHashSet matched = mesh_.boundaryMesh().patchSet
         (
             wordReList(coeffs_.lookup("incidentFluxPatches"))
         );
+        forAllConstIter(labelHashSet, matched, iter)
+        {
+            if (!mesh_.boundaryMesh()[iter.key()].coupled())
+            {
+                incidentFluxPatches_.insert(iter.key());
+            }
+        }
         if (incidentFluxPatches_.empty())
         {
             FatalIOErrorInFunction(coeffs_)
@@ -263,6 +242,34 @@ bool Foam::optical::DOM::read()
     }
 }
 
+void Foam::optical::DOM::allocateSnapshot_()
+{
+    // One volScalarField per angle in the current band, matching
+    // IRay_[rayId(iAngle, iBand)].I() in size and dimensions. Seeded from
+    // band 0; calculate() overwrites the values before each per-band sweep.
+    ISnapshot_.setSize(nAngle_);
+    for (label iAngle = 0; iAngle < nAngle_; iAngle++)
+    {
+        ISnapshot_.set
+        (
+            iAngle,
+            new volScalarField
+            (
+                IOobject
+                (
+                    "ISnapshot_" + Foam::name(iAngle),
+                    mesh_.time().name(),
+                    mesh_,
+                    IOobject::NO_READ,
+                    IOobject::NO_WRITE
+                ),
+                IRay_[rayId(iAngle, 0)].I()
+            )
+        );
+    }
+}
+
+
 void Foam::optical::DOM::calculate()
 {
     // Correct the extinction model.
@@ -288,6 +295,15 @@ void Foam::optical::DOM::calculate()
     );
 
     const bool doInScatter = phaseFunctionModel_->inScatter();
+
+    // The snapshot only feeds the in-scatter source, and it is as large as
+    // the radiance itself (nAngle fields), so a non-scattering medium never
+    // allocates it. Allocated on first need rather than at construction so
+    // a phase function switched on by read() still gets one.
+    if (doInScatter && ISnapshot_.empty())
+    {
+        allocateSnapshot_();
+    }
     scalar maxResidual = 0.0;
     label radIter = 0;
 

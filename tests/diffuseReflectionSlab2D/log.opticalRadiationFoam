@@ -8,9 +8,9 @@
 Build  : 13-18870c24d21c
 Exec   : opticalRadiationFoam
 Date   : Sep 28 2026
-Time   : 22:23:25
-Host   : "7e717ddf5ab9"
-PID    : 2016
+Time   : 23:18:28
+Host   : "990b870a7045"
+PID    : 4068
 I/O    : uncollated
 Case   : /code/tests/diffuseReflectionSlab2D
 nProcs : 1
@@ -6432,7 +6432,7 @@ DILUPBiCG:  Solving for I_0_12, Initial residual = 0.3537807, Final residual = 2
 DILUPBiCG:  Solving for I_0_13, Initial residual = 0.4462976, Final residual = 6.117524e-17, No Iterations 4
 DILUPBiCG:  Solving for I_0_14, Initial residual = 0.5678611, Final residual = 3.520976e-16, No Iterations 4
 DILUPBiCG:  Solving for I_0_15, Initial residual = 0.5325955, Final residual = 1.157212e-16, No Iterations 4
-ExecutionTime = 0.558376 s  ClockTime = 1 s
+ExecutionTime = 0.544614 s  ClockTime = 1 s
 
 End
 

@@ -8,9 +8,9 @@
 Build  : 13-18870c24d21c
 Exec   : opticalRadiationFoam
 Date   : Sep 28 2026
-Time   : 22:23:42
-Host   : "7e717ddf5ab9"
-PID    : 2604
+Time   : 23:18:46
+Host   : "990b870a7045"
+PID    : 4647
 I/O    : uncollated
 Case   : /code/tests/scatteringSlab3D
 nProcs : 1
@@ -2112,7 +2112,7 @@ DILUPBiCG:  Solving for I_0_28, Initial residual = 1.738082e-06, Final residual 
 DILUPBiCG:  Solving for I_0_29, Initial residual = 7.070127e-06, Final residual = 1.180781e-18, No Iterations 1
 DILUPBiCG:  Solving for I_0_30, Initial residual = 2.187135e-06, Final residual = 4.625434e-07, No Iterations 2
 DILUPBiCG:  Solving for I_0_31, Initial residual = 8.226188e-07, Final residual = 8.226188e-07, No Iterations 0
-ExecutionTime = 1.195367 s  ClockTime = 2 s
+ExecutionTime = 1.200024 s  ClockTime = 1 s
 
 End
 

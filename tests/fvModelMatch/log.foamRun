@@ -8,9 +8,9 @@
 Build  : 13-18870c24d21c
 Exec   : foamRun
 Date   : Sep 28 2026
-Time   : 22:23:29
-Host   : "7e717ddf5ab9"
-PID    : 2215
+Time   : 23:18:32
+Host   : "990b870a7045"
+PID    : 4266
 I/O    : uncollated
 Case   : /code/tests/fvModelMatch
 nProcs : 1
@@ -1629,7 +1629,7 @@ GAMG:  Solving for p, Initial residual = 1, Final residual = 0.08404963, No Iter
 time step continuity errors : sum local = 2.016595e-08, global = 1.09456e-23
 GAMG:  Solving for p, Initial residual = 0.006854915, Final residual = 3.875152e-07, No Iterations 8
 time step continuity errors : sum local = 1.121818e-12, global = 3.052888e-23, cumulative = 3.052888e-23
-ExecutionTime = 0.408284 s  ClockTime = 1 s
+ExecutionTime = 0.389442 s  ClockTime = 1 s
 
 Courant Number mean: 1.597372e-05 max: 3.994294e-05
 Time = 0.1s
@@ -1672,7 +1672,7 @@ GAMG:  Solving for p, Initial residual = 0.02165623, Final residual = 0.00053598
 time step continuity errors : sum local = 2.026617e-09, global = -2.983914e-23
 GAMG:  Solving for p, Initial residual = 0.0005241518, Final residual = 5.025508e-07, No Iterations 6
 time step continuity errors : sum local = 1.581485e-12, global = 2.85866e-23, cumulative = 5.911548e-23
-ExecutionTime = 0.414195 s  ClockTime = 1 s
+ExecutionTime = 0.395228 s  ClockTime = 1 s
 
 Courant Number mean: 3.192231e-05 max: 7.982918e-05
 Time = 0.15s
@@ -1715,7 +1715,7 @@ GAMG:  Solving for p, Initial residual = 0.01453169, Final residual = 0.00034283
 time step continuity errors : sum local = 1.328025e-09, global = 3.273583e-23
 GAMG:  Solving for p, Initial residual = 0.0003378806, Final residual = 3.309614e-07, No Iterations 5
 time step continuity errors : sum local = 1.009515e-12, global = -1.017507e-25, cumulative = 5.901373e-23
-ExecutionTime = 0.421353 s  ClockTime = 1 s
+ExecutionTime = 0.40073 s  ClockTime = 1 s
 
 Courant Number mean: 4.784616e-05 max: 0.0001196587
 Time = 0.2s
@@ -1758,7 +1758,7 @@ GAMG:  Solving for p, Initial residual = 0.01094039, Final residual = 0.00024418
 time step continuity errors : sum local = 9.513563e-10, global = -5.843755e-23
 GAMG:  Solving for p, Initial residual = 0.0002416968, Final residual = 4.551967e-07, No Iterations 6
 time step continuity errors : sum local = 1.351049e-12, global = -6.670785e-23, cumulative = -7.694118e-24
-ExecutionTime = 0.429916 s  ClockTime = 1 s
+ExecutionTime = 0.406505 s  ClockTime = 1 s
 
 Courant Number mean: 6.37456e-05 max: 0.0001594316
 Time = 0.25s
@@ -1801,7 +1801,7 @@ GAMG:  Solving for p, Initial residual = 0.008816072, Final residual = 0.0001877
 time step continuity errors : sum local = 7.278274e-10, global = -1.371198e-23
 GAMG:  Solving for p, Initial residual = 0.0001863626, Final residual = 7.105177e-07, No Iterations 4
 time step continuity errors : sum local = 2.207719e-12, global = -2.354144e-23, cumulative = -3.123556e-23
-ExecutionTime = 0.4364 s  ClockTime = 1 s
+ExecutionTime = 0.411706 s  ClockTime = 1 s
 
 Courant Number mean: 7.962078e-05 max: 0.000199148
 Time = 0.3s
@@ -1844,7 +1844,7 @@ GAMG:  Solving for p, Initial residual = 0.007416023, Final residual = 0.0001518
 time step continuity errors : sum local = 5.825668e-10, global = -3.935469e-24
 GAMG:  Solving for p, Initial residual = 0.0001509072, Final residual = 5.361632e-07, No Iterations 5
 time step continuity errors : sum local = 1.613941e-12, global = -2.016471e-22, cumulative = -2.328827e-22
-ExecutionTime = 0.443246 s  ClockTime = 1 s
+ExecutionTime = 0.416386 s  ClockTime = 1 s
 
 Courant Number mean: 9.547183e-05 max: 0.0002388079
 Time = 0.35s
@@ -1887,7 +1887,7 @@ GAMG:  Solving for p, Initial residual = 0.006413137, Final residual = 0.0001271
 time step continuity errors : sum local = 4.818715e-10, global = -3.168567e-22
 GAMG:  Solving for p, Initial residual = 0.0001265329, Final residual = 2.832581e-07, No Iterations 5
 time step continuity errors : sum local = 1.168452e-12, global = -5.926486e-23, cumulative = -2.921475e-22
-ExecutionTime = 0.449716 s  ClockTime = 1 s
+ExecutionTime = 0.421078 s  ClockTime = 1 s
 
 Courant Number mean: 0.0001112988 max: 0.0002784114
 Time = 0.4s
@@ -1930,7 +1930,7 @@ GAMG:  Solving for p, Initial residual = 0.0056442, Final residual = 0.000109472
 time step continuity errors : sum local = 4.080868e-10, global = 1.512038e-22
 GAMG:  Solving for p, Initial residual = 0.0001089903, Final residual = 2.775341e-07, No Iterations 5
 time step continuity errors : sum local = 1.197895e-12, global = -2.982253e-23, cumulative = -3.219701e-22
-ExecutionTime = 0.455624 s  ClockTime = 1 s
+ExecutionTime = 0.425972 s  ClockTime = 1 s
 
 Courant Number mean: 0.0001271019 max: 0.0003179587
 Time = 0.45s
@@ -1973,7 +1973,7 @@ GAMG:  Solving for p, Initial residual = 0.005034184, Final residual = 9.571593e
 time step continuity errors : sum local = 3.510362e-10, global = 4.210119e-22
 GAMG:  Solving for p, Initial residual = 9.529511e-05, Final residual = 3.639838e-07, No Iterations 4
 time step continuity errors : sum local = 1.119818e-12, global = -9.770653e-23, cumulative = -4.196766e-22
-ExecutionTime = 0.461347 s  ClockTime = 1 s
+ExecutionTime = 0.43086 s  ClockTime = 1 s
 
 Courant Number mean: 0.0001428811 max: 0.0003574497
 Time = 0.5s
@@ -2016,7 +2016,7 @@ GAMG:  Solving for p, Initial residual = 0.004533821, Final residual = 8.491038e
 time step continuity errors : sum local = 3.058502e-10, global = -1.627123e-22
 GAMG:  Solving for p, Initial residual = 8.456611e-05, Final residual = 5.123765e-07, No Iterations 4
 time step continuity errors : sum local = 2.195783e-12, global = -3.037637e-22, cumulative = -7.234403e-22
-ExecutionTime = 0.473493 s  ClockTime = 1 s
+ExecutionTime = 0.438722 s  ClockTime = 1 s
 
 End
 
