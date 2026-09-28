@@ -1,0 +1,46 @@
+IESNA:LM-63-2002
+[TEST]      synthetic non-axisymmetric fixture for h-frame convention test
+[MANUFAC]   none
+[LUMCAT]    SIN-H-FULL
+[LAMP]      idealised
+[ISSUEDATE] 2026-05-11
+[OTHER]     Used by tests/iesHframeOrientation to verify that the
+[OTHER]     iesEmitter BC's world-direction-to-(gamma, h) conversion
+[OTHER]     and iesPhotometry's table lookup share a consistent sign
+[OTHER]     convention for h on a non-axisymmetric IES file.
+[OTHER]
+[OTHER]     Symmetry: FULL (last horizontal angle = 315 != 90 / 180),
+[OTHER]     so the table is treated as cyclic without folding. The
+[OTHER]     four 90 deg-spaced stored h values map to four distinct
+[OTHER]     world directions in the BC's perpendicular frame.
+[OTHER]
+[OTHER]     gamma values: 0, 30, 60, 90 (flat across this range; no
+[OTHER]                  back emission so gamma > 90 is omitted).
+[OTHER]     h values:     0, 45, 90, 135, 180, 225, 270, 315 deg
+[OTHER]     intensity:    F(h) = 5 + 4 sin(h), independent of gamma.
+[OTHER]                   Peak at h = 90 (F = 9), trough at h = 270
+[OTHER]                   (F = 1), equal at h = 0 and h = 180 (F = 5).
+[OTHER]                   Symmetric about the (h=0, h=180) axis.
+[OTHER]                   The +-90 antipodal asymmetry distinguishes
+[OTHER]                   the CCW vs CW handedness of the BC's
+[OTHER]                   atan2(dPerp . e2, dPerp . fixtureUp).
+TILT=NONE
+1
+1.0
+1.0
+4
+8
+1
+2
+0.0 0.0 0.0
+1.0 1.0 0
+0  30  60  90
+0  45  90  135  180  225  270  315
+5.000   5.000   5.000   5.000
+7.828   7.828   7.828   7.828
+9.000   9.000   9.000   9.000
+7.828   7.828   7.828   7.828
+5.000   5.000   5.000   5.000
+2.172   2.172   2.172   2.172
+1.000   1.000   1.000   1.000
+2.172   2.172   2.172   2.172

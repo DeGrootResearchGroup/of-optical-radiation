@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""
+The iesEmitter BC emits exactly its stated power: the incident flux on
+every wall of a transparent black box totals P.
+
+Setup
+-----
+The iesHframeOrientation box (0.4 m cube, 20 x 10 x 10 cells), the
+iesEmitter on the whole x = 0 face with that case's non-axisymmetric
+table (F(h) = 5 + 4 sin h) and P = 1 W, a transparent medium, and every
+other wall black. Nothing scatters or reflects, so every watt the patch
+emits leaves through the walls, and the discrete transport conserves it
+ray by ray. With incidentFluxPatches (".*"), the area integral of qin
+over all six patches is therefore the emitted power, and the BC's
+normalisation promises that is P exactly -- here on a 16-ray grid, whose
+45 x 90 degree bins are where a normalisation by cos(d) Omega rather
+than by the bin integral dAve . n is furthest off: it emits 1.082 W
+here (measured by restoring it).
+
+Face areas are uniform per patch on this blockMesh, so each patch's
+integral is its mean qin times its area.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import read_patch_scalar_field
+
+POWER = 1.0
+TOLERANCE = 1e-6
+PATCH_AREA = 0.4 * 0.4  # every face of the cube
+FACES = {"radSource": 100, "farWall": 100, "sidesYmin": 200, "sidesYmax": 200,
+         "sidesZmin": 200, "sidesZmax": 200}
+
+
+def main() -> int:
+    total = 0.0
+    for patch, n_faces in FACES.items():
+        values = read_patch_scalar_field("1/qin", patch)
+        if len(values) not in (1, n_faces):
+            sys.exit(f"validate: {patch} has {len(values)} values, expected {n_faces}")
+        flux = sum(values) / len(values) * PATCH_AREA
+        total += flux
+        print(f"{patch:10s} {flux:.9f} W")
+    error = abs(total - POWER) / POWER
+    print(f"total      {total:.9f} W  (emitted power {POWER} W); relative error {error:.2e}")
+    if error > TOLERANCE:
+        print(f"FAIL: the walls receive {total:.9f} W of the {POWER} W the BC should emit")
+        return 1
+    print("PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

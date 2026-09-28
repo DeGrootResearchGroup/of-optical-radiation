@@ -10,9 +10,9 @@ Exec   : blockMesh
 Date   : Sep 28 2026
 Time   : 23:18:32
 Host   : "990b870a7045"
-PID    : 4252
+PID    : 4244
 I/O    : uncollated
-Case   : /code/tests/iesEmitterMatch
+Case   : /code/tests/iesEmitterEnergy
 nProcs : 1
 sigFpe : Floating point exception trapping - not supported on this platform
 fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 10)
@@ -45,9 +45,9 @@ Creating merge list .
 Creating polyMesh from blockMesh
 Creating points with scale 1
     Block 0 cell size :
-        i : 0.01 .. 0.01
-        j : 0.01 .. 0.01
-        k : 0.01
+        i : 0.02 .. 0.02
+        j : 0.04
+        k : 0.04 .. 0.04
 Creating cells
 Creating patches
 
@@ -55,18 +55,20 @@ Writing polyMesh
 ----------------
 Mesh Information
 ----------------
-  boundingBox: (0 0 0) (1 0.1 0.01)
-  nPoints: 2222
-  nCells: 1000
-  nFaces: 4110
-  nInternalFaces: 1890
+  boundingBox: (0 -0.2 -0.2) (0.4 0.2 0.2)
+  nPoints: 2541
+  nCells: 2000
+  nFaces: 6500
+  nInternalFaces: 5500
 ----------------
 Patches
 ----------------
-  patch 0 (start: 1890 size: 10) name: radSource
-  patch 1 (start: 1900 size: 10) name: radOut
-  patch 2 (start: 1910 size: 200) name: sides
-  patch 3 (start: 2110 size: 2000) name: frontAndBack
+  patch 0 (start: 5500 size: 100) name: radSource
+  patch 1 (start: 5600 size: 100) name: farWall
+  patch 2 (start: 5700 size: 200) name: sidesYmin
+  patch 3 (start: 5900 size: 200) name: sidesYmax
+  patch 4 (start: 6100 size: 200) name: sidesZmin
+  patch 5 (start: 6300 size: 200) name: sidesZmax
 
 End
 

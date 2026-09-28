@@ -13,7 +13,7 @@ walkthrough lives under `tutorials/`.
 - IES Type C file parser (`iesPhotometry`).
 - `fixtureAxis` / `fixtureUp` global-frame conversion.
 - Bilinear interpolation in the candela table.
-- Per-band radiometric renormalisation (`P / (A_patch * Phi_table)`).
+- Per-band radiometric renormalisation: the patch emits exactly `P`.
 - The `iesEmitter` mixed BC writing radiance into the radSource patch.
 
 ## Setup
@@ -21,13 +21,11 @@ walkthrough lives under `tutorials/`.
 Plane-parallel slab identical to `tests/diffuseSlab2D` but with the
 emitting wall switched to `iesEmitter`, fed a synthetic Lambertian-
 shape IES file (`I(gamma) = cos(gamma)`, axisymmetric). With
-`fixtureAxis = (1 0 0)` the cos shape exactly cancels the per-ray
-`I/cos` factor, reducing the BC to a constant Lambertian radiance
-whose `L_w = P / (A_patch * Phi_table)` is computed in the validate
-script from the discrete 16-ray `Phi_table`.
+`fixtureAxis = (1 0 0)` the cos shape makes every emitting ray's
+radiance the same, `L_w = P / (pi * A_patch)` -- the Lambertian wall of
+exitance `P / A_patch` -- because the BC emits exactly `P`.
 
 ## Validation
 
-`./validate` predicts `L_w` from the case parameters, then compares
-`G` to `2π·L_w·E_2(κx)` summed over bands. Tolerance 7%, observed
-~5%.
+`./validate` compares `G` to `2π·L_w·E_2(κx)` summed over bands, with
+`L_w = P / (π A_patch)`. Tolerance 7%.

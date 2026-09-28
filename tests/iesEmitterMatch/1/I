@@ -23,10 +23,10 @@ boundaryField
     radSource
     {
         type            iesEmitter;
-        refValue        nonuniform List<scalar> 10(2.263484e-313 0 5.174957e+160 1.063999e+248 2.116727e+214 2.216441e-312 0 0 0 0);
-        refGradient     nonuniform List<scalar> 10(1.390664e-309 1.390664e-309 0 0 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91);
-        valueFraction   nonuniform List<scalar> 10(1.390664e-309 1.390664e-309 0 0 6.073008e+199 1.287714e+214 6.01347e-154 8.752961e+227 9.555038e+179 6.01347e-154);
-        value           nonuniform List<scalar> 10(9.269249e-310 0 5.174957e+160 1.063999e+248 9.102571e+223 2.586343e+161 3.705313e-317 9.27123e-310 4.940656e-324 2.371515e-322);
+        refValue        nonuniform List<scalar> 10(2.263471e-313 0 5.174957e+160 1.063999e+248 2.116727e+214 2.216441e-312 0 0 0 0);
+        refGradient     nonuniform List<scalar> 10(1.390663e-309 1.390663e-309 0 0 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91);
+        valueFraction   nonuniform List<scalar> 10(1.390663e-309 1.390663e-309 0 0 6.073008e+199 1.287714e+214 6.01347e-154 8.752961e+227 9.555038e+179 6.01347e-154);
+        value           nonuniform List<scalar> 10(9.268983e-310 0 5.174957e+160 1.063999e+248 9.102571e+223 2.586343e+161 3.705313e-317 9.271175e-310 4.940656e-324 2.371515e-322);
         nBands          2;
         iesFile         "constant/lambertian.ies";
         power           2{0.005};

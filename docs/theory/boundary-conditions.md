@@ -163,32 +163,41 @@ absolute magnitude is renormalised against a user-supplied per-band
 total radiant flux $P_\text{band}$ [W]:
 
 $$
-I_\text{out}(\hat{d}) \;=\;
+L_d \;=\;
 \frac{P_\text{band}}{A_\text{patch}\, \Phi_\text{table}}
 \,\cdot\,
-\frac{I_\text{table}(\hat{d})}
-     {\max(\hat{d} \cdot \hat{n}_\text{in},\, \epsilon)}
+\frac{I_\text{table}(\hat{d}_d)\, \omega_d}
+     {\bar{\mathbf{d}}_d \cdot \hat{n}_\text{in}}
 $$
 
-with the discrete table flux
+for each ray $d$ entering the domain ($\hat{d}_d \cdot \hat{n}_\text{in} > \epsilon$), with the
+discrete table flux
 
 $$
 \Phi_\text{table} \;=\;
-\sum_{j:\; \hat{d}_j \cdot \hat{n}_\text{in} > 0}
-I_\text{table}(\hat{d}_j)\, \omega_j .
+\sum_{j:\; \hat{d}_j \cdot \hat{n}_\text{in} > \epsilon}
+I_\text{table}(\hat{d}_j)\, \omega_j ,
 $$
 
-With this normalisation:
+where $\bar{\mathbf{d}}_d = \int_{\Omega_d} \hat{s}\, d\Omega$ is the solid-angle integral of the
+direction over the ray's bin — the factor the transport multiplies a face radiance by. With this
+normalisation:
 
-- The total emitted radiometric flux through the patch is exactly
-  $P_\text{band}$.
-- The angular dependence of the emitted intensity is exactly
-  proportional to $I_\text{table}$.
+- The total emitted radiometric flux through the patch,
+  $\sum_d L_d A_\text{patch}\, \bar{\mathbf{d}}_d \cdot \hat{n}_\text{in}$, is exactly
+  $P_\text{band}$ at any angular resolution, for a flat patch whose plane no ray bin straddles.
+- The emitted intensity per bin, $P_\text{band} I_\text{table}(\hat{d}_d) / \Phi_\text{table}$, is
+  exactly proportional to $I_\text{table}$.
+
+Dividing by $\cos(\hat{d}_d, \hat{n}_\text{in})\, \omega_d$ in place of
+$\bar{\mathbf{d}}_d \cdot \hat{n}_\text{in}$ — the two agree only as the bins shrink — misstates the
+emitted power, in a direction that depends on the grid: 7.6 % short at $n_\theta = 4$ in 3-D, 8 % over
+at $n_\phi = 4$, $n_\theta = 2$, and 22 % short on the 16-ray 2-D grid, where $\omega_d = 2\Delta\phi$ but
+$\bar{\mathbf{d}}_d \cdot \hat{n} = \pi \sin(\Delta\phi/2) \cos\phi_d$.
 
 The absolute units of the IES file (candela vs. W/sr) are irrelevant
 — they cancel between numerator and denominator. The cosine floor
-$\epsilon = 10^{-3}$ drops rays within $\sim 3°$ of grazing to bound
-the divergent $I/\cos\theta$ ratio; below the angular resolution of
+$\epsilon = 10^{-3}$ drops rays within $\sim 3°$ of grazing; below the angular resolution of
 any DOM grid used in practice ($n_\phi \geq 4$ implies 22.5° per
 cell), the dropped flux is negligible for well-behaved IES
 distributions.
