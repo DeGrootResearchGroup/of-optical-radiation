@@ -1,0 +1,68 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "1";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        type            diffuseEmitter;
+        refValue        nonuniform List<scalar> 10(2.26347e-313 0 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 0.0001);
+        refGradient     nonuniform List<scalar> 10(1.390661e-309 1.390661e-309 0 0 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 1.266827e-259 3.684151e+180);
+        valueFraction   nonuniform List<scalar> 10(1.390661e-309 1.390661e-309 0 0 9.555038e+179 6.01347e-154 9.083672e+223 9.076531e+223 6.134785e+228 7.613375e-24);
+        value           nonuniform List<scalar> 10(9.268977e-310 0 2.571083e-80 6.960556e+252 7.447316e+247 2.503846e+228 9.998679e-05 0.0001 0.0001 0.0001);
+        nBands          2;
+        emissivePower   2{5};
+    }
+    radOut
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   0;
+        diffuseFraction   0;
+    }
+    sides
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   1;
+        diffuseFraction   0;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+    AMI_L
+    {
+        type            cyclic;
+    }
+    AMI_R
+    {
+        type            cyclic;
+    }
+}
+
+
+// ************************************************************************* //

@@ -1,0 +1,45 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      opticalRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+opticalRadiation on;
+radiationModel   DOM;
+
+DOMCoeffs
+{
+    // A deliberately coarse 3-D grid (16 rays), where the emitted power
+    // is most sensitive to how the BC normalises: the bins are 45 deg
+    // wide in phi and 90 deg in theta. The patch normal (+x) lies on a
+    // phi-bin boundary plane, so no bin straddles the patch.
+    nPhi          4;
+    nTheta        2;
+    convergence   1e-10;
+    maxIter       100;
+    nBand         1;
+    nPixelPhi     1;
+    nPixelTheta   1;
+
+    // Every wall, for the energy balance.
+    incidentFluxPatches (".*");
+}
+
+extinctionModel transparent;
+transparentCoeffs
+{
+    nBands           1;
+}
+
+// ************************************************************************* //

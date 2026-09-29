@@ -1,0 +1,60 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        // Diffuse Lambertian wall: radiance = emissivePower / pi.
+        // emissivePower = 5 W/m^2 -> L_w = 5/pi W/m^2/sr.
+        type            diffuseEmitter;
+        nBands          1;
+        emissivePower   (5);
+        value           uniform 0;
+    }
+    radOut
+    {
+        // Black absorber: forces outgoing radiance to zero (perfect sink).
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  0;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+    sides
+    {
+        // Specular mirrors on all four transverse (y, z) faces.
+        // Combined with the radSource/radOut x-walls, the finite y,z
+        // extent becomes equivalent to an infinite tiled 3-D slab
+        // and the problem reduces to 1-D plane-parallel transport.
+        type            reflective;
+        diffuseFraction 0;
+        reflectionCoef  1;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+    }
+}
+
+// ************************************************************************* //

@@ -1,0 +1,136 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "1";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        type            diffuseEmitter;
+        refValue        nonuniform List<scalar> 
+16
+(
+1.390663e-309
+1.390663e-309
+0
+0
+4.320383e-311
+4.333115e-311
+4.345847e-311
+4.358579e-311
+4.371311e-311
+4.384043e-311
+4.396775e-311
+4.409507e-311
+4.422239e-311
+4.434971e-311
+4.447703e-311
+4.460435e-311
+)
+;
+        refGradient     nonuniform List<scalar> 
+16
+(
+1.390663e-309
+1.390663e-309
+0
+0
+4.549559e-311
+4.562291e-311
+4.575023e-311
+4.587755e-311
+4.600487e-311
+4.613219e-311
+4.625951e-311
+4.638683e-311
+4.651415e-311
+4.664147e-311
+4.676879e-311
+4.689611e-311
+)
+;
+        valueFraction   nonuniform List<scalar> 
+16
+(
+1.390663e-309
+1.390663e-309
+0
+0
+4.137892e-311
+4.150624e-311
+4.163356e-311
+4.176088e-311
+4.18882e-311
+4.201552e-311
+4.214284e-311
+4.227016e-311
+4.239748e-311
+4.25248e-311
+4.265212e-311
+4.277944e-311
+)
+;
+        value           nonuniform List<scalar> 
+16
+(
+1.390663e-309
+1.390663e-309
+0
+0
+1.897064e-311
+4.10394e-311
+4.116672e-311
+4.129404e-311
+4.142136e-311
+4.154868e-311
+4.1676e-311
+4.180332e-311
+4.193064e-311
+4.205796e-311
+4.218528e-311
+4.23126e-311
+)
+;
+        nBands          1;
+        emissivePower   1(5);
+    }
+    radOut
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   0;
+        diffuseFraction   0;
+    }
+    sides
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   1;
+        diffuseFraction   0;
+    }
+}
+
+
+// ************************************************************************* //

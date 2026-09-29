@@ -54,6 +54,35 @@ def read_internal_scalar_field(path):
     sys.exit(f"validate: could not parse scalar internalField at {path}")
 
 
+def read_patch_scalar_field(path, patch):
+    """Parse the ``value`` entry of one patch of a scalar field.
+
+    Returns the per-face values of ``boundaryField.<patch>.value`` as a
+    list of floats. A ``uniform`` entry does not record the face count,
+    so it returns a one-element list ``[value]``, as
+    read_internal_scalar_field does for a uniform internal field. Exits the validate with a clear error if
+    the patch or its value entry is missing.
+    """
+    with open(path) as f:
+        txt = f.read()
+    boundary = txt[txt.find("boundaryField"):]
+    m = re.search(r"\n\s*" + re.escape(patch) + r"\s*\n\s*\{(.*?)\n\s*\}", boundary, re.S)
+    if not m:
+        sys.exit(f"validate: no patch '{patch}' in the boundaryField of {path}")
+    body = m.group(1)
+    v = re.search(r"value\s+nonuniform\s+List<scalar>\s*(\d+)\s*\(([^)]*)\)", body, re.S)
+    if v:
+        values = list(map(float, v.group(2).split()))
+        if len(values) != int(v.group(1)):
+            sys.exit(f"validate: patch '{patch}' of {path} lists {len(values)} values, "
+                     f"declares {v.group(1)}")
+        return values
+    v = re.search(r"value\s+uniform\s+([-+0-9.eE]+)\s*;", body)
+    if v:
+        return [float(v.group(1))]
+    sys.exit(f"validate: no scalar value entry on patch '{patch}' of {path}")
+
+
 def read_uniform_scalar(path):
     """Parse a uniform scalar internalField from an OF field file.
 

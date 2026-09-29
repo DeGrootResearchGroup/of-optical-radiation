@@ -1,0 +1,96 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       polyBoundaryMesh;
+    location    "constant/polyMesh";
+    object      boundary;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+10
+(
+    radSource
+    {
+        type            patch;
+        nFaces          10;
+        startFace       2177;
+    }
+    radOut
+    {
+        type            patch;
+        nFaces          13;
+        startFace       2187;
+    }
+    sides
+    {
+        type            patch;
+        nFaces          200;
+        startFace       2200;
+    }
+    frontAndBack
+    {
+        type            empty;
+        inGroups        List<word> 1(empty);
+        nFaces          2300;
+        startFace       2400;
+    }
+    AMI_L
+    {
+        type            patch;
+        nFaces          10;
+        startFace       4700;
+    }
+    AMI_R
+    {
+        type            patch;
+        nFaces          13;
+        startFace       4710;
+    }
+    nonConformalCyclic_on_AMI_L
+    {
+        type            nonConformalCyclic;
+        inGroups        List<word> 1(nonConformalCyclic);
+        nFaces          0;
+        startFace       4723;
+        matchTolerance  0.0001;
+        neighbourPatch  nonConformalCyclic_on_AMI_R;
+        transformType   none;
+        originalPatch   AMI_L;
+    }
+    nonConformalCyclic_on_AMI_R
+    {
+        type            nonConformalCyclic;
+        inGroups        List<word> 1(nonConformalCyclic);
+        nFaces          0;
+        startFace       4723;
+        matchTolerance  0.0001;
+        neighbourPatch  nonConformalCyclic_on_AMI_L;
+        transformType   none;
+        originalPatch   AMI_R;
+    }
+    nonConformalError_on_AMI_L
+    {
+        type            nonConformalError;
+        inGroups        List<word> 1(nonConformalError);
+        nFaces          0;
+        startFace       4723;
+        originalPatch   AMI_L;
+    }
+    nonConformalError_on_AMI_R
+    {
+        type            nonConformalError;
+        inGroups        List<word> 1(nonConformalError);
+        nFaces          0;
+        startFace       4723;
+        originalPatch   AMI_R;
+    }
+)
+
+// ************************************************************************* //

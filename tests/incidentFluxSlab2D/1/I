@@ -1,0 +1,60 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "1";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        type            diffuseEmitter;
+        refValue        nonuniform List<scalar> 10(2.26347e-313 0 1.81082e+272 5.89991e+169 4.30779e-80 1.415869e+195 0 0 0 0);
+        refGradient     nonuniform List<scalar> 10(1.390662e-309 1.390662e-309 0 0 4.251086e+228 2.461634e-154 1.062549e-81 5.960859e+175 6.01347e-154 1.138173e+243);
+        valueFraction   nonuniform List<scalar> 10(1.390662e-309 1.390662e-309 0 0 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91);
+        value           nonuniform List<scalar> 10(9.268979e-310 0 1.81082e+272 5.89991e+169 4.30779e-80 6.153471e+223 6.216483e-310 9.271172e-310 4.940656e-324 2.371515e-322);
+        nBands          2;
+        emissivePower   2(5 3);
+    }
+    radOut
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   0;
+        diffuseFraction   0;
+    }
+    sides
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   1;
+        diffuseFraction   0;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+
+// ************************************************************************* //

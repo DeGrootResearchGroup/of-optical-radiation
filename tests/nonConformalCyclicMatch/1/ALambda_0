@@ -1,0 +1,71 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "1";
+    object      ALambda_0;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 -1 0 0 0 0 0];
+
+internalField   uniform 1;
+
+boundaryField
+{
+    radSource
+    {
+        type            calculated;
+        value           uniform 1;
+    }
+    radOut
+    {
+        type            calculated;
+        value           uniform 1;
+    }
+    sides
+    {
+        type            calculated;
+        value           uniform 1;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+    AMI_L
+    {
+        type            calculated;
+        value           uniform 1;
+    }
+    AMI_R
+    {
+        type            calculated;
+        value           uniform 1;
+    }
+    nonConformalCyclic_on_AMI_L
+    {
+        type            nonConformalCyclic;
+    }
+    nonConformalCyclic_on_AMI_R
+    {
+        type            nonConformalCyclic;
+    }
+    nonConformalError_on_AMI_L
+    {
+        type            nonConformalError;
+    }
+    nonConformalError_on_AMI_R
+    {
+        type            nonConformalError;
+    }
+}
+
+
+// ************************************************************************* //

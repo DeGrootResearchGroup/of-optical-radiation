@@ -1,0 +1,91 @@
+/*---------------------------------------------------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+Build  : 13-18870c24d21c
+Exec   : foamPostProcess
+Date   : Sep 28 2026
+Time   : 23:18:32
+Host   : "990b870a7045"
+PID    : 4269
+I/O    : uncollated
+Case   : /code/tests/doseSmokeBox
+nProcs : 1
+sigFpe : Floating point exception trapping - not supported on this platform
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 10)
+allowSystemOperations : Allowing user-supplied system call operations
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+radiationDose: selecting seeding model patchInjection
+radiationDose: selecting seeding model patchInjection
+radiationDose: selecting seeding model patchInjection
+radiationDose: selecting seeding model patchInjection
+radiationDose: selecting seeding model patchInjection
+Time = 0s
+
+Reading fields:
+    volScalarFields: G
+    volVectorFields: U
+
+Executing functionObjects
+radiationDose: seeding particles...
+radiationDose: seeded 1003 particles
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 81 outer steps. 1003 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+radiationDose: seeding particles...
+radiationDose: seeded 1003 particles
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 81 outer steps. 1003 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+radiationDose: seeding particles...
+radiationDose: seeded 1003 particles
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 81 outer steps. 1003 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+radiationDose: seeding particles...
+radiationDose: seeded 1003 particles
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 81 outer steps. 1003 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+radiationDose: seeding particles...
+radiationDose: seeded 1003 particles
+radiationDose: batch 1/5 (250 particles, global indices 0..249)
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 81 outer steps. 250 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+radiationDose: batch 2/5 (250 particles, global indices 250..499)
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 81 outer steps. 250 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+radiationDose: batch 3/5 (250 particles, global indices 500..749)
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 81 outer steps. 250 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+radiationDose: batch 4/5 (250 particles, global indices 750..999)
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 80 outer steps. 250 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+radiationDose: batch 5/5 (3 particles, global indices 1000..1002)
+radiationDose: selecting dispersion model none
+radiationDose: selecting motion model tracer
+radiationDose: integrating...
+radiationDose: done in 80 outer steps. 3 escaped, 0 timed out, 0 stuck, 0 hit maxDose, 0 still active (capped by maxOuterSteps)
+
+End
+

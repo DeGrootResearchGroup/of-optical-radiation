@@ -14,22 +14,20 @@ configuration that has a closed-form analytical answer.
 With `fixtureAxis` aligned with the patch's inward normal `(+x)`, every
 outgoing ray gets
 
-    L_d = P / (A_patch * Phi_table) * I(gamma) / cos(gamma)
-        = P / (A_patch * Phi_table)             (constant)
+    L_d = P / (A_patch * Phi_table) * I(gamma_d) * Omega_d / (dAve_d . n)
 
-because the Lambertian-shape IES exactly cancels the cos in the
-denominator. That is a perfect Lambertian emitter at the patch with
+where `dAve_d . n` is the solid-angle integral of `d.n` over the ray's
+bin. On the 2-D grid `Omega_d = 2 dphi` and
+`dAve_d . n = pi sin(dphi/2) cos(phi_d)`, so the Lambertian-shape IES
+makes `L_d` the same for every ray: exactly the radiance of a
+Lambertian wall that emits `P`,
 
-    L_w = P / (A_patch * Phi_table)
+    L_w = P / (pi * A_patch)
 
 so the resulting `G` field must match the standard plane-parallel
 analytical solution `2*pi*L_w*E_2(kappa*x)` (per band, summed over
 bands), to the same DOM angular tolerance the diffuse-emitter case
 reaches.
-
-`Phi_table` here is the discrete normalising sum on the 16-ray 2-D
-angular grid, computed in the validate script and used to predict
-the target `L_w`.
 
 ## Files
 
@@ -38,5 +36,5 @@ the target `L_w`.
   `gamma <= 90` and zero above.
 - `0.orig/I` — radSource = `iesEmitter` (power 0.005 W/band, fixtureAxis
   +x), radOut = perfect absorber, sides = mirror.
-- `validate` — predicts `L_w` from the case parameters and compares
-  `G` to `2*pi*L_w*E_2(kappa*x)` summed over bands.
+- `validate` — compares `G` to `2*pi*L_w*E_2(kappa*x)` summed over
+  bands, with `L_w = P / (pi * A_patch)`.

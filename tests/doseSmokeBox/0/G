@@ -1,0 +1,40 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | radiationDose smoke test                        |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      G;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+// Uniform fluence-rate field. The smoke test just confirms the
+// radiationDose function object integrates particle dose along the
+// flow without crashing; the absolute G value is arbitrary.
+internalField   uniform 10;
+
+boundaryField
+{
+    inlet
+    {
+        type            zeroGradient;
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    walls
+    {
+        type            zeroGradient;
+    }
+}
+
+// ************************************************************************* //

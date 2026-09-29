@@ -1,0 +1,20 @@
+# vtk DataFile Version 3.0
+radiationDose trajectories
+ASCII
+DATASET POLYDATA
+POINTS 0 float
+LINES 0 0
+POINT_DATA 0
+SCALARS time_s float 1
+LOOKUP_TABLE default
+SCALARS dose_mJcm2 float 1
+LOOKUP_TABLE default
+SCALARS cell int 1
+LOOKUP_TABLE default
+CELL_DATA 0
+SCALARS trackId int 1
+LOOKUP_TABLE default
+SCALARS endReason int 1
+LOOKUP_TABLE default
+SCALARS finalDose_mJcm2 float 1
+LOOKUP_TABLE default

@@ -276,10 +276,8 @@ void Foam::optical::iesEmitterMixedFvPatchScalarField::updateCoeffs()
 
         // Phi_table: sum over rays in this band that go INTO the
         // domain through the patch (cos > floor) of I_table(d)*Omega.
-        // No cos weighting: this normalisation makes
-        //   sum_d L_d * Omega_d * A_proj(d) == P
-        // with A_proj(d) = A_patch * (d.n_avg)+, exactly when L_d is
-        // formed as I_table/cos (see header derivation).
+        // No cos weighting: with L_d formed below, the emitted power is
+        // exactly P (see header derivation).
         //
         // Phi_table is identical across all nAngle ray-BC instances
         // on a given (patch, band), so consult the cross-instance
@@ -313,9 +311,18 @@ void Foam::optical::iesEmitterMixedFvPatchScalarField::updateCoeffs()
             phiTableCache_.insert(cacheKey, phiTable);
         }
 
-        // This ray's contribution.
+        // This ray's contribution. The transport carries the ray into
+        // the domain through a face with the solid-angle integral of
+        // d.n over the ray's bin (dAve & n), not with cos(d).omega, so
+        // that is the projected-area factor the radiance is divided by:
+        //   sum_d L_d A (dAve_d & n_avg) = P sum_d I_d omega_d / Phi_table = P
+        // exactly, at any angular resolution, for a flat patch whose
+        // plane no ray bin straddles. The emitted intensity per bin,
+        // L_d A (dAve_d & n_avg)/omega_d = P I_d/Phi_table, keeps the
+        // table's shape.
         const scalar cosThisRay = rayDir & nAvgInDomain;
-        if (cosThisRay > IES_MIN_COS && phiTable > VSMALL)
+        const scalar projected = dom.IRay(rayId).dAve() & nAvgInDomain;
+        if (cosThisRay > IES_MIN_COS && projected > VSMALL && phiTable > VSMALL)
         {
             const scalar I = ies_->interpolate
             (
@@ -324,7 +331,7 @@ void Foam::optical::iesEmitterMixedFvPatchScalarField::updateCoeffs()
             );
             cachedL_ =
                 (power_[iBand]/(globalArea*phiTable))
-               *I/cosThisRay;
+               *I*dom.IRay(rayId).omega()/projected;
         }
         else
         {

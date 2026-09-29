@@ -39,7 +39,7 @@ Description
     Mathematical model. For each ray d in the angular grid going INTO
     the domain through the patch:
     \verbatim
-        L_d = (P / (A_patch * Phi_table)) * I_table(d) / max(d.n_avg, eps)
+        L_d = (P / (A_patch * Phi_table)) * I_table(d) * Omega_d / (dAve_d . n_avg)
     \endverbatim
     where:
       - A_patch  = global patch area (summed across processors)
@@ -48,12 +48,22 @@ Description
       - Phi_table = sum over outgoing rays of I_table(d) * Omega_d
                     (no cos weighting -- normalisation by intensity, not
                      radiance)
-      - eps       = small floor on cos(d, n_avg) to bound L_d at grazing
-    This choice gives total emitted radiometric flux exactly equal to
-    P, and per-direction emitted intensity I_emit(d) = L_d * A_patch *
-    cos(d, n_avg) proportional to I_table(d) -- i.e. the patch's
-    far-field intensity pattern matches the IES file shape. See
-    CLAUDE.md "iesEmitter" for the derivation.
+      - dAve_d   = the solid-angle integral of the direction over ray d's
+                   bin, which is what the transport multiplies the face
+                   radiance by; dAve_d . n_avg -> cos(d, n_avg) Omega_d
+                   as the bins shrink
+      - rays with cos(d, n_avg) <= eps (1e-3) emit nothing.
+    The transport carries ray d into the domain with L_d A_patch
+    (dAve_d . n_avg), so the total emitted radiometric flux is exactly
+    P at any angular resolution, provided no ray bin straddles the
+    patch's plane (true for an axis-aligned patch with an even nTheta).
+    The emitted intensity per bin, P I_table(d) / Phi_table, is
+    proportional to the IES table, i.e. the patch's far-field pattern
+    matches the file's shape. Using cos(d) Omega_d in place of
+    dAve_d . n_avg misstates the emitted flux by the ratio of the two,
+    in a direction that depends on the grid -- 7.6 % short at
+    nTheta = 4, 8 % over at nPhi = 4, nTheta = 2 -- which is an energy
+    error, not a ray effect. See CLAUDE.md "iesEmitter" for the derivation.
 
     Outgoing rays at the patch (cos(d, n_face) <= 0) get zero-gradient
     treatment, identical to the other emitter BCs.

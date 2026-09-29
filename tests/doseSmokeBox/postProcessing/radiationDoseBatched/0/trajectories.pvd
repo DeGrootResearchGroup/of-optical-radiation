@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<VTKFile type="Collection" version="0.1" byte_order="LittleEndian">
+  <Collection>
+    <DataSet timestep="0" part="0" file="trajectories_00001.vtk"/>
+    <DataSet timestep="0" part="1" file="trajectories_00002.vtk"/>
+    <DataSet timestep="0" part="2" file="trajectories_00003.vtk"/>
+    <DataSet timestep="0" part="3" file="trajectories_00004.vtk"/>
+    <DataSet timestep="0" part="4" file="trajectories_00005.vtk"/>
+  </Collection>
+</VTKFile>

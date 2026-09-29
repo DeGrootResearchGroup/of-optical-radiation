@@ -7,15 +7,16 @@ Setup. With fixtureAxis aligned to the patch's inward normal (+x) and
 a synthetic IES table of shape I(gamma) = cos(gamma) (gamma in [0, 90])
 on a single horizontal angle, every emitting ray gets
 
-    L_d = P / (A_patch * Phi_table) * I(gamma) / cos(gamma)
-        = P / (A_patch * Phi_table)                         (constant)
+    L_d = P / (A_patch * Phi_table) * I(gamma_d) * Omega_d / (dAve_d . n)
 
-where Phi_table is the discrete normalising sum:
+with Phi_table = sum over outgoing rays of I(gamma_d) * Omega_d. On the
+2-D grid Omega_d = 2 dphi and dAve_d . n = pi sin(dphi/2) cos(phi_d), and
+the cosine table makes L_d the same for every ray: exactly the radiance
+of a Lambertian wall of exitance P / A_patch,
 
-    Phi_table = sum over outgoing rays of I(gamma_d) * Omega_d.
+    L_w = P / (pi * A_patch),
 
-That recovers a perfect Lambertian emitter at the patch with
-L_w = P / (A_patch * Phi_table). The DOM solve then yields the same
+because the BC emits exactly P. The DOM solve then yields the same
 plane-parallel profile a `diffuseEmitter` would, with the bands
 contributing additively.
 
@@ -56,24 +57,6 @@ def read_G(path: str) -> list:
     sys.exit(f"validate: could not parse {path}")
 
 
-def discrete_phi_table(n_phi: int) -> float:
-    """Phi_table = sum over outgoing rays of cos(gamma_d) * Omega_d, on the
-    DOM 2-D angular grid (nTheta = 1). Outgoing means d.fixtureAxis > 0;
-    here fixtureAxis = +x so cos(gamma) = cos(phi_ray). 2-D ray
-    omega = 2*sin(theta)*sin(deltaTheta/2)*deltaPhi with theta = pi/2,
-    deltaTheta = pi -> omega = 2*1*1*(pi/n_phi) = 2*pi/n_phi.
-    """
-    n_total = 2 * n_phi
-    delta_phi = math.pi / n_phi
-    omega = 2.0 * math.pi / n_phi
-    s = 0.0
-    for i in range(n_total):
-        phi = (i + 0.5) * delta_phi
-        c = math.cos(phi)
-        if c > 1e-3:
-            s += c * omega
-    return s
-
 
 def main() -> int:
     # Case parameters - must stay in sync with constant/opticalRadiationProperties,
@@ -86,8 +69,7 @@ def main() -> int:
     LY, LZ = 0.1, 0.01          # patch is in y-z plane at x = 0
     A_PATCH = LY * LZ           # m^2
 
-    phi_table = discrete_phi_table(N_PHI)
-    L_w = POWER_PER_BAND / (A_PATCH * phi_table)
+    L_w = POWER_PER_BAND / (math.pi * A_PATCH)
     G_ref_factor = N_BANDS * 2.0 * math.pi * L_w
 
     vals = read_G("1/G")
@@ -114,8 +96,7 @@ def main() -> int:
         rows.append((x, G_sim, G_ana, err))
         max_err = max(max_err, err)
 
-    print(f"discrete Phi_table = {phi_table:.6f}")
-    print(f"L_w = P/(A_patch*Phi_table) = {L_w:.6f} W/m^2/sr")
+    print(f"L_w = P/(pi*A_patch) = {L_w:.6f} W/m^2/sr")
     print(f"{'x [m]':>6}  {'G_sim':>12}  {'G_analytical':>14}  {'rel_err':>10}")
     for x, gs, ga, e in rows:
         print(f"{x:6.4f}  {gs:12.4e}  {ga:14.4e}  {e:10.2%}")

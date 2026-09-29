@@ -1,0 +1,60 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "1";
+    object      I;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    radSource
+    {
+        type            diffuseEmitter;
+        refValue        nonuniform List<scalar> 10(2.263478e-313 0 7.358698e+223 5.32297e-81 6.960556e+252 7.447316e+247 5.138283e-322 0 0 0);
+        refGradient     nonuniform List<scalar> 10(1.390662e-309 1.390662e-309 9.271206e-310 9.271206e-310 9.737613e-101 4.475938e-91 4.475938e-91 4.475938e-91 4.475938e-91 9.159034e-259);
+        valueFraction   nonuniform List<scalar> 10(1.390662e-309 1.390662e-309 0 0 6.01347e-154 6.199625e+223 3.672927e+194 2.677681e+92 3.030722e+30 3.491569e+228);
+        value           nonuniform List<scalar> 10(9.268946e-310 0 7.358698e+223 5.32297e-81 6.960556e+252 7.447316e+247 5.138283e-322 9.271206e-310 4.940656e-324 2.371515e-322);
+        nBands          1;
+        emissivePower   1(5);
+    }
+    radOut
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   0;
+        diffuseFraction   0;
+    }
+    sides
+    {
+        type            reflective;
+        refValue        uniform 0;
+        refGradient     uniform 0;
+        valueFraction   uniform 1;
+        value           uniform 0;
+        reflectionCoef   1;
+        diffuseFraction   0;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+
+// ************************************************************************* //
