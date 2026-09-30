@@ -23,11 +23,12 @@ solver          incompressibleFluid;
 startFrom       latestTime;
 startTime       0;
 
-// Pressure-drop converged by ~iter 1000 on the level-3 mesh.
-// residualControl in fvSolution triggers early stop once tolerances
-// are met; this endTime is the safety cap.
+// residualControl in fvSolution stops the run once its thresholds are
+// met (iteration ~1290 on the level-3 mesh); this endTime is only the
+// safety cap, set well past that so a finer mesh whose residuals level
+// off more slowly is not cut short.
 stopAt          endTime;
-endTime         1000;
+endTime         2500;
 
 deltaT          1;
 

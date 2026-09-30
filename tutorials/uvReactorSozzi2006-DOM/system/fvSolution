@@ -63,16 +63,23 @@ PIMPLE
     // The pressure-drop monitor in controlDict.functions provides an
     // independent integral check on convergence.
     //
-    // Thresholds chosen against the observed residual plateau on this
-    // mesh (Uy and k plateau near 6e-4, p near 2e-3, eps near 2e-4).
-    // Tighter values won't actually fire early-stop because the
-    // residuals oscillate above them indefinitely; the integral
-    // pressure-drop monitor confirms convergence by then.
+    // The pressure drop is NOT a sufficient check for the dose: it is
+    // set by the pipe and annulus losses and settles (to ~0.3%) long
+    // before the recirculation and turbulence near the lamp do, and the
+    // dose tracker's random walk reads k and epsilon directly. Measured
+    // on this mesh (1.64M cells, 8 ranks), the mean dose rose 9% between
+    // iterations 514 and 750 while the pressure drop moved 0.35%, and
+    // settled to within 0.5% by ~1250. So the thresholds are set where
+    // the dose has settled: they are first met at iteration ~1290, with
+    // k the last to cross. The residuals level off there (U near 3.5e-4,
+    // p near 8.5e-4, epsilon near 6e-5, k still falling slowly through
+    // 1e-4), so much tighter values would never be met and the run
+    // would stop on endTime instead.
     residualControl
     {
-        U               1e-3;
-        p               5e-3;
-        "(k|epsilon)"   1e-3;
+        U               5e-4;
+        p               1e-3;
+        "(k|epsilon)"   1e-4;
     }
 }
 
