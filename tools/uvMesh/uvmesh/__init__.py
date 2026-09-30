@@ -31,9 +31,17 @@ solid meshed as an O-grid):
     pipe{i}_seam      (junction end)
     <open_patch_name> (open end)
 
+and per wall layer `i` (`build(..., wall_layers=[WallLayer(...)])`):
+
+    Layer piece                            Bulk piece
+    -----------                            ----------
+    layer{i}_wall     (wall, end rings)    reactor_seam_layer{i}  (inner surface,
+    layer{i}_seam     (inner surface,                              window sides)
+                       window sides)
+
 Each pair of seam patches is fused by `createNonConformalCouples` in Allrun.mesh.
 """
-from .geometry import Lamp, Pipe, ReactorBody
+from .geometry import Lamp, Pipe, ReactorBody, WallLayer
 from .pipeline import build
 
-__all__ = ["Lamp", "Pipe", "ReactorBody", "build"]
+__all__ = ["Lamp", "Pipe", "ReactorBody", "WallLayer", "build"]

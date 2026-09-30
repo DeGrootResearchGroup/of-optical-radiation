@@ -18,45 +18,17 @@ import os
 from textwrap import dedent
 from typing import List, Optional, Sequence, Tuple
 
-from .geometry import _Z_AXIS_ONLY_BULK_CELLS, Lamp, Pipe, ReactorBody
+from .geometry import (
+    _Z_AXIS_ONLY_BULK_CELLS, Lamp, Pipe, ReactorBody, WallLayer, rotation_axis_angle,
+)
 
 #: Each pipe's footprint, as the bulk meshes it, in world coordinates.
 FOOTPRINT_WORLD_STL = "footprint_world.stl"
 
 
-def rotation_axis_angle(
-    rotate: Optional[Tuple[tuple, tuple]],
-) -> Optional[Tuple[tuple, float]]:
-    """The shortest rotation taking `rotate[0]` onto `rotate[1]`, as
-    `(unit axis, angle in radians)`, or None for no rotation.
-
-    Antiparallel vectors have no unique shortest rotation; any axis
-    perpendicular to them works, and the one used is perpendicular to the
-    first vector and to whichever coordinate axis it is least aligned with.
-    """
-    if rotate is None:
-        return None
-    a, b = rotate
-    na = math.sqrt(sum(c * c for c in a))
-    nb = math.sqrt(sum(c * c for c in b))
-    a = tuple(c / na for c in a)
-    b = tuple(c / nb for c in b)
-    cos = max(-1.0, min(1.0, sum(x * y for x, y in zip(a, b))))
-    cross = (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
-    sin = math.sqrt(sum(c * c for c in cross))
-    if sin < 1e-12:
-        if cos > 0:
-            return None
-        least = min(range(3), key=lambda i: abs(a[i]))
-        e = tuple(1.0 if i == least else 0.0 for i in range(3))
-        cross = (a[1] * e[2] - a[2] * e[1], a[2] * e[0] - a[0] * e[2], a[0] * e[1] - a[1] * e[0])
-        sin = math.sqrt(sum(c * c for c in cross))
-        return (tuple(c / sin for c in cross), math.pi)
-    return (tuple(c / sin for c in cross), math.atan2(sin, cos))
-
-
 def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
-                      pipes: Sequence[Pipe] = ()) -> None:
+                      pipes: Sequence[Pipe] = (),
+                      wall_layers: Sequence[WallLayer] = ()) -> None:
     """Write `<case_dir>/bulk_body.py` (the gmsh emitter for the bulk mesh).
 
     The emitted script:
@@ -71,7 +43,8 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
             <body.wall_patch_name>
             <name> for each of body.open_patches (the face nearest its point)
             <body.endcap_lo_patch_name>, <body.endcap_hi_patch_name> (box only)
-            reactor_seam_lamp{i} per lamp, reactor_seam_pipe{i} per pipe
+            reactor_seam_lamp{i} per lamp, reactor_seam_pipe{i} per pipe,
+            reactor_seam_layer{i} per wall layer (the sleeve it cuts away)
       4. Sizes the cells at each seam to the structured side's spacing
          there, growing to the bulk size across a band.
       5. Writes `bulk.msh` (msh2 format -- gmshToFoam can read it), and
@@ -138,8 +111,25 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
         }
         for i, pipe in enumerate(pipes)
     ]
+    # Each wall layer's sleeve: its seam sized to its azimuthal spacing at
+    # the inner surface; the cut runs a layer's thickness past each end.
+    layer_cuts = [
+        {
+            "i": i,
+            "seam_name": f"reactor_seam_layer{i}",
+            "start": layer.axis_start,
+            "rotation": rotation_axis_angle(((0.0, 0.0, 1.0), layer.axis_unit())),
+            "length": layer.length(),
+            "radius": layer.radius,
+            "inner": layer.inner_radius(),
+            "pad": layer.thickness,
+            "windows": layer.windows(pipes),
+            "size": 2 * math.pi * layer.inner_radius() / (4 * layer.n_azimuth_per_quadrant),
+        }
+        for i, layer in enumerate(wall_layers)
+    ]
     if body.min_cell_size is None:
-        min_size = min([seam_size] + [p["size"] for p in pipe_seams])
+        min_size = min([seam_size] + [p["size"] for p in pipe_seams + layer_cuts])
     else:
         min_size = body.min_cell_size
 
@@ -222,6 +212,7 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
         ENDCAP_HI_NAME = {body.endcap_hi_patch_name!r}
         LAMP_CUTS = {lamp_cuts!r}
         PIPES = {pipe_seams!r}
+        LAYERS = {layer_cuts!r}
         SEAM_SIZE = {seam_size!r}
         BULK_SIZE = {body.bulk_cell_size!r}
         MIN_SIZE  = {min_size!r}
@@ -426,6 +417,40 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
                 spheres=[], size=pipe["size"], band=2 * pipe["size"],
             ))
 
+        # Each wall layer: cut its sleeve -- the shell from its inner radius
+        # out past the wall, over the wall's length and past its ends, less
+        # each window -- built in the layer's local frame (axis +z, azimuth
+        # from +x) and placed as the layer's own mesh is. The layer's seam
+        # is every surface of the body that lies on the sleeve (tested
+        # against the sleeve's shape analytically, in its local frame).
+        for layer in LAYERS:
+            s0, s1 = -layer["pad"], layer["length"] + layer["pad"]
+            outer = gmsh.model.occ.addCylinder(0, 0, s0, 0, 0, s1 - s0, 1.05 * layer["radius"])
+            inner = gmsh.model.occ.addCylinder(0, 0, s0, 0, 0, s1 - s0, layer["inner"])
+            sleeve, _ = gmsh.model.occ.cut([(3, outer)], [(3, inner)])
+            for theta_lo, theta_hi, s_lo, s_hi in layer["windows"]:
+                window = gmsh.model.occ.addCylinder(
+                    0, 0, s_lo, 0, 0, s_hi - s_lo, 1.1 * layer["radius"], angle=theta_hi - theta_lo,
+                )
+                gmsh.model.occ.rotate([(3, window)], 0, 0, 0, 0, 0, 1, theta_lo)
+                sleeve, _ = gmsh.model.occ.cut(sleeve, [(3, window)])
+            if layer["rotation"] is not None:
+                (rx, ry, rz), angle = layer["rotation"]
+                gmsh.model.occ.rotate(sleeve, 0, 0, 0, rx, ry, rz, angle)
+            gmsh.model.occ.translate(sleeve, *layer["start"])
+            cut_result, _ = gmsh.model.occ.cut([body_dimtag], sleeve, removeTool=True)
+            if len(cut_result) != 1:
+                raise RuntimeError(
+                    f"Wall layer {{layer['i']}}: cutting its sleeve left {{len(cut_result)}} pieces"
+                )
+            body_dimtag = cut_result[0]
+            rotation = layer["rotation"] or ((0.0, 0.0, 1.0), 0.0)
+            seam_tools.append(dict(
+                name=layer["seam_name"], start=layer["start"], unrotate=(rotation[0], -rotation[1]),
+                inner=layer["inner"], outer=1.05 * layer["radius"], s0=s0, s1=s1,
+                windows=layer["windows"], size=layer["size"], band=2 * layer["size"],
+            ))
+
         # ----------------------------------------------------------------
         # Hybrid bulk: fragment a cylindrical cap-zone around each
         # hemispherical cap. Inside the cap zone the bulk stays as tets;
@@ -529,10 +554,42 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
                 distance = min(distance, math.dist(p, centre) - tool["radius"])
             return distance
 
-        # The seam of the lamp whose cut left surface `tag`: every sampled
-        # point of the surface's edges lies on that cut tool's surface. A
-        # test on the edges rather than the centroid holds for a seam split
-        # into pieces, as a Boolean with a CAD body can split a hemisphere.
+        # Distance from point p to a wall layer's sleeve, from the sleeve's
+        # own surfaces in the layer's local frame: the inner cylinder, and
+        # each window's two radial sides and two ends, over the sleeve's
+        # radial extent (a window is a wedge taken out of the sleeve).
+        def sleeve_distance(p, tool):
+            (kx, ky, kz), angle = tool["unrotate"]
+            q = [p[k] - tool["start"][k] for k in range(3)]
+            c, sn = math.cos(angle), math.sin(angle)
+            dot = kx * q[0] + ky * q[1] + kz * q[2]
+            cross = (ky * q[2] - kz * q[1], kz * q[0] - kx * q[2], kx * q[1] - ky * q[0])
+            x, y, z = (q[k] * c + cross[k] * sn + (kx, ky, kz)[k] * dot * (1 - c) for k in range(3))
+            r, theta = math.hypot(x, y), math.atan2(y, x)
+            best = math.inf
+            if tool["s0"] <= z <= tool["s1"]:
+                best = abs(r - tool["inner"])
+            if tool["inner"] - OPEN_TOL <= r <= tool["outer"] + OPEN_TOL:
+                for theta_lo, theta_hi, s_lo, s_hi in tool["windows"]:
+                    half = (theta_hi - theta_lo) / 2
+                    off = math.atan2(math.sin(theta - (theta_lo + half)), math.cos(theta - (theta_lo + half)))
+                    if s_lo - OPEN_TOL <= z <= s_hi + OPEN_TOL:
+                        for edge in (-half, half):
+                            if math.cos(off - edge) > 0:
+                                best = min(best, r * abs(math.sin(off - edge)))
+                    if abs(off) <= half + OPEN_TOL / max(r, OPEN_TOL):
+                        best = min(best, abs(z - s_lo), abs(z - s_hi))
+            return best
+
+        # The seam a surface belongs to, if any. For a lamp or a pipe the
+        # surface's edges must all lie on or inside the cut tool (signed
+        # distance): a lamp's seam lies on its cut, and a pipe's footprint
+        # inside its circle -- a test on the edges rather than the centroid
+        # holds for a seam split into pieces, as a Boolean with a CAD body
+        # can split a hemisphere, or a chamber's own seam line a footprint.
+        # For a wall layer's sleeve, a point inside the surface is tested as
+        # well: an end wall's edge, or the wall's inside a window, can lie on
+        # the sleeve while the surface itself does not.
         def seam_of(tag):
             points = []
             for _, curve in gmsh.model.getBoundary([(2, tag)], oriented=False):
@@ -540,8 +597,21 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
                 ts = [lo[0] + (hi[0] - lo[0]) * k / 8 for k in range(9)]
                 xyz = gmsh.model.getValue(1, abs(curve), ts)
                 points += [xyz[k:k + 3] for k in range(0, len(xyz), 3)]
+            if not points:
+                return None
+            # Points inside the surface: a grid over its parametric domain,
+            # kept where gmsh finds them inside the (trimmed) face -- neither
+            # the domain's centre, off a trimmed plane's face, nor the centre
+            # of mass, on the axis of a cylinder's, is.
+            lo, hi = gmsh.model.getParametrizationBounds(2, tag)
+            grid = [[lo[0] + (hi[0] - lo[0]) * a / 6, lo[1] + (hi[1] - lo[1]) * b / 6]
+                    for a in range(1, 6) for b in range(1, 6)]
+            inside = [gmsh.model.getValue(2, tag, g) for g in grid if gmsh.model.isInside(2, tag, g)]
             for tool in seam_tools:
-                if points and all(abs(tool_distance(p, tool)) < OPEN_TOL for p in points):
+                if "windows" in tool:
+                    if inside and all(sleeve_distance(p, tool) < OPEN_TOL for p in points + inside):
+                        return tool["name"]
+                elif all(tool_distance(p, tool) < OPEN_TOL for p in points):
                     return tool["name"]
             return None
 

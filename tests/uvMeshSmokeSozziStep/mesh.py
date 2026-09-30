@@ -27,6 +27,9 @@ cut from the body, and it contains the lamp.
     disc), ending in the `inlet` at x = 1.739; the riser on the chamber's
     side (a saddle on the r = 44.5 mm wall), ending in the `outlet` at
     z = 0.8945.
+  * The chamber's cylindrical wall carries a structured layer of cells,
+    coupled to the bulk on its inner surface, open in a window where the
+    riser meets the wall.
   * Everything else: `bodyWall`.
 
 Coarse in the chamber, to keep the case quick; it checks the pipeline end
@@ -34,7 +37,7 @@ to end, not the resolution a flow solve needs.
 """
 import os
 
-from uvmesh import Lamp, Pipe, ReactorBody, build
+from uvmesh import Lamp, Pipe, ReactorBody, WallLayer, build
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEP = os.path.join(HERE, "..", "..", "tutorials", "uvReactorSozzi2006", "SozziTaghipour.step")
@@ -65,6 +68,15 @@ PIPES = [
          open_patch_name="outlet", **PIPE_CELLS),
 ]
 
+# The chamber's cylindrical wall, between its end walls: a structured layer
+# 4 mm deep, 5 cells graded 3 to the wall, 48 around and ~6 mm along, with a
+# window where the riser meets the wall.
+WALL_LAYERS = [
+    WallLayer(axis_start=(0.0, 0.0, 0.0), axis_end=(0.889, 0.0, 0.0), radius=0.0445,
+              thickness=0.004, n_layers=5, wall_grading=3.0, n_azimuth_per_quadrant=12,
+              axial_cell_size=0.006),
+]
+
 BODY = ReactorBody(
     step_path=STEP,
     step_scale=1e-3,
@@ -74,7 +86,13 @@ BODY = ReactorBody(
     # A spherical-shell cap and a capsule seam: no rim for cells to meet
     # at the flat-disc envelope of the structured caps.
     bulk_cells="polyhedral",
+    # The wall layer's window is a pocket in the bulk, and the bulk turns
+    # 270 degrees into it around its edges: re-entrant edges, where
+    # dualising at the default feature angle of 90 leaves wrongly oriented
+    # faces. Above 90 they are dualised as smooth; the body has no
+    # flat-faced right-angle corner that needs keeping sharp.
+    dual_feature_angle=100,
 )
 
-build(case_dir=HERE, lamps=LAMPS, body=BODY, pipes=PIPES)
+build(case_dir=HERE, lamps=LAMPS, body=BODY, pipes=PIPES, wall_layers=WALL_LAYERS)
 print(f"Wrote {HERE}/_uvMesh/")

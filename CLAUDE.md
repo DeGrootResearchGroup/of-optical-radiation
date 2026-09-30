@@ -710,8 +710,15 @@ pipes = [                                  # each pipe's own solid, an O-grid
     Pipe(axis_start=(0.04765, 0, 0.0445), axis_end=(0.04765, 0, 0.8945),
          radius=0.00955, open_patch_name="outlet", ...),  # same cells
 ]
-build(case_dir=".", lamps=lamps, body=body, pipes=pipes)
+wall_layers = [                            # the chamber's cylindrical wall
+    WallLayer(axis_start=(0, 0, 0), axis_end=(0.889, 0, 0), radius=0.0445,
+              thickness=0.004, n_layers=5, wall_grading=3.0,
+              n_azimuth_per_quadrant=12, axial_cell_size=0.006),
+]
+build(case_dir=".", lamps=lamps, body=body, pipes=pipes, wall_layers=wall_layers)
 ```
+(with `dual_feature_angle=100` on the body: the layer's window has
+re-entrant edges, below)
 
 Without `pipes`, the pipes stay in the bulk: name their open ends with
 `open_patches` (a point on each face) and resolve them with
@@ -762,8 +769,10 @@ Without `pipes`, the pipes stay in the bulk: name their open ends with
   the default stays 90; the Sozzi case, with no such edges, sets 100
   (smoke mesh: 2 -> 0 bad pyramids, max skew 2.89 -> 1.80, volume
   unchanged). Meshing the pipes as O-grids (`Pipe`, below) takes the
-  re-entrant edge out of the dual entirely, and the Sozzi smoke case --
-  now with O-gridded pipes -- is Mesh OK at the default 90.
+  re-entrant edge out of the dual entirely: with O-gridded pipes and no
+  wall layer the Sozzi smoke case is Mesh OK at the default 90. A wall
+  layer's window brings re-entrant edges back (below), so with one the
+  case sets 100 again.
 - **Pipes: `build(..., pipes=[Pipe(...)])`** (uvmesh 0.10). Each pipe
   is a structured O-grid (blockmeshbuilder `CylBlockStructContainer`:
   a square core, bowed sides, and a ring graded toward the wall), built
@@ -777,7 +786,9 @@ Without `pipes`, the pipes stay in the bulk: name their open ends with
   pi R^2 L; exactly one must match), leaves it out of the fused body,
   and prints its footprint on the body with an OCC fragment before
   dropping it; the footprint is recognized as `reactor_seam_pipe{i}` by
-  the same edges-on-the-tool seam test as a lamp's, sized to the pipe's
+  its edges lying on or inside the pipe's cylinder (a signed-distance
+  test, as a lamp's seam is recognized; see Wall layers below for why
+  "inside" matters), sized to the pipe's
   wall spacing, and written after meshing as
   `pipe{i}/constant/geometry/footprint_world.stl` -- the bulk's own
   triangles, which the dual keeps. `Allrun.mesh` then, per pipe:
@@ -801,8 +812,51 @@ Without `pipes`, the pipes stay in the bulk: name their open ends with
   against 0.99989 at the lamp: a pipe's junction and its footprint are
   two 24-gons on one circle with their corners at different angles, and
   the slivers between them at the rim stay uncovered (the smoke
-  validate allows 0.995). Not done: boundary layers on the chamber
-  walls, and matching the footprint's rim nodes to the pipe's.
+  validate allows 0.995). Not done: matching the footprint's rim nodes
+  to the pipe's.
+- **Wall layers: `build(..., wall_layers=[WallLayer(...)])`** (uvmesh
+  0.11). A structured layer of cells against a cylindrical wall of the
+  body -- the Sozzi chamber's r = 44.5 mm wall between its end walls --
+  graded toward the wall (`wall_grading` = inner cell / wall cell),
+  built in the layer's local frame (axis +z, azimuth from +x) as a
+  blockmeshbuilder `TubeBlockStruct` and placed like a lamp. Its inner
+  surface couples to the bulk as `reactor_seam_layer{i}` /
+  `layer{i}_seam`; the wall and its two end rings (lying on the end
+  walls) are `layer{i}_wall`. Every pipe whose junction is on the wall
+  gets a WINDOW (`WallLayer.windows`, one definition used by both the
+  block and the bulk): the pipe's radius plus `window_margin` (default
+  its radius) either way, around and along the wall; the window's
+  blocks are masked out and their neighbours' faces toward it join the
+  seam, and the bulk fills the window down to the wall around the pipe's
+  footprint. The turn of azimuthal anchors starts opposite the first
+  window, so a quadrant anchor falls on its centre and it spans two
+  blocks. The bulk cuts the sleeve (inner radius out to 1.05 R, a
+  thickness past each end, less each window as a partial cylinder) and
+  recognizes the layer's seam with an analytic distance to the sleeve's
+  own surfaces in the local frame -- inner cylinder, each window's two
+  radial sides and two ends. Two traps met building it: (a) a surface's
+  edges can all lie on the sleeve while it does not -- an end wall whose
+  only edge is the inner circle -- so points INSIDE the surface are
+  tested too, taken from a parametric grid kept where gmsh's `isInside`
+  finds them in the trimmed face (the domain's centre falls off a
+  trimmed plane; the centre of mass of a cylinder's face is on its axis,
+  where closest-point queries degenerate); (b) the chamber cylinder's
+  own seam line can split a pipe footprint, whose halves then have an
+  edge inside the pipe's circle, so a pipe's footprint is recognized by
+  its edges lying on OR INSIDE the pipe's cylinder (signed distance;
+  equivalent for a lamp, whose cut no body surface can lie inside). The
+  window's edges are re-entrant for the bulk (it turns 270 degrees into
+  the pocket): at dual angle 90 they left 13 wrongly oriented faces in
+  the Sozzi smoke case, at 100 none. Measured, Sozzi smoke (layer 4 mm,
+  5 cells graded 3, 48 around, 6 mm long; pipes as above; dual 100):
+  116068 cells, Mesh OK, 48.8 deg, skew 1.58, volume -0.39 %; layer
+  coupling 0.99997 / 0.99998. Sozzi production (lamp and bulk as the
+  grid study's `production`, pipes 12 per quadrant 8 radial graded 4,
+  layer 4 mm, 6 cells graded 2, 96 around, 4 mm long; dual 100): 661992
+  cells, Mesh OK, 53.5 deg, skew 1.65, volume -0.08 %; layer block
+  127608 hex, 0.2 deg; coupling 0.99991 at the lamp and the layer,
+  0.9986-0.9995 at the pipes. Not done: layers under the window (the
+  riser's junction), and on the end walls.
 - `bulk_cells="hybrid"` builds its cap zone along +z only and refuses a
   hemispherical lamp on any other axis; use `polyhedral` (Sozzi's lamp
   is along x).
@@ -1053,7 +1107,10 @@ and removing the lip artifact -- a regression invariant in
 `tests/uvMeshSmokeSozziStep` meshes the Sozzi & Taghipour reactor
 from the tutorial's `SozziTaghipour.step` (the example above, coarse
 in the chamber: `n_radial=6`, `radial_grading=3`,
-`n_azimuth_per_quadrant=8`, 8 mm bulk; both pipes O-grids), in ~15 s.
+`n_azimuth_per_quadrant=8`, 8 mm bulk; both pipes O-grids; a 4 mm
+chamber-wall layer; dual angle 100), in ~15 s. With the layer: 116068
+cells, max non-orth 48.8 deg, skew 1.58, volume -0.39 %, layer coupling
+0.99997; the figures below are the case before the layer.
 Validates: the mesh volume within 1 % of the drawing's exact fluid
 volume (5.7643 L, from OpenCASCADE: chamber + inlet pipe + riser -
 lamp; observed -0.60 %, the chamber wall faceted at 8 mm); the inlet
@@ -1128,7 +1185,7 @@ guards the edges in every cap mode.
 | `"structured_full"`     | ~13000 hex     | ~4600 poly | 0.99984 / 0.99992 | 60° | 1.54 | 0 | research-grade conformal NCC; corner defects at the seam-disc edge |
 | `"structured_matryoshka"` | ~39000 hex   | ~3300 poly | 0.99990 / 0.99994 | 64° | 1.68 | 0 | **UV reactor dose accuracy**: uniform spherical cells near the lamp wall; corner defects pushed out to 2× radius (low-G zone) |
 
-`tools/uvMesh/tests/` contains a **pytest unit-test suite** (184
+`tools/uvMesh/tests/` contains a **pytest unit-test suite** (204
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.
 Where the smoke cases check end-to-end mesh validity, the unit tests
 isolate single behaviours of the helper modules:
@@ -1183,6 +1240,20 @@ isolate single behaviours of the helper modules:
   (open-patch match, rotation sign, scale, cap reciprocal, morphed-cap
   grading, outer-layer balance, cylinder grading, wall retype, the
   series exponent, two body sources) turn at least one test red.
+- `test_wall_layer.py` — `WallLayer` validation and defaults; its
+  local frame against the placement (four axes); the window a pipe on
+  the wall gets (centre, width, margin) and none for a pipe elsewhere,
+  windows off the wall's ends or overlapping refused; the dict with the
+  window's blocks left out, its six side faces in the seam, the wall and
+  end rings walls, the grading reciprocal; `Allrun.mesh`'s layer steps;
+  and in gmsh, a cylindrical STEP chamber with a riser whose footprint
+  the chamber's seam line splits: no bulk node beyond the layer's inner
+  surface outside the window, the bulk at the wall inside it, the seam
+  on the inner surface and on the window's radial sides and ends (away
+  from their shared corners), and the end wall still wall. All ten
+  targeted mutations turn a test red; two of them first survived and
+  the test was strengthened for them (the window's ends checked away
+  from the corners the radial sides share; the end wall checked).
 - `test_pipe.py` — `Pipe` validation and its axial-cell default; the
   pipe dict is a five-block O-grid with its wall, seam and open patches
   once each, every junction vertex projected onto the footprint STL and

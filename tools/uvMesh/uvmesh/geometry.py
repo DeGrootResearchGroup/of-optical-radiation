@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Tuple
 
 
 def _vec(x):
@@ -228,6 +228,160 @@ class Pipe:
     def wall_spacing(self) -> float:
         """The azimuthal cell spacing along the pipe wall."""
         return 2 * math.pi * self.radius / (4 * self.n_azimuth_per_quadrant)
+
+
+def rotation_axis_angle(
+    rotate: Optional[Tuple[tuple, tuple]],
+) -> Optional[Tuple[tuple, float]]:
+    """The shortest rotation taking `rotate[0]` onto `rotate[1]`, as
+    `(unit axis, angle in radians)`, or None for no rotation.
+
+    Antiparallel vectors have no unique shortest rotation; any axis
+    perpendicular to them works, and the one used is perpendicular to the
+    first vector and to whichever coordinate axis it is least aligned with.
+    """
+    if rotate is None:
+        return None
+    a, b = rotate
+    na = math.sqrt(sum(c * c for c in a))
+    nb = math.sqrt(sum(c * c for c in b))
+    a = tuple(c / na for c in a)
+    b = tuple(c / nb for c in b)
+    cos = max(-1.0, min(1.0, sum(x * y for x, y in zip(a, b))))
+    cross = (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+    sin = math.sqrt(sum(c * c for c in cross))
+    if sin < 1e-12:
+        if cos > 0:
+            return None
+        least = min(range(3), key=lambda i: abs(a[i]))
+        e = tuple(1.0 if i == least else 0.0 for i in range(3))
+        cross = (a[1] * e[2] - a[2] * e[1], a[2] * e[0] - a[0] * e[2], a[0] * e[1] - a[1] * e[0])
+        sin = math.sqrt(sum(c * c for c in cross))
+        return (tuple(c / sin for c in cross), math.pi)
+    return (tuple(c / sin for c in cross), math.atan2(sin, cos))
+
+
+def rotate(p, axis_angle) -> tuple:
+    """Point `p` rotated by `(unit axis, angle)` about the origin
+    (Rodrigues' formula); None is no rotation."""
+    if axis_angle is None:
+        return tuple(p)
+    (kx, ky, kz), angle = axis_angle
+    c, s = math.cos(angle), math.sin(angle)
+    dot = kx * p[0] + ky * p[1] + kz * p[2]
+    cross = (ky * p[2] - kz * p[1], kz * p[0] - kx * p[2], kx * p[1] - ky * p[0])
+    k = (kx, ky, kz)
+    return tuple(p[i] * c + cross[i] * s + k[i] * dot * (1 - c) for i in range(3))
+
+
+@dataclass
+class WallLayer:
+    """A structured layer of cells against a cylindrical wall of a STEP body.
+
+    Coordinates are world-frame metres. The wall is the cylinder of radius
+    `radius` about the axis from `axis_start` to `axis_end`, which must be
+    the extent of the cylindrical wall between the body's end walls: the
+    layer runs the whole of it, and its two end rings lie on the end walls
+    and are walls themselves. The layer is `thickness` deep, `n_layers`
+    cells from its inner surface to the wall, the cell at the inner surface
+    `wall_grading` times the wall cell (above 1 packs cells at the wall);
+    `4 * n_azimuth_per_quadrant` cells around, and cells about
+    `axial_cell_size` long (default: the azimuthal spacing at the wall).
+    Its inner surface is coupled to the bulk non-conformally, as a lamp's
+    seam is.
+
+    Each pipe whose junction lies on the wall passes through the layer
+    through a WINDOW: the layer's cells are left out over the pipe's
+    radius plus `window_margin` (default: the pipe's radius) either way,
+    around and along the wall, and the bulk fills the window down to the
+    wall, where the pipe meets it. The window's sides join the seam.
+    """
+
+    axis_start: tuple
+    axis_end: tuple
+    radius: float
+    thickness: float
+    n_layers: int = 8
+    wall_grading: float = 1.0  # inner-surface cell / wall cell
+    n_azimuth_per_quadrant: int = 24
+    axial_cell_size: Optional[float] = None  # auto: the azimuthal spacing at the wall
+    window_margin: Optional[float] = None  # auto: each crossing pipe's radius
+    wall_patch_name: str = ""  # auto-set to "layer{i}_wall" in pipeline if empty
+    seam_patch_name: str = ""  # auto-set to "layer{i}_seam"
+
+    def __post_init__(self):
+        self.axis_start = _vec(self.axis_start)
+        self.axis_end = _vec(self.axis_end)
+        if self.length() <= 0:
+            raise ValueError(f"WallLayer: axis_start and axis_end coincide ({self.axis_start})")
+        if not 0 < self.thickness < self.radius:
+            raise ValueError(
+                f"WallLayer: require 0 < thickness < radius, got {self.thickness} and {self.radius}"
+            )
+        for name in ("n_layers", "n_azimuth_per_quadrant"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"WallLayer.{name} must be >= 1, got {getattr(self, name)}")
+        if self.wall_grading <= 0:
+            raise ValueError(f"WallLayer.wall_grading must be > 0, got {self.wall_grading}")
+        if self.axial_cell_size is None:
+            self.axial_cell_size = 2 * math.pi * self.radius / (4 * self.n_azimuth_per_quadrant)
+        elif self.axial_cell_size <= 0:
+            raise ValueError(f"WallLayer.axial_cell_size must be > 0, got {self.axial_cell_size}")
+        if self.window_margin is not None and self.window_margin < 0:
+            raise ValueError(f"WallLayer.window_margin must be >= 0, got {self.window_margin}")
+
+    def length(self) -> float:
+        return _norm(_sub(self.axis_end, self.axis_start))
+
+    def axis_unit(self) -> tuple:
+        return _unit(_sub(self.axis_end, self.axis_start))
+
+    def inner_radius(self) -> float:
+        return self.radius - self.thickness
+
+    def local(self, p) -> tuple:
+        """World point `p` in the layer's local frame: its axis along +z
+        from the origin, reached from world by the inverse of the shortest
+        rotation taking +z onto the axis (the frame the layer is meshed in
+        and then placed from)."""
+        forward = rotation_axis_angle(((0.0, 0.0, 1.0), self.axis_unit()))
+        inverse = None if forward is None else (forward[0], -forward[1])
+        return rotate(_sub(p, self.axis_start), inverse)
+
+    def windows(self, pipes) -> list:
+        """One window per pipe whose junction lies on the wall, as
+        `(theta_lo, theta_hi, s_lo, s_hi)` in the layer's local frame:
+        azimuth in radians within one turn of the first window's
+        antipode, so no window straddles the start of the turn, and
+        distance along the axis. Raises if a window leaves the wall's
+        ends, or two windows overlap."""
+        found = []
+        for i, pipe in enumerate(pipes):
+            x, y, s = self.local(pipe.axis_start)
+            if abs(math.hypot(x, y) - self.radius) > 1e-6 * self.radius:
+                continue
+            margin = pipe.radius if self.window_margin is None else self.window_margin
+            half = pipe.radius + margin
+            if not half < s < self.length() - half:
+                raise ValueError(
+                    f"WallLayer: pipe {i}'s window (s {s - half:.4g} to {s + half:.4g}) leaves "
+                    f"the wall's length {self.length():.4g}"
+                )
+            found.append((math.atan2(y, x), half / self.radius, s - half, s + half))
+        if not found:
+            return []
+        start = found[0][0] + math.pi
+        windows = []
+        for theta, half_angle, s_lo, s_hi in found:
+            theta = start + (theta - start) % (2 * math.pi)
+            windows.append((theta - half_angle, theta + half_angle, s_lo, s_hi))
+        for a in windows:
+            if not start < a[0] and a[1] < start + 2 * math.pi:
+                raise ValueError("WallLayer: a window straddles the start of the turn")
+            for b in windows:
+                if a is not b and a[0] < b[1] and b[0] < a[1] and a[2] < b[3] and b[2] < a[3]:
+                    raise ValueError("WallLayer: two pipes' windows overlap")
+        return windows
 
 
 @dataclass

@@ -15,8 +15,9 @@ from typing import List, Sequence
 
 from .annulus import write_annulus_dict
 from .bulk import FOOTPRINT_WORLD_STL, write_bulk_script
-from .geometry import Lamp, Pipe, ReactorBody
+from .geometry import Lamp, Pipe, ReactorBody, WallLayer
 from .pipe import FOOTPRINT_STL, write_pipe_dict
+from .wall_layer import write_wall_layer_dict
 
 
 _STUB_CONTROLDICT = """\
@@ -76,6 +77,15 @@ def _autoname_pipes(pipes: Sequence[Pipe]) -> None:
             pipe.seam_patch_name = f"pipe{i}_seam"
 
 
+def _autoname_wall_layers(layers: Sequence[WallLayer]) -> None:
+    """Fill in patch names on wall layers where the user left them blank."""
+    for i, layer in enumerate(layers):
+        if not layer.wall_patch_name:
+            layer.wall_patch_name = f"layer{i}_wall"
+        if not layer.seam_patch_name:
+            layer.seam_patch_name = f"layer{i}_seam"
+
+
 def _check_pipe_names(pipes: Sequence[Pipe], body: ReactorBody) -> None:
     """A pipe's open end is a patch of the final mesh: its name must be its
     own, and not a patch of the body's (its open patches and wall)."""
@@ -112,7 +122,8 @@ def _placement(axis_unit, axis_start) -> tuple:
 
 
 def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
-                       body: ReactorBody, pipes: Sequence[Pipe] = ()) -> None:
+                       body: ReactorBody, pipes: Sequence[Pipe] = (),
+                       wall_layers: Sequence[WallLayer] = ()) -> None:
     """Generate the `_uvMesh/Allrun.mesh` driver script.
 
     The script is self-contained: assumes `WM_PROJECT_DIR` is set (OF env
@@ -144,6 +155,16 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
         lines.append(f"    runApplication blockMesh")
         lines.append(f"    runApplication transformPoints \"{place}\"")
         lines.append(f")")
+        lines.append("")
+
+    for i, layer in enumerate(wall_layers):
+        place, _ = _placement(layer.axis_unit(), layer.axis_start)
+        lines.append(f"# Wall layer {i}: {layer.wall_patch_name}")
+        lines.append("(")
+        lines.append(f"    cd _uvMesh/layer{i}")
+        lines.append("    runApplication blockMesh")
+        lines.append(f"    runApplication transformPoints \"{place}\"")
+        lines.append(")")
         lines.append("")
 
     # Bulk mesh
@@ -278,6 +299,7 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
     piece_paths = " ".join(
         [f'"_uvMesh/annulus_lamp{i}"' for i in range(len(lamps))]
         + [f'"_uvMesh/pipe{i}"' for i in range(len(pipes))]
+        + [f'"_uvMesh/layer{i}"' for i in range(len(wall_layers))]
     )
     lines.append("# Merge each lamp's O-grid annulus and each pipe's O-grid into the bulk.")
     lines.append(f"runApplication mergeMeshes -addCases '({piece_paths})'")
@@ -287,6 +309,8 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
     lines.append("# Fuse each structured piece's seam to the corresponding bulk seam.")
     couples = [(f"reactor_seam_lamp{i}", lamp.seam_patch_name) for i, lamp in enumerate(lamps)]
     couples += [(f"reactor_seam_pipe{i}", pipe.seam_patch_name) for i, pipe in enumerate(pipes)]
+    couples += [(f"reactor_seam_layer{i}", layer.seam_patch_name)
+                for i, layer in enumerate(wall_layers)]
     for bulk_side, piece_side in couples:
         lines.append(
             f"runApplication -a createNonConformalCouples {bulk_side} {piece_side}"
@@ -308,12 +332,15 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
 
 
 def build(case_dir: str, lamps: List[Lamp], body: ReactorBody,
-          pipes: Sequence[Pipe] = ()) -> None:
+          pipes: Sequence[Pipe] = (), wall_layers: Sequence[WallLayer] = ()) -> None:
     """Write the meshing workspace and Allrun.mesh under `case_dir/_uvMesh/`.
 
     `pipes` are straight pipes of a STEP body, each its own solid in the
     file, meshed as structured O-grids and coupled to the bulk at their
-    footprints; each one's open end is its `open_patch_name`.
+    footprints; each one's open end is its `open_patch_name`. `wall_layers`
+    are structured layers of cells against cylindrical walls of the body,
+    each coupled to the bulk on its inner surface, with a window left open
+    wherever a pipe meets its wall.
 
     Existing `<case_dir>/_uvMesh/` is overwritten. The user's case configs
     under `<case_dir>/system/`, `<case_dir>/0/`, etc. are not touched.
@@ -323,6 +350,7 @@ def build(case_dir: str, lamps: List[Lamp], body: ReactorBody,
 
     _autoname_lamps(lamps)
     _autoname_pipes(pipes)
+    _autoname_wall_layers(wall_layers)
     _check_pipe_names(pipes, body)
 
     ws = os.path.join(case_dir, "_uvMesh")
@@ -343,10 +371,16 @@ def build(case_dir: str, lamps: List[Lamp], body: ReactorBody,
         write_pipe_dict(pipe, pipe_dir)
         _write_stub_controldict(pipe_dir)
 
+    # Per-wall-layer subdirs.
+    for i, layer in enumerate(wall_layers):
+        layer_dir = os.path.join(ws, f"layer{i}")
+        write_wall_layer_dict(layer, layer.windows(pipes), layer_dir)
+        _write_stub_controldict(layer_dir)
+
     # Bulk: emitter script + scratch OF case for gmshToFoam.
-    write_bulk_script(body, lamps, ws, pipes)
+    write_bulk_script(body, lamps, ws, pipes, wall_layers)
     bulk_case = os.path.join(ws, "bulk_body")
     _write_stub_controldict(bulk_case)
 
     # Top-level Allrun.mesh.
-    _write_allrun_mesh(case_dir, lamps, body, pipes)
+    _write_allrun_mesh(case_dir, lamps, body, pipes, wall_layers)
