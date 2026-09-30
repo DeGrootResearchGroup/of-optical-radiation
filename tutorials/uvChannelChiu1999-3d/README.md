@@ -20,7 +20,8 @@ from the 2-D parent case are:
   no penetration. The water-air interface is modelled as a flat,
   rigid lid; surface waves are not resolved.
 - **Cell count: ~7 million.** Expected wall-clock with 8-core MPI is
-  3-5 hours; see `LONG_RUNNING` for the breakdown.
+  3-5 hours with the former 32-ray angular grid; the DOM stage now uses 256 rays and takes
+  longer. See `LONG_RUNNING` for the breakdown.
 
 ## Quick run
 

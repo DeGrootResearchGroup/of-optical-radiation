@@ -22,18 +22,17 @@ FoamFile
 // water (65 % transmittance per cm at 254 nm; alpha_w = 0.43 1/cm).
 // Scattering is neglected for clean treated effluent at 254 nm.
 //
-// nTheta = 1 because the mesh is two-dimensional in the xy plane;
-// nPhi = 16 gives 32 azimuthal directions which is fine enough that
-// the radiation field is not the limiting source of error on this
-// case (the discretisation of the lamp geometry is).
+// Angular grid: 2*nPhi azimuthal x nTheta polar bins = 256 ray directions.
+// nTheta = nPhi/2, the same azimuthal:polar ratio as uvReactorSozzi2006-DOM.
+// (nTheta must be 1 only for 2-D meshes; the 2-D parent case uses 1.)
 
 opticalRadiation        on;
 radiationModel          DOM;
 
 DOMCoeffs
 {
-    nPhi          16;
-    nTheta        1;
+    nPhi          16;    // 2*nPhi azimuthal bins
+    nTheta        8;     // polar bins; 3-D
     convergence   1e-5;
     maxIter       100;
     nBand         1;
