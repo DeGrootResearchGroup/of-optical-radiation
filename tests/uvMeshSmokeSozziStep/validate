@@ -140,6 +140,13 @@ if n_tets or not n_hex or not n_polys:
     fail(f"cell types: {n_hex} hex, {n_polys} polyhedra, {n_tets} tets")
 passed(f"{n_hex} hex (lamp region) + {n_polys} polyhedra (bulk) + 0 tets")
 
+# No cell set may outlive the dual: gmshToFoam's `fluid` set indexes the tet mesh, and
+# decomposePar (which checkMesh does not stand in for) stops on its out-of-range cells.
+sets = os.path.join(HERE, "constant", "polyMesh", "sets")
+if os.path.isdir(sets) and os.listdir(sets):
+    fail(f"stale cell sets left in the mesh: {os.listdir(sets)}")
+passed("no stale cell sets in constant/polyMesh")
+
 ncc = read(os.path.join(HERE, "log.createNonConformalCouples"))
 for side in ("Source", "Target"):
     m = re.search(rf"{side} min/average/max coverage = [\d.eE+-]+/([\d.eE+-]+)/", ncc)

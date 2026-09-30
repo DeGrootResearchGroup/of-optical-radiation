@@ -168,9 +168,12 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
         "polyhedral", "structured", "structured_full", "structured_matryoshka",
     ):
         lines.append("    runApplication polyDualMesh 90")
-        # polyDualMesh leaves the cellZone built by gmshToFoam pointing at pre-
-        # dual cell indices. Single-region bulks don't need it -- drop the file.
+        # polyDualMesh leaves the cellZone -- and the cellSet -- built by
+        # gmshToFoam pointing at pre-dual cell indices. Single-region bulks
+        # don't need either, so drop both. checkMesh never reads the set,
+        # but decomposePar does, and stops on its out-of-range cells.
         lines.append("    rm -f constant/polyMesh/cellZones")
+        lines.append("    rm -rf constant/polyMesh/sets")
     elif body.bulk_cells == "hybrid":
         # Split into cap_zone (tets) and bulk_zone (will be dualised)
         # via two `subsetMesh` runs against copies of the mesh, rename
@@ -202,6 +205,7 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
                      "type            patch/' constant/polyMesh/boundary")
         lines.append("    runApplication polyDualMesh 90")
         lines.append("    rm -f constant/polyMesh/cellZones")
+        lines.append("    rm -rf constant/polyMesh/sets")
         # Fuse cap into the dualised bulk; stitchMesh joins the interface.
         lines.append("    runApplication mergeMeshes -addCases '(\"../hybrid_cap\")'")
         # stitchMesh's argv is a quoted parenthesised pair list -- single arg.

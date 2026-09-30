@@ -202,11 +202,16 @@ def test_allrun_runs_polyDualMesh_and_cleans_cellZone(basic_lamp, box_body, tmp_
     featureAngle 90 (matches the derisk), and Allrun.mesh removes
     the stale cellZone file afterwards (gmshToFoam built it from
     Physical Volume('fluid') but polyDualMesh doesn't update its cell
-    indices, so it would trip checkMesh's zone-validity check)."""
+    indices, so it would trip checkMesh's zone-validity check). The cellSet
+    gmshToFoam writes beside it is just as stale, and decomposePar -- which
+    checkMesh does not stand in for -- stops on its out-of-range cells, so it
+    goes too, after the dual."""
     build(case_dir=str(tmp_path), lamps=[basic_lamp], body=box_body)
     text = _read_allrun(tmp_path)
     assert "runApplication polyDualMesh 90" in text
     assert "rm -f constant/polyMesh/cellZones" in text
+    assert text.index("runApplication polyDualMesh 90") < text.index(
+        "rm -rf constant/polyMesh/sets")
 
 
 def test_allrun_skips_polyDualMesh_when_bulk_cells_is_tet(basic_lamp, tmp_path):
