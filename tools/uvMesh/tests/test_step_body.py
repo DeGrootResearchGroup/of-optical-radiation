@@ -275,6 +275,50 @@ def test_step_body_is_placed_and_its_open_patch_found(placed_step_body, tmp_path
     assert outlet[4:6] == pytest.approx((0.01, 0.11))
 
 
+def _group_nodes(msh):
+    """{physical surface name: (N, 3) node coordinates} from the written mesh."""
+    import gmsh
+    gmsh.initialize()
+    gmsh.option.setNumber("General.Terminal", 0)
+    gmsh.open(str(msh))
+    nodes = {}
+    for dim, tag in gmsh.model.getPhysicalGroups(2):
+        _, xyz = gmsh.model.mesh.getNodesForPhysicalGroup(dim, tag)
+        nodes[gmsh.model.getPhysicalName(dim, tag)] = xyz.reshape(-1, 3)
+    gmsh.finalize()
+    return nodes
+
+
+def test_a_hemispherical_seam_is_the_whole_capsule_and_nothing_past_it(tmp_path):
+    """The capsule cut of a hemispherical lamp tip, in a STEP body: the seam
+    must be the cylinder AND the hemisphere, and must lie on the capsule.
+    Two defects this pins: a Boolean with the CAD body can split the
+    hemisphere into pieces whose centroids are off the axis, which a
+    centroid-on-axis classifier sent to the wall; and a cylinder padded
+    past the equator stands out of the narrowing sphere as a lip, whose
+    nodes sit off the sphere."""
+    step = tmp_path / "chamber.step"
+    _make_step(step)
+    radius, tip = 0.014, (0.0, 0.0, 0.06)
+    lamp = Lamp(axis_start=(0, 0, 0), axis_end=tip, sleeve_radius=0.008,
+                annulus_outer_radius=radius, n_radial=3, n_azimuth_per_quadrant=4,
+                endcap_a_shape="flat", endcap_b_shape="hemisphere")
+    lamp.sleeve_patch_name = "lamp0_wall"
+    body = ReactorBody(step_path=str(step), step_scale=1e-3,
+                       step_rotate=((0, 1, 0), (0, 0, 1)),
+                       open_patches={"outlet": (0.08, 0.0, 0.1)},
+                       wall_patch_name="bodyWall", bulk_cell_size=0.01,
+                       bulk_cells="polyhedral")
+    write_bulk_script(body, [lamp], str(tmp_path))
+    run = _run_script(tmp_path)
+    assert run.returncode == 0, run.stderr
+    seam = _group_nodes(tmp_path / "bulk.msh")["reactor_seam_lamp0"]
+    assert seam[:, 2].max() == pytest.approx(tip[2] + radius, abs=1e-9)
+    past = seam[seam[:, 2] > tip[2] + 1e-9]
+    off_sphere = abs(((past - tip) ** 2).sum(axis=1) ** 0.5 - radius)
+    assert off_sphere.max() < 1e-8, f"seam nodes {off_sphere.max():.2e} m off the sphere"
+
+
 def test_an_open_patch_point_off_the_body_fails_the_script(placed_step_body, tmp_path):
     step, lamp = placed_step_body
     body = ReactorBody(step_path=str(step), step_scale=1e-3,

@@ -198,40 +198,51 @@ class ReactorBody:
     floors every size (default: the seam spacing); lower it when
     `wall_cells_per_circle` should reach below the seam spacing.
 
+    `dual_feature_angle` (degrees, default 90) is `polyDualMesh`'s feature
+    angle: a boundary edge between faces whose normals differ by more
+    than it is kept as a sharp edge of the dual mesh. The default keeps a
+    box's 90-degree edges sharp. It suits badly an edge where a pipe
+    meets a wall at a right angle, as the pipes of a reactor drawing do:
+    that edge is re-entrant (the fluid turns through 270 degrees around
+    it), its tessellated normals scatter either side of 90 degrees, and
+    the dual cells along it come out with wrongly oriented faces, marked
+    as features or not. Above 90 no such edge is a feature and the dual
+    cells there are sound; the cost is that exactly-planar right-angle
+    edges (a box's) are no longer kept sharp, and their corner cells are
+    cut. Set it to 100 for a body with right-angle pipe junctions and no
+    flat-faced corners to keep.
+
     `bulk_cells` controls whether the gmsh tet mesh is dualised into
     polyhedra by `polyDualMesh`:
 
       * `"polyhedral"` (default) -- run `polyDualMesh` after `gmshToFoam`.
         Produces ~14-faces/cell polyhedra (~4x fewer cells than the
-        tet input). Best for flat-flat lamps. **Hemispherical lamps
-        produce ~0.06 % of cells with bad face pyramids on the
-        cylinder-sphere fusion seam** -- polyDualMesh's dualization of
-        obtuse tets near the curved boundary produces non-convex
-        polyhedra. Functional, but max skewness ~8.7 and checkMesh
-        fails the face-pyramid-orientation check.
+        tet input). For a hemispherical lamp the cap is a cubed-sphere
+        shell from the sleeve to `annulus_outer_radius`, and the bulk's
+        cut is the matching capsule: the seam is a cylinder and a
+        hemisphere, with no rim anywhere, and every lamp-region cell is
+        a hex on concentric spheres or cylinders. The dual of the bulk
+        is sound against the capsule (bad face pyramids on its seam
+        came from a 1 mm lip, where the cut cylinder was padded past
+        the equator, now removed).
 
       * `"tet"` -- skip `polyDualMesh`, ship the bulk as plain tets.
-        ~4x more cells in the bulk than the polyhedral path, but
-        max skewness ~0.9 and checkMesh reports `Mesh OK`. The
-        right choice when the curved capsule boundary makes
-        polyDualMesh's dualization fail -- which is the case for
-        every hemispherical lamp.
+        ~4x more cells in the bulk than the polyhedral path.
 
       * `"hybrid"` -- ONLY the cells near each hemispherical cap stay
         as tets; the rest of the bulk is dualised. The cap-zone
         cylinder (`cap_zone_radius_factor * annulus_outer_radius`,
         from `axis_end - annulus_outer_radius` to
         `axis_end + cap_zone_axial_factor * annulus_outer_radius`)
-        insulates polyDualMesh from the curved capsule seam, which
-        is what makes the dualization fail in the all-polyhedral
-        path. ~1.7x more cells than `"polyhedral"` would have
+        keeps polyDualMesh away from the capsule seam -- built when
+        the seam's lip (above) was taken for a limit of the dual.
+        ~1.7x more cells than `"polyhedral"` would have
         produced on a flat-flat lamp, vs ~4x for the all-tet path
         -- a 60% cell-count savings vs `"tet"`. Costs: an extra
         `subsetMesh` + `stitchMesh` step in `Allrun.mesh`, and a
         small residual count of bad face pyramids (~2 in the
         smoke test) at the cap-bulk stitch interface where tet and
-        polyhedral cells meet. Recommended default for hemispherical
-        lamps.
+        polyhedral cells meet.
 
       * `"structured"` -- the cap region is filled with a 5-block
         morphed cubed-sphere shell (`cap_extension.py`). The polar
@@ -311,6 +322,7 @@ class ReactorBody:
     near_lamp_band_thickness: Optional[float] = None  # auto = 2 * near_lamp_cell_size
     wall_cells_per_circle: Optional[int] = None  # curvature-based sizing on curved walls
     min_cell_size: Optional[float] = None  # floor on every bulk size; auto = seam spacing
+    dual_feature_angle: float = 90.0  # polyDualMesh feature angle, degrees
     wall_patch_name: str = "bulkWall"
     endcap_lo_patch_name: str = "endcap_lo"  # box bodies only
     endcap_hi_patch_name: str = "endcap_hi"  # box bodies only
@@ -381,6 +393,11 @@ class ReactorBody:
         if self.min_cell_size is not None and self.min_cell_size <= 0:
             raise ValueError(
                 f"ReactorBody.min_cell_size must be > 0, got {self.min_cell_size}"
+            )
+        if not 0 < self.dual_feature_angle <= 180:
+            raise ValueError(
+                f"ReactorBody.dual_feature_angle must be in (0, 180] degrees, got "
+                f"{self.dual_feature_angle}"
             )
         self.open_patches = {
             str(name): _vec(point) for name, point in dict(self.open_patches).items()

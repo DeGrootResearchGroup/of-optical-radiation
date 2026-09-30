@@ -6,7 +6,10 @@ Validates:
     fluid volume of the STEP drawing (chamber + inlet pipe + riser, less
     the lamp), 5.7643 L as OpenCASCADE computes it -- a missing pipe, a
     body left in millimetres or a lamp left in the fluid each break this
-  - max non-orth < 90 deg, max skewness < 4, bad face pyramids < 0.1 %
+  - max non-orth < 90 deg, max skewness < 4, and no bad face pyramids:
+    the pipe junctions, where dualising left wrongly oriented faces at
+    polyDualMesh's default feature angle, are dualised cleanly at the
+    case's 100 degrees
   - the patches the case's own boundary conditions name, with their types:
     the body wall is a `wall`, the inlet and outlet are the two named
     open faces, and the lamp's sleeve, flat end and tip are walls
@@ -71,9 +74,9 @@ m_faces = re.search(r"^\s*faces:\s+(\d+)", log, re.MULTILINE)
 m_bad = re.search(r"(\d+)\s+faces are incorrectly oriented", log)
 n_faces = int(m_faces.group(1)) if m_faces else 0
 n_bad = int(m_bad.group(1)) if m_bad else 0
-if not n_faces or n_bad / n_faces >= 0.001:
-    fail(f"{n_bad} bad face pyramids of {n_faces} faces (>= 0.1 %)")
-passed(f"bad face pyramids {n_bad} / {n_faces} ({100 * n_bad / n_faces:.4f}%)")
+if not n_faces or n_bad:
+    fail(f"{n_bad} bad face pyramids of {n_faces} faces")
+passed(f"no bad face pyramids in {n_faces} faces")
 
 boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
 expected = {

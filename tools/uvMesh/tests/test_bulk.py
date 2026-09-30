@@ -256,9 +256,10 @@ def test_cap_ext_side_has_no_extra_pad(hemisphere_lamp, tmp_path):
     # by running through its logic.
     src = (tmp_path / "bulk_body.py").read_text()
     # Sanity: the script must use pad_a / pad_b that zero out on the
-    # cap_ext > 0 side. This is the regression invariant.
-    assert "pad_a = 0.0 if cap_ext_a > 0 else pad" in src
-    assert "pad_b = 0.0 if cap_ext_b > 0 else pad" in src
+    # cap_ext > 0 side (and on a hemispherical end, pinned end to end in
+    # test_step_body.py). This is the regression invariant.
+    assert 'pad_a = 0.0 if cap_ext_a > 0 or cut["endcap_a_hemi"] else pad' in src
+    assert 'pad_b = 0.0 if cap_ext_b > 0 or cut["endcap_b_hemi"] else pad' in src
     # And the cyl_total_len formula must use pad_a/pad_b (not 2*pad).
     assert "pad_a + pad_b + cap_ext_a + cap_ext_b" in src
 

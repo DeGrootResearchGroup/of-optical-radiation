@@ -17,9 +17,10 @@ cut from the body, and it contains the lamp.
 
   * Lamp: flat end A on the chamber's end wall at x = 0; the cylinder
     runs to x = 0.80, where the hemispherical tip (radius 10 mm) ends
-    it at x = 0.81. `structured_matryoshka`: an inner structured layer
-    from the 10 mm sleeve to 15 mm, graded toward the sleeve, and an
-    outer layer to 30 mm carrying the seam to the bulk.
+    it at x = 0.81. `polyhedral`: a structured layer from the 10 mm
+    sleeve to 15 mm, graded toward the sleeve, over the cylinder and,
+    as a cubed-sphere shell, over the tip; the bulk's cut is the
+    matching capsule, which carries the seam.
   * Inlet: the disc at the far end of the inlet pipe (x = 1.739).
   * Outlet: the disc at the top of the riser (z = 0.8945).
   * Everything else: `bodyWall`.
@@ -67,7 +68,15 @@ BODY = ReactorBody(
     # spacing so that size is reachable.
     wall_cells_per_circle=24,
     min_cell_size=0.002,
-    bulk_cells="structured_matryoshka",
+    # The inlet pipe meets the chamber's end wall, and the riser its
+    # side, at right angles: re-entrant edges, where dualising at the
+    # default feature angle of 90 leaves wrongly oriented faces. Above 90
+    # they are dualised as smooth wall; the reactor has no flat-faced
+    # right-angle corner that needs keeping sharp.
+    dual_feature_angle=100,
+    # A spherical-shell cap and a capsule seam: no rim for cells to meet
+    # at the flat-disc envelope of the structured caps.
+    bulk_cells="polyhedral",
 )
 
 build(case_dir=HERE, lamps=LAMPS, body=BODY)

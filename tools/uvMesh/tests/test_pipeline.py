@@ -236,6 +236,28 @@ def test_allrun_skips_polyDualMesh_when_bulk_cells_is_tet(basic_lamp, tmp_path):
     )
 
 
+@pytest.mark.parametrize("bulk_cells", [
+    "polyhedral", "structured", "structured_full", "structured_matryoshka", "hybrid",
+])
+def test_allrun_dualises_at_the_bodys_feature_angle(basic_lamp, tmp_path, bulk_cells):
+    """`dual_feature_angle` is the angle every dualising path hands
+    polyDualMesh, so each dualisation uses exactly it and nothing else."""
+    body = ReactorBody(
+        box_min=(-0.04, -0.04, 0.0), box_max=(0.04, 0.04, 0.15),
+        bulk_cell_size=0.008, bulk_cells=bulk_cells, dual_feature_angle=100,
+    )
+    build(case_dir=str(tmp_path), lamps=[basic_lamp], body=body)
+    angles = re.findall(r"runApplication polyDualMesh (\S+)", _read_allrun(tmp_path))
+    assert angles == ["100"]
+
+
+@pytest.mark.parametrize("angle", [0.0, -5.0, 180.5])
+def test_reactor_body_rejects_a_feature_angle_outside_0_180(angle):
+    with pytest.raises(ValueError, match="dual_feature_angle must be in"):
+        ReactorBody(box_min=(-0.04, -0.04, 0.0), box_max=(0.04, 0.04, 0.15),
+                    dual_feature_angle=angle)
+
+
 def test_allrun_hybrid_emits_subsetMesh_stitchMesh_pipeline(basic_lamp, tmp_path):
     """`bulk_cells='hybrid'`: Allrun.mesh splits the bulk via subsetMesh,
     dualises only the bulk subset, fuses with mergeMeshes + stitchMesh

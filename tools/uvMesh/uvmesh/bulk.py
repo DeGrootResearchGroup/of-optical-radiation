@@ -241,12 +241,9 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             body_dimtag = solids[0]
 
         # Cut each lamp's capsule (cylinder, with optional hemispherical end
-        # caps fused at axis_start or axis_end) out of the body. Track lamp
-        # geometry per axis so we can re-identify the seam surfaces afterwards.
-        # The seam centroid lies on the lamp axis line by symmetry (the
-        # capsule is axisymmetric), so a single d_perp test catches both the
-        # cylindrical and hemispherical parts of the seam; the axis-parameter
-        # range is extended by `radius` on the hemispherical end(s).
+        # caps fused at axis_start or axis_end) out of the body. Record each
+        # cut tool's shape so the seam surfaces -- the parts of the body's
+        # boundary the tool left -- can be recognized afterwards.
         lamp_axes = []
         for cut in LAMP_CUTS:
             ax = cut["axis_start"]
@@ -273,10 +270,14 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             # via NCC; pulling the disc 1 mm past that point (the previous
             # behaviour) misclassified the disc top as a wall and gave a
             # 1mm z-offset orphan band on the annulus's polar cap face.
+            # Nor on a hemispherical end: the sphere fused there narrows
+            # past the equator, so a padded cylinder would stand out of it
+            # as a 1 mm lip, meeting the sphere in a nearly tangent crease
+            # that polyDualMesh dualises into wrongly oriented faces.
             cap_ext_a = cut.get("cap_ext_a", 0.0)
             cap_ext_b = cut.get("cap_ext_b", 0.0)
-            pad_a = 0.0 if cap_ext_a > 0 else pad
-            pad_b = 0.0 if cap_ext_b > 0 else pad
+            pad_a = 0.0 if cap_ext_a > 0 or cut["endcap_a_hemi"] else pad
+            pad_b = 0.0 if cap_ext_b > 0 or cut["endcap_b_hemi"] else pad
             start = (
                 ax[0] - (pad_a + cap_ext_a) * ux,
                 ax[1] - (pad_a + cap_ext_a) * uy,
@@ -330,21 +331,19 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             )
             body_dimtag = cut_result[0]
 
-            # Axis-parameter range for seam classification. For
-            # hemispherical caps WITHOUT structured-cap extension the
-            # seam extends by `radius` (sphere fused at the end). For
-            # structured-cap mode (cap_ext > 0) the cylinder extends
-            # past the end by cap_ext (no sphere fuse). Flat caps don't
-            # extend the seam range.
-            s_lo = -cap_ext_a if cap_ext_a > 0 else (
-                -radius if cut["endcap_a_hemi"] else 0.0
-            )
-            s_hi = length + cap_ext_b if cap_ext_b > 0 else (
-                length + radius if cut["endcap_b_hemi"] else length
-            )
-            lamp_axes.append((
-                ax, ay, length, (ux, uy, uz), radius,
-                cut["seam_name"], s_lo, s_hi,
+            # The tool just cut, for recognizing its surface afterwards: the
+            # cylinder's axial range (in distance along the axis from
+            # axis_start) and the spheres fused at its hemispherical ends.
+            spheres = [
+                centre for is_hemi, centre, ext in (
+                    (cut["endcap_a_hemi"], ax, cap_ext_a),
+                    (cut["endcap_b_hemi"], ay, cap_ext_b),
+                ) if is_hemi and ext <= 0
+            ]
+            lamp_axes.append(dict(
+                name=cut["seam_name"], start=ax, u=(ux, uy, uz), radius=radius,
+                s0=-(pad_a + cap_ext_a), s1=length + pad_b + cap_ext_b,
+                spheres=spheres,
             ))
 
         # ----------------------------------------------------------------
@@ -408,7 +407,7 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         # any cap-zone volumes from the hybrid fragment) so the
         # cap-zone-interior surfaces (lamp seam pieces inside the cap
         # zone) get classified too.
-        seam_groups = {{name: [] for _, _, _, _, _, name, _, _ in lamp_axes}}
+        seam_groups = {{tool["name"]: [] for tool in lamp_axes}}
         wall_tags      = []
         endcap_lo_tags = []
         endcap_hi_tags = []
@@ -436,6 +435,36 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
                 )
             return hits[0] if hits else None
 
+        # Signed distance from point p to a lamp's cut tool: a cylinder over
+        # [s0, s1] along the axis, united with its end spheres.
+        def tool_distance(p, tool):
+            r =[p[k] - tool["start"][k] for k in range(3)]
+            s = sum(r[k] * tool["u"][k] for k in range(3))
+            d_perp = math.sqrt(max(sum(c * c for c in r) - s * s, 0.0))
+            radial = d_perp - tool["radius"]
+            axial = max(tool["s0"] - s, s - tool["s1"])
+            distance = (math.hypot(max(radial, 0.0), max(axial, 0.0))
+                        + min(max(radial, axial), 0.0))
+            for centre in tool["spheres"]:
+                distance = min(distance, math.dist(p, centre) - tool["radius"])
+            return distance
+
+        # The seam of the lamp whose cut left surface `tag`: every sampled
+        # point of the surface's edges lies on that cut tool's surface. A
+        # test on the edges rather than the centroid holds for a seam split
+        # into pieces, as a Boolean with a CAD body can split a hemisphere.
+        def seam_of(tag):
+            points = []
+            for _, curve in gmsh.model.getBoundary([(2, tag)], oriented=False):
+                lo, hi = gmsh.model.getParametrizationBounds(1, abs(curve))
+                ts = [lo[0] + (hi[0] - lo[0]) * k / 8 for k in range(9)]
+                xyz = gmsh.model.getValue(1, abs(curve), ts)
+                points += [xyz[k:k + 3] for k in range(0, len(xyz), 3)]
+            for tool in lamp_axes:
+                if points and all(abs(tool_distance(p, tool)) < OPEN_TOL for p in points):
+                    return tool["name"]
+            return None
+
         seen = set()
         for vol_dt in all_vol_dts:
             for dim, tag in gmsh.model.getBoundary([vol_dt], oriented=False):
@@ -443,7 +472,6 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
                     continue
                 seen.add(tag)
                 xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(dim, tag)
-                cx, cy, cz = gmsh.model.occ.getCenterOfMass(dim, tag)
                 flat_z = abs(zmax - zmin) < TOL
 
                 # Cap-zone interface detection (hybrid only): surface bbox
@@ -478,26 +506,8 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
                     if flat_z and abs(zmin - bz_max) < TOL:
                         endcap_hi_tags.append(tag); continue
 
-                # Seam detection: surface centroid lies on a lamp axis within
-                # the axis's (possibly hemisphere-extended) parametric range.
-                # `s_lo` and `s_hi` are -radius / length+radius when the
-                # corresponding end is hemispherical, otherwise 0 / length.
-                # Distance from centroid to the line is the perpendicular
-                # distance; the capsule's axisymmetry guarantees the centroid
-                # of any seam face (cylindrical or hemispherical) is on the
-                # axis line.
-                seam_match = None
-                for (ax, _ay, length, u, _radius, name, s_lo, s_hi) in lamp_axes:
-                    rx = cx - ax[0]; ry = cy - ax[1]; rz = cz - ax[2]
-                    s = rx*u[0] + ry*u[1] + rz*u[2]
-                    if not (s_lo - TOL <= s <= s_hi + TOL):
-                        continue
-                    # Perpendicular component
-                    px = rx - s*u[0]; py = ry - s*u[1]; pz = rz - s*u[2]
-                    d_perp = math.sqrt(px*px + py*py + pz*pz)
-                    if d_perp < TOL:
-                        seam_match = name
-                        break
+                # Seam detection: the surface lies on a lamp's cut tool.
+                seam_match = seam_of(tag)
                 if seam_match is not None:
                     seam_groups[seam_match].append(tag)
                     continue

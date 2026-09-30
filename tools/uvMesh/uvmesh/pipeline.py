@@ -164,10 +164,11 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
             f"    runApplication -s {entry} foamDictionary constant/polyMesh/boundary "
             f"-entry entry0/{body.wall_patch_name}/{entry} -set wall"
         )
+    dual = f"    runApplication polyDualMesh {body.dual_feature_angle:g}"
     if body.bulk_cells in (
         "polyhedral", "structured", "structured_full", "structured_matryoshka",
     ):
-        lines.append("    runApplication polyDualMesh 90")
+        lines.append(dual)
         # polyDualMesh leaves the cellZone -- and the cellSet -- built by
         # gmshToFoam pointing at pre-dual cell indices. Single-region bulks
         # don't need either, so drop both. checkMesh never reads the set,
@@ -203,7 +204,7 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
                      "constant/polyMesh/boundary")
         lines.append("    sed -i '/bulk_iface/,/}/ s/type            internal/"
                      "type            patch/' constant/polyMesh/boundary")
-        lines.append("    runApplication polyDualMesh 90")
+        lines.append(dual)
         lines.append("    rm -f constant/polyMesh/cellZones")
         lines.append("    rm -rf constant/polyMesh/sets")
         # Fuse cap into the dualised bulk; stitchMesh joins the interface.

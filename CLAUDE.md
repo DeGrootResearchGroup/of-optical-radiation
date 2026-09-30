@@ -678,16 +678,15 @@ body = ReactorBody(
     box_min=(-0.04, -0.04, 0.0),
     box_max=( 0.04,  0.04, 0.15),         # taller box so the hemispherical
     bulk_cell_size=0.008,                  # cap fits with margin
-    bulk_cells="hybrid",                   # balanced default for hemispherical
-                                           # lamps; see the 5-way comparison
-                                           # below. Alts: "structured" (cheap
-                                           # pure-poly bulk), "structured_full"
-                                           # (research-grade full-disc NCC
-                                           # match), "structured_matryoshka"
-                                           # (UV-reactor-grade: uniform spherical
-                                           # cells near the lamp wall + corner
-                                           # defects pushed to 2x radius), "tet"
-                                           # (skip polyDualMesh entirely).
+    bulk_cells="polyhedral",               # spherical-shell cap + capsule
+                                           # seam: no rim, every lamp-region
+                                           # cell a hex on concentric spheres
+                                           # or cylinders. See the comparison
+                                           # below for "hybrid", "structured",
+                                           # "structured_full",
+                                           # "structured_matryoshka" (their
+                                           # flat-disc envelopes put 180-degree
+                                           # corners on the rim) and "tet".
 )
 build(case_dir=".", lamps=lamps, body=body)
 ```
@@ -707,7 +706,8 @@ body = ReactorBody(
     wall_patch_name="bodyWall",            # every other face; type wall
     wall_cells_per_circle=24,              # resolve the 9.55 mm pipes
     min_cell_size=0.002,
-    bulk_cells="structured_matryoshka",
+    dual_feature_angle=100,                # right-angle pipe junctions
+    bulk_cells="polyhedral",               # spherical-shell cap, capsule seam
 )
 ```
 
@@ -736,9 +736,41 @@ body = ReactorBody(
   the Sozzi pipes (radius 9.55 mm) are two 8 mm cells across and the
   faceted mesh loses 17 % of their volume; with 24 per circle, 1.8 %
   (snappyHexMesh's tutorial mesh: 2.5 %).
+- **Pipe junctions: `dual_feature_angle`** (polyDualMesh's feature
+  angle, default 90). Where a pipe meets a wall at a right angle -- the
+  Sozzi inlet on the chamber's flat end wall, the riser on its side --
+  the edge is RE-ENTRANT (the fluid turns 270 degrees around it) and its
+  tessellated normals scatter either side of 90, so at 90 some of its
+  edges are features and some are not; the dual cells along it get
+  wrongly oriented faces. Measured on the production Sozzi bulk
+  (uvmesh_level `production`: 4 mm bulk, 48 cells per circle, 1 mm
+  floor, 289422 polyhedra), wrongly oriented faces: 24 at 90 (16 around
+  the inlet mouth, 8 at the two points of the riser's saddle where it
+  meets the chamber at exactly 90), 42 at 60 (the whole saddle becomes
+  a feature and goes bad), **0 at 100 and 120**, same volume to 6
+  figures. Other fixes tried and dropped: `-concaveMultiCells` (24 -> 1
+  but max skew 22.6, non-orth 89), and refining the tets to 0.5 mm at
+  both mouths (riser 8 -> 0, inlet 16 -> 34). The price of 100 is that
+  exactly-planar right-angle edges are no longer kept: the five box
+  smoke cases lose 0.22-0.24 % of their volume to cut corners at 100, so
+  the default stays 90; the Sozzi case, with no such edges, sets 100
+  (smoke mesh: 2 -> 0 bad pyramids, max skew 2.89 -> 1.80, volume
+  unchanged). O-gridding the pipes into the structured region would
+  take the re-entrant edge out of the dual entirely.
 - `bulk_cells="hybrid"` builds its cap zone along +z only and refuses a
-  hemispherical lamp on any other axis; use `structured_full` or
-  `structured_matryoshka` (Sozzi's lamp is along x).
+  hemispherical lamp on any other axis; use `polyhedral` (Sozzi's lamp
+  is along x).
+- **Why Sozzi is `polyhedral`, not `structured_matryoshka`.** The
+  matryoshka mesh (production settings, middle-sphere edges fixed:
+  876942 cells, Mesh OK, max non-orth 73 deg on 24 faces) diverged in
+  the tutorial's flow solve with no non-orthogonal correctors: the
+  inlet pressure went from ~1e3 to -2.5e7 between iterations 10 and 21,
+  and the first cells to run away (iteration 6, x 0.838 m, r 25 mm) and
+  all 40 of the fastest were at the four cube-corner azimuths of the
+  OUTER cap, on its disc/cylinder rim. The spherical-shell cap at the
+  same lamp settings (618437 cells, Mesh OK, max non-orth 61.4 deg,
+  skew 1.65, NCC coverage 0.99996 both sides) runs stably under the
+  same settings, the inlet pressure settling from 41 to ~36.
 
 `Lamp.radial_grading` is blockMesh's expansion ratio across the inner
 annulus layer, sleeve wall outward (outermost / innermost radial cell;
@@ -893,18 +925,26 @@ Validates the same patch / NCC structure as the flat-flat case plus:
   5 cubed-sphere blocks × 10² cells).
 - `lamp0_seam` face count > 1000 (cylinder seam 800 + hemisphere
   seam 500 combined into one patch).
-- Mesh quality: max non-orth < 90° (~89° observed; the cubed-sphere
-  annular polar singularity sets this), max skew < 4 (~1.78
-  observed), bad face pyramids < 0.1 % of total faces (~2 out of
-  ~72k observed; residual at the cap-bulk stitch interface, see
-  ReactorBody docstring).
+- Mesh quality: max non-orth < 90° (64.7° observed, 20584 cells;
+  the 89° once recorded here, blamed on the cubed-sphere polar
+  singularity, went with the capsule lip), max skew < 4 (1.79
+  observed), bad face pyramids < 0.1 % of total faces (0 of 72476
+  observed; the ~2 once recorded at the cap-bulk stitch interface
+  also went with the lip).
 - The case uses `ReactorBody.bulk_cells="hybrid"`: a cylindrical
   cap-zone around each hemispherical cap stays as tets, the rest
-  of the bulk is dualised. The cap zone insulates polyDualMesh
-  from the curved capsule seam (where its obtuse-tet dualization
-  fails in the all-polyhedral path) without the ~4x cell-count
-  cost of the all-tet path. ~20k total cells (vs ~17k all-poly
-  with bad cells, vs ~30k all-tet).
+  of the bulk is dualised. The cap zone was built to keep
+  polyDualMesh off the capsule seam, where the all-polyhedral path
+  gave 40 bad face pyramids -- ⚠️ **that was a 1 mm lip, not the
+  dual**: the cut cylinder was padded 1 mm past the equator, where
+  the fused sphere narrows, so it stood out of the sphere and met it
+  in a nearly tangent crease. With the pad dropped on hemispherical
+  ends, this case's geometry in `bulk_cells="polyhedral"` gives
+  checkMesh `Mesh OK`: max non-orth 47.5° (was 89°), max skew 1.63
+  (was 8.69), 0 bad pyramids (was 40), at dual angle 90 and the same
+  at 100; the lamp block alone 23° / 0.90. The bad faces had sat at
+  z 0.101-0.102, r 19.8-19.9 mm: the lip, 1 mm past the equator at
+  z 0.100. ~20k total cells (vs ~17k all-poly, vs ~30k all-tet).
 - The bulk is therefore mixed (~3000 tetrahedra in the cap zone,
   ~3300 polyhedra in the dualised bulk zone); the validate
   explicitly asserts both element types are present and that
@@ -969,14 +1009,17 @@ from the tutorial's `SozziTaghipour.step` (the example above, coarse
 in the chamber: `n_radial=6`, `radial_grading=3`,
 `n_azimuth_per_quadrant=8`, 8 mm bulk), in ~13 s. Validates: the mesh
 volume within 1 % of the drawing's exact fluid volume (5.7643 L, from
-OpenCASCADE: chamber + inlet pipe + riser - lamp; observed -0.61 %,
+OpenCASCADE: chamber + inlet pipe + riser - lamp; observed -0.80 %,
 the chamber wall faceted at 8 mm); the inlet and outlet each have a
 pipe disc's area (2.833e-4 against 2.865e-4 m^2 for the exact circle);
 the patch types (`bodyWall` a `wall`); no tets; NCC coverage >= 0.999
-(observed 0.99988); quality as the other structured cases (max
-non-orth 61 deg, max skew 2.89, 2 bad face pyramids of 588049 faces --
-checkMesh reports 1 failed check for them, within the 0.1 % bound).
-~92000 hex around the lamp + ~48000 polyhedra.
+(observed 0.99994); max non-orth 53.9 deg, max skew 1.78, and NO bad
+face pyramids (checkMesh `Mesh OK`) -- the validate requires zero,
+since the pipe-junction defect `dual_feature_angle=100` removes is
+exactly what a looser bound let through. 32642 hex around the lamp +
+62310 polyhedra (`bulk_cells="polyhedral"`; as `structured_matryoshka`
+it was -0.61 %, 61.6 deg, skew 1.80, 92481 hex + 47557 polyhedra, and
+at dual angle 90 skew 2.89 with 2 bad pyramids).
 
 `tests/uvMeshSmokeHemisphereStructuredMatryoshka` exercises
 `bulk_cells="structured_matryoshka"`. The annulus uses TWO concentric
@@ -1002,23 +1045,40 @@ high-G near-wall layer where κ·r ≫ 1. Observed at the shipped
 resolution: ~39000 hex (annulus, twice the structured_full count
 due to the extra layer) + ~3300 polyhedra (bulk) = ~42000 total
 cells; NCC coverage 0.9999/0.9999 (essentially conformal); max
-non-orth 68° (similar to `structured`); max skew 3.62 (at a far
-outer-cap-corner cell, well below OF's 4.0 failure threshold);
-0 bad face pyramids (checkMesh `Mesh OK`). Recommended for UV
-reactor cases where dose accuracy near the lamp tip is the
-binding constraint.
+non-orth 64°, max skew 1.68, 0 bad face pyramids (checkMesh `Mesh
+OK`; polyDualMesh at 90). Recommended for UV reactor cases where
+dose accuracy near the lamp tip is the binding constraint.
+⚠️ **The middle sphere's eight edges per cap were once projected by
+neither layer** -- the inner cap deferred them to the outer, the
+outer skipped them as the inner's -- so they were straight chords,
+18 % of the radius under the sphere at an edge midpoint, and the
+inner cap pinched along the polar-cap / side-block boundaries. The
+figures this record carried before (68°, skew 3.62 "at a far
+outer-cap corner") were that defect. At the Sozzi production
+resolution (n_radial 10 graded 4, 16 per quadrant; the lamp block
+alone, 587520 hex) it was max skew 5.78 with 64 skewed faces 1-2 mm
+off the tip, and 156 faces over 70° non-orth; with the edges
+projected, skew 1.24 and 24 faces over 70° (max 73°), all at the
+outer envelope's disc/cylinder rim -- where the polar cap's outer
+face maps a square onto a disc with 180-degree corners.
+`cap_extension_factor` barely moves that (75.5° / 73.1° / 72.2° at
+1.0 / 1.5 / 2.0). `structured_full` at the same resolution: 71°,
+8 faces over 70°, skew 2.00, but min cell determinant 0.0099
+against 0.033, with its rim at 15 mm rather than 30 mm.
+`test_annulus.py::test_every_block_edge_between_two_points_of_a_sphere_is_projected_onto_it`
+guards the edges in every cap mode.
 
 #### 5-way comparison (smoke-test resolutions)
 
 | `bulk_cells`            | Annulus cells | Bulk cells | NCC coverage (src / tgt) | Max non-orth | Max skew | Bad face pyramids | When to pick |
 |-------------------------|---------------|------------|--------------------------|--------------|----------|-------------------|--------------|
-| `"polyhedral"`          | n/a            | n/a (fails for hemispherical lamps) | n/a | n/a | n/a | ~40 (broken) | flat-flat lamps only |
+| `"polyhedral"`          | (same lamp)    | ~17000 total | not recorded | 47.5° | 1.63 | 0 | **hemispherical lamps**: spherical-shell cap and capsule seam, no rim (the ~40 bad pyramids once recorded here were the 1 mm lip, see above) |
 | `"hybrid"`              | ~12000 hex     | ~3000 tet + ~3300 poly | 1.00 / 1.00 | 89° | 1.78 | ~2 | balanced default for hemispherical lamps |
 | `"structured"`          | ~13000 hex     | ~4600 poly | 0.91 / 0.95 | 68° | 1.54 | 0 | cheaper annulus topology than structured_full; NCC mismatch on disc segments tolerable |
 | `"structured_full"`     | ~13000 hex     | ~4600 poly | 0.99984 / 0.99992 | 60° | 1.54 | 0 | research-grade conformal NCC; corner defects at the seam-disc edge |
-| `"structured_matryoshka"` | ~39000 hex   | ~3300 poly | 0.99990 / 0.99994 | 68° | 3.62 | 0 | **UV reactor dose accuracy**: uniform spherical cells near the lamp wall; corner defects pushed out to 2× radius (low-G zone) |
+| `"structured_matryoshka"` | ~39000 hex   | ~3300 poly | 0.99990 / 0.99994 | 64° | 1.68 | 0 | **UV reactor dose accuracy**: uniform spherical cells near the lamp wall; corner defects pushed out to 2× radius (low-G zone) |
 
-`tools/uvMesh/tests/` contains a **pytest unit-test suite** (145
+`tools/uvMesh/tests/` contains a **pytest unit-test suite** (157
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.
 Where the smoke cases check end-to-end mesh validity, the unit tests
 isolate single behaviours of the helper modules:
@@ -1039,7 +1099,9 @@ isolate single behaviours of the helper modules:
   lamp keeps the axis-aligned `theta = k·π/2` azimuth, hemisphere
   lamp shifts to `π/4 + k·π/2`, tip patches appear iff the
   corresponding end is hemispherical, single combined seam patch
-  per lamp regardless of cap shape.
+  per lamp regardless of cap shape, and -- parsed from the emitted
+  dict, in every cap mode -- no block edge runs straight between two
+  points of a cap sphere.
 - `test_bulk.py` — `bulk_body.py` is valid Python (`ast.parse`),
   `LAMP_CUTS` has the expected keys and reflects per-lamp endcap
   flags, capsule subtraction (`addSphere` + `fuse`) only emitted
@@ -1051,7 +1113,8 @@ isolate single behaviours of the helper modules:
   annulus subdir per lamp, bulk emitter + scratch case, executable
   `Allrun.mesh`), `Allrun.mesh` transformPoints rotates `(0 0 1)`
   to the lamp axis vector and translates to `axis_start`,
-  polyDualMesh runs at featureAngle 90 with the cellZone cleanup,
+  polyDualMesh runs with the cellZone cleanup, at the body's
+  `dual_feature_angle` on every dualising path (hybrid included),
   one `createNonConformalCouples` per lamp pairing
   `reactor_seam_lamp{i}` with `lamp{i}_seam`.
 - `test_grading.py` — the graded cell sizes against a geometric
@@ -2189,11 +2252,10 @@ mesh tooling:
   count because of the extra body + cap layers) + ~3300
   polyhedra (bulk) = ~42000 total cells; NCC fuse ~10500 face
   couplings at **0.99990 / 0.99994 average coverage** (on par
-  with structured_full); max non-orth 68° (matches
-  `structured`'s); max skew **3.62** -- the highest of any
-  uvMesh smoke test, at a far outer-cap-corner cell, but well
-  below OF's 4.0 failure threshold. 0 bad face pyramids
-  (checkMesh `Mesh OK`). Designed for UV reactor cases where
+  with structured_full); max non-orth 64°, max skew 1.68, 0 bad
+  face pyramids (checkMesh `Mesh OK`). (The 68° / skew 3.62
+  recorded here before came from the middle sphere's edges being
+  left straight; see the matryoshka section above.) Designed for UV reactor cases where
   the high-G near-wall layer is the binding accuracy
   constraint and the topology cost (~3× cells vs
   structured_full's annulus) is justified.
@@ -2550,7 +2612,12 @@ file, with the lamp annulus graded toward the sleeve. Remaining work:
    most production cases will refine the bulk seam mesh anyway,
    which closes the polygonal-vs-curved gap by mesh density alone.
 
-7. **Polyhedral bulk for hemispherical lamps.** v0.4 ships
+7. **Polyhedral bulk for hemispherical lamps -- RESOLVED (v0.9):**
+   the all-polyhedral path's bad cells were a 1 mm lip of the cut
+   cylinder past the equator, not the dual; with it removed
+   `bulk_cells="polyhedral"` is clean on the capsule seam (see the
+   uvMeshSmokeHemisphere entry). The rest of this item is the
+   workaround that was built meanwhile. v0.4 ships
    hemispherical-lamp cases with `bulk_cells="hybrid"`: the cells
    inside a cylindrical cap zone around each hemispherical cap stay
    as tets while the rest of the bulk is dualised. polyDualMesh
