@@ -13,24 +13,58 @@ in long-lived processes).
 """
 from __future__ import annotations
 
+import math
 import os
 from textwrap import dedent
-from typing import List
+from typing import List, Optional, Tuple
 
-from .geometry import Lamp, ReactorBody
+from .geometry import _Z_AXIS_ONLY_BULK_CELLS, Lamp, ReactorBody
+
+
+def rotation_axis_angle(
+    rotate: Optional[Tuple[tuple, tuple]],
+) -> Optional[Tuple[tuple, float]]:
+    """The shortest rotation taking `rotate[0]` onto `rotate[1]`, as
+    `(unit axis, angle in radians)`, or None for no rotation.
+
+    Antiparallel vectors have no unique shortest rotation; any axis
+    perpendicular to them works, and the one used is perpendicular to the
+    first vector and to whichever coordinate axis it is least aligned with.
+    """
+    if rotate is None:
+        return None
+    a, b = rotate
+    na = math.sqrt(sum(c * c for c in a))
+    nb = math.sqrt(sum(c * c for c in b))
+    a = tuple(c / na for c in a)
+    b = tuple(c / nb for c in b)
+    cos = max(-1.0, min(1.0, sum(x * y for x, y in zip(a, b))))
+    cross = (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+    sin = math.sqrt(sum(c * c for c in cross))
+    if sin < 1e-12:
+        if cos > 0:
+            return None
+        least = min(range(3), key=lambda i: abs(a[i]))
+        e = tuple(1.0 if i == least else 0.0 for i in range(3))
+        cross = (a[1] * e[2] - a[2] * e[1], a[2] * e[0] - a[0] * e[2], a[0] * e[1] - a[1] * e[0])
+        sin = math.sqrt(sum(c * c for c in cross))
+        return (tuple(c / sin for c in cross), math.pi)
+    return (tuple(c / sin for c in cross), math.atan2(sin, cos))
 
 
 def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> None:
     """Write `<case_dir>/bulk_body.py` (the gmsh emitter for the bulk mesh).
 
     The emitted script:
-      1. Builds the reactor body (box for v0.1; STL deferred).
+      1. Builds the reactor body: a box, or the solids of a STEP file fused
+         into one and placed by the body's scale / rotation / translation.
       2. Cuts a cylindrical volume per lamp at radius
          `annulus_outer_radius`, padded slightly past each axis end so the
          boolean is robust to floating-point endpoint matching.
       3. Classifies the resulting surfaces into:
             <body.wall_patch_name>
-            <body.endcap_lo_patch_name>, <body.endcap_hi_patch_name>
+            <name> for each of body.open_patches (the face nearest its point)
+            <body.endcap_lo_patch_name>, <body.endcap_hi_patch_name> (box only)
             <lamp.seam_patch_name (renamed to reactor_seam_lamp{i})>
             ... per lamp ...
       4. Adds a Distance + Threshold field around each seam so the bulk
@@ -40,8 +74,19 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
     Patch naming on the BULK side uses `reactor_seam_lamp{i}` to make the
     NCC fuse pair (lamp{i}_seam, reactor_seam_lamp{i}) unambiguous.
     """
-    if body.box_min is None or body.box_max is None:
-        raise NotImplementedError("Only box-bounded ReactorBody supported in v0.1")
+    if body.bulk_cells in _Z_AXIS_ONLY_BULK_CELLS:
+        for i, lamp in enumerate(lamps):
+            if lamp.has_hemisphere() and any(
+                abs(c) > 1e-9 for c in lamp.axis_unit()[:2]
+            ):
+                raise NotImplementedError(
+                    f"bulk_cells={body.bulk_cells!r} builds its cap zone along +z "
+                    f"only; lamp {i} has axis {lamp.axis_unit()}. Use "
+                    "'structured_full' or 'structured_matryoshka'."
+                )
+
+    body_kind = "box" if body.box_min is not None else "step"
+    rotation = rotation_axis_angle(body.step_rotate)
 
     # Resolve seam refinement size: default to annulus circumferential spacing
     # 2*pi*r_seam / (4*nt_per_quad). Pick the tightest across lamps so the
@@ -67,6 +112,7 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
     band = body.near_lamp_band_thickness
     if band is None:
         band = 2 * seam_size
+    min_size = seam_size if body.min_cell_size is None else body.min_cell_size
 
     # Each lamp's cut: axis as world-coord pair + radius + bulk patch name +
     # endcap-shape flags. The bulk subtracts a *capsule* (cylinder fused with
@@ -134,14 +180,22 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         HERE = os.path.dirname(os.path.abspath(__file__))
         TOL  = 1e-6
 
-        BOX_MIN = {tuple(body.box_min)!r}
-        BOX_MAX = {tuple(body.box_max)!r}
+        BODY_KIND = {body_kind!r}
+        BOX_MIN = {tuple(body.box_min) if body.box_min else None!r}
+        BOX_MAX = {tuple(body.box_max) if body.box_max else None!r}
+        STEP_PATH      = {body.step_path!r}
+        STEP_SCALE     = {body.step_scale!r}
+        STEP_ROTATION  = {rotation!r}  # (unit axis, angle) or None
+        STEP_TRANSLATE = {tuple(body.step_translate)!r}
+        OPEN_PATCHES   = {body.open_patches!r}
         WALL_NAME      = {body.wall_patch_name!r}
         ENDCAP_LO_NAME = {body.endcap_lo_patch_name!r}
         ENDCAP_HI_NAME = {body.endcap_hi_patch_name!r}
         LAMP_CUTS = {lamp_cuts!r}
         SEAM_SIZE = {seam_size!r}
         BULK_SIZE = {body.bulk_cell_size!r}
+        MIN_SIZE  = {min_size!r}
+        WALL_CELLS_PER_CIRCLE = {body.wall_cells_per_circle!r}
         BAND      = {band!r}
         BULK_CELLS = {body.bulk_cells!r}
         CAP_ZONE_RADIUS_FACTOR = {body.cap_zone_radius_factor!r}
@@ -151,14 +205,40 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         gmsh.option.setNumber("General.Terminal", 0)
         gmsh.model.add("uvmesh-bulk")
 
-        # Box body
-        bx_min, by_min, bz_min = BOX_MIN
-        bx_max, by_max, bz_max = BOX_MAX
-        box = gmsh.model.occ.addBox(
-            bx_min, by_min, bz_min,
-            bx_max - bx_min, by_max - by_min, bz_max - bz_min,
-        )
-        body_dimtag = (3, box)
+        if BODY_KIND == "box":
+            bx_min, by_min, bz_min = BOX_MIN
+            bx_max, by_max, bz_max = BOX_MAX
+            box = gmsh.model.occ.addBox(
+                bx_min, by_min, bz_min,
+                bx_max - bx_min, by_max - by_min, bz_max - bz_min,
+            )
+            body_dimtag = (3, box)
+        else:
+            # Every solid in the file, fused into one body. A lamp solid
+            # left in the file is harmless: each lamp's cut below is at
+            # least as large as the lamp, so its volume goes with the cut.
+            solids = [
+                dt for dt in gmsh.model.occ.importShapes(STEP_PATH) if dt[0] == 3
+            ]
+            if not solids:
+                raise RuntimeError(f"No solids in {{STEP_PATH}}")
+            if len(solids) > 1:
+                solids, _ = gmsh.model.occ.fuse(
+                    solids[:1], solids[1:], removeObject=True, removeTool=True,
+                )
+            if len(solids) != 1:
+                raise RuntimeError(
+                    f"The solids in {{STEP_PATH}} fuse into {{len(solids)}} "
+                    "separate bodies; the reactor must be one connected solid."
+                )
+            if STEP_SCALE != 1.0:
+                gmsh.model.occ.dilate(solids, 0, 0, 0, STEP_SCALE, STEP_SCALE, STEP_SCALE)
+            if STEP_ROTATION is not None:
+                (rx, ry, rz), angle = STEP_ROTATION
+                gmsh.model.occ.rotate(solids, 0, 0, 0, rx, ry, rz, angle)
+            if any(STEP_TRANSLATE):
+                gmsh.model.occ.translate(solids, *STEP_TRANSLATE)
+            body_dimtag = solids[0]
 
         # Cut each lamp's capsule (cylinder, with optional hemispherical end
         # caps fused at axis_start or axis_end) out of the body. Track lamp
@@ -336,6 +416,26 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         for spec in cap_zone_specs:
             all_vol_dts.extend(spec["volumes"])
 
+        # Open patches: the face nearest each named point, within a small
+        # fraction of the body's size (the point is meant to lie on it).
+        gmsh.model.occ.synchronize()
+        bb = gmsh.model.getBoundingBox(3, vol_tag)
+        OPEN_TOL = 1e-6 * math.dist(bb[:3], bb[3:])
+        open_groups = {{name: [] for name in OPEN_PATCHES}}
+
+        def open_patch_of(tag):
+            hits = []
+            for name, point in OPEN_PATCHES.items():
+                nearest, _ = gmsh.model.getClosestPoint(2, tag, list(point))
+                if math.dist(nearest, point) < OPEN_TOL:
+                    hits.append(name)
+            if len(hits) > 1:
+                raise RuntimeError(
+                    f"Surface {{tag}} lies on the points of open patches {{hits}}; "
+                    "each open patch needs a point on its own face."
+                )
+            return hits[0] if hits else None
+
         seen = set()
         for vol_dt in all_vol_dts:
             for dim, tag in gmsh.model.getBoundary([vol_dt], oriented=False):
@@ -367,11 +467,16 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
                 if is_capzone_iface:
                     continue   # interior face between bulk and cap zones
 
+                open_name = open_patch_of(tag)
+                if open_name is not None:
+                    open_groups[open_name].append(tag); continue
+
                 # Endcap detection: flat in z at the box z extents.
-                if flat_z and abs(zmin - bz_min) < TOL:
-                    endcap_lo_tags.append(tag); continue
-                if flat_z and abs(zmin - bz_max) < TOL:
-                    endcap_hi_tags.append(tag); continue
+                if BODY_KIND == "box":
+                    if flat_z and abs(zmin - bz_min) < TOL:
+                        endcap_lo_tags.append(tag); continue
+                    if flat_z and abs(zmin - bz_max) < TOL:
+                        endcap_hi_tags.append(tag); continue
 
                 # Seam detection: surface centroid lies on a lamp axis within
                 # the axis's (possibly hemisphere-extended) parametric range.
@@ -410,6 +515,13 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         add_physical(2, wall_tags, WALL_NAME)
         add_physical(2, endcap_lo_tags, ENDCAP_LO_NAME)
         add_physical(2, endcap_hi_tags, ENDCAP_HI_NAME)
+        for open_name, open_tags in open_groups.items():
+            if not open_tags:
+                raise RuntimeError(
+                    f"Open patch '{{open_name}}': no surface of the body lies on "
+                    f"its point {{OPEN_PATCHES[open_name]}}."
+                )
+            add_physical(2, open_tags, open_name)
         for seam_name, seam_tags in seam_groups.items():
             add_physical(2, seam_tags, seam_name)
             if not seam_tags:
@@ -453,8 +565,10 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             gmsh.model.mesh.field.setNumber(thr_f, "DistMax", BAND)
             gmsh.model.mesh.field.setAsBackgroundMesh(thr_f)
 
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", SEAM_SIZE)
+        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", MIN_SIZE)
         gmsh.option.setNumber("Mesh.CharacteristicLengthMax", BULK_SIZE)
+        if WALL_CELLS_PER_CIRCLE is not None:
+            gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", WALL_CELLS_PER_CIRCLE)
         gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
         gmsh.model.mesh.generate(3)
         gmsh.write(os.path.join(HERE, "bulk.msh"))

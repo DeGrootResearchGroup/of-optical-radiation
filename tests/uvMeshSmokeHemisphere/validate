@@ -89,7 +89,7 @@ boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
 # `lamp0_tip_B`, the rest are the same set.
 expected_patches = {
     # bulk patches
-    "bulkWall":           "patch",
+    "bulkWall":           "wall",
     "endcap_lo":          "patch",
     "endcap_hi":          "patch",
     "reactor_seam_lamp0": "patch",

@@ -7,6 +7,7 @@ into world coords by transformPoints in Allrun.mesh.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -23,7 +24,28 @@ def _sub(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 
+def graded_cell_sizes(width: float, n: int, expansion: float) -> tuple:
+    """First and last cell sizes of `n` cells over `width` with blockMesh's
+    expansion ratio `expansion` (last cell size / first cell size).
+
+    The cells grow geometrically, by `q = expansion ** (1 / (n - 1))` from
+    one to the next, so a single cell (`n == 1`) is the whole width whatever
+    the ratio.
+    """
+    if n < 1:
+        raise ValueError(f"graded_cell_sizes: n must be >= 1, got {n}")
+    if expansion <= 0:
+        raise ValueError(f"graded_cell_sizes: expansion must be > 0, got {expansion}")
+    if n == 1 or math.isclose(expansion, 1.0):
+        return (width / n, width / n)
+    q = expansion ** (1.0 / (n - 1))
+    first = width * (q - 1.0) / (q ** n - 1.0)
+    return (first, first * expansion)
+
+
 _VALID_ENDCAP_SHAPES = ("flat", "hemisphere")
+# Bulk modes whose lamp cut is built along the lamp-local +z axis only.
+_Z_AXIS_ONLY_BULK_CELLS = ("hybrid",)
 _VALID_BULK_CELLS = (
     "polyhedral", "tet", "hybrid",
     "structured", "structured_full", "structured_matryoshka",
@@ -53,9 +75,20 @@ class Lamp:
                       with the cylindrical seam (one NCC pair per lamp).
 
     Mesh resolution defaults are tuned for visible UV (kappa ~ 35 1/m,
-    annulus radial extent ~ 1-2 cm): ~10 radial cells with mild grading
-    toward the sleeve wall, ~40 azimuthal cells (4 quadrant blocks * 10),
-    axial cells sized to match the radial cell size.
+    annulus radial extent ~ 1-2 cm): ~10 radial cells, ~40 azimuthal cells
+    (4 quadrant blocks * 10), axial cells sized to match the radial cell
+    size.
+
+    `radial_grading` is blockMesh's expansion ratio across the annulus,
+    from the sleeve wall outward: the size of the outermost radial cell
+    divided by the innermost. 1 (the default) spaces the cells uniformly;
+    values above 1 pack them against the sleeve wall, which is where the
+    first cell's height sets the wall treatment (y+). The same ratio grades
+    the radial direction of any hemispherical cap, so the cap's radial
+    edges match the cylinder's where they meet. It applies to the annulus
+    between `sleeve_radius` and `annulus_outer_radius`; the outer layer
+    that `structured_matryoshka` adds is uniform, at the size of the last
+    graded cell, so the cell size is continuous across the two layers.
     """
 
     axis_start: tuple
@@ -63,7 +96,7 @@ class Lamp:
     sleeve_radius: float
     annulus_outer_radius: float
     n_radial: int = 10
-    radial_grading: float = 4.0  # blockMesh `simpleGrading` -- > 1 finer at outer
+    radial_grading: float = 1.0  # outermost / innermost radial cell size
     n_azimuth_per_quadrant: int = 10
     n_axial: Optional[int] = None  # auto from length / annulus_thickness if None
     endcap_a_shape: str = "flat"   # "flat" or "hemisphere"
@@ -85,6 +118,8 @@ class Lamp:
             )
         if self.length() <= 0:
             raise ValueError(f"Lamp: axis_start and axis_end coincide ({self.axis_start})")
+        if self.radial_grading <= 0:
+            raise ValueError(f"Lamp.radial_grading must be > 0, got {self.radial_grading}")
         for which, shape in (("a", self.endcap_a_shape), ("b", self.endcap_b_shape)):
             if shape not in _VALID_ENDCAP_SHAPES:
                 raise ValueError(
@@ -104,6 +139,14 @@ class Lamp:
         d = _sub(self.axis_end, self.axis_start)
         return (d[0] / L, d[1] / L, d[2] / L)
 
+    def radial_cell_sizes(self) -> tuple:
+        """First (sleeve-wall) and last radial cell sizes of the annulus."""
+        return graded_cell_sizes(
+            self.annulus_outer_radius - self.sleeve_radius,
+            self.n_radial,
+            self.radial_grading,
+        )
+
     def has_hemisphere(self) -> bool:
         """True if either end cap is hemispherical."""
         return (self.endcap_a_shape == "hemisphere"
@@ -117,13 +160,43 @@ class ReactorBody:
     Two construction modes:
 
       * Built-in box: pass `box_min` and `box_max`. The gmsh script creates
-        the bounding box internally. Used by the smoke test and any case
+        the bounding box internally. Used by the smoke tests and any case
         whose outer body is a single axis-aligned box.
 
-      * STL-driven: pass `stl_path` (and leave `box_min`/`box_max` None).
-        The gmsh script imports the named STL as a triSurface and meshes
-        the volume it encloses. Used by real reactor geometries (Sozzi,
-        Chiu, ...). Reserved for a follow-on PR; not exercised in v0.1.
+      * STEP file: pass `step_path` (and leave `box_min`/`box_max` None).
+        The gmsh script imports the file through OpenCASCADE, fuses every
+        solid in it into one body, and places it with `step_scale` (applied
+        first, about the origin), `step_rotate` (a pair of vectors: the
+        shortest rotation taking the first onto the second, as in
+        OpenFOAM's `transformPoints "rotate=(a b)"`) and `step_translate`
+        (applied last). A solid for the lamp itself may be left in the
+        file: every lamp's cut is at least as large as the lamp, so the
+        lamp's volume is removed with it. The body must be one connected
+        solid after the fuse.
+
+    Faces of the body are the wall (`wall_patch_name`) unless named in
+    `open_patches`, a mapping from patch name to a point in world
+    coordinates lying on that face -- the face nearest the point takes
+    the name (inlets and outlets, typically). Each point must lie on
+    exactly one face. For a box body the two faces at its z extents are
+    `endcap_lo_patch_name` / `endcap_hi_patch_name` unless an open patch
+    claims them.
+
+    An STL-driven body (`stl_path`) is reserved and raises
+    `NotImplementedError`; a STEP file is the supported route to a real
+    reactor geometry.
+
+    The wall patch (`wall_patch_name`) is written with OpenFOAM type
+    `wall`, so wall functions apply to it; open patches and box end caps
+    keep type `patch`.
+
+    Bulk cell size runs from the seam spacing near each lamp (or
+    `near_lamp_cell_size`) out to `bulk_cell_size`. `wall_cells_per_circle`
+    additionally sizes cells on curved walls from their curvature -- that
+    many cells around a full circle of the local radius -- which is what
+    resolves pipes much narrower than `bulk_cell_size`. `min_cell_size`
+    floors every size (default: the seam spacing); lower it when
+    `wall_cells_per_circle` should reach below the seam spacing.
 
     `bulk_cells` controls whether the gmsh tet mesh is dualised into
     polyhedra by `polyDualMesh`:
@@ -228,12 +301,19 @@ class ReactorBody:
     box_min: Optional[tuple] = None
     box_max: Optional[tuple] = None
     stl_path: Optional[str] = None
+    step_path: Optional[str] = None
+    step_scale: float = 1.0
+    step_rotate: Optional[tuple] = None   # (from_vector, to_vector)
+    step_translate: tuple = (0.0, 0.0, 0.0)
+    open_patches: dict = field(default_factory=dict)  # name -> point on the face
     bulk_cell_size: float = 0.008
     near_lamp_cell_size: Optional[float] = None  # auto from lamps' annulus spacing
     near_lamp_band_thickness: Optional[float] = None  # auto = 2 * near_lamp_cell_size
+    wall_cells_per_circle: Optional[int] = None  # curvature-based sizing on curved walls
+    min_cell_size: Optional[float] = None  # floor on every bulk size; auto = seam spacing
     wall_patch_name: str = "bulkWall"
-    endcap_lo_patch_name: str = "endcap_lo"  # box-only; not used for STL
-    endcap_hi_patch_name: str = "endcap_hi"  # box-only; not used for STL
+    endcap_lo_patch_name: str = "endcap_lo"  # box bodies only
+    endcap_hi_patch_name: str = "endcap_hi"  # box bodies only
     bulk_cells: str = "polyhedral"
     # Hybrid-bulk cap zone (ignored unless bulk_cells == "hybrid")
     cap_zone_radius_factor: float = 1.5
@@ -251,7 +331,20 @@ class ReactorBody:
     outer_cap_radius_factor: float = 2.0
 
     def __post_init__(self):
-        if self.box_min is not None and self.box_max is not None:
+        has_box = self.box_min is not None or self.box_max is not None
+        sources = [name for name, given in (
+            ("box_min/box_max", has_box),
+            ("step_path", self.step_path is not None),
+            ("stl_path", self.stl_path is not None),
+        ) if given]
+        if len(sources) != 1:
+            raise ValueError(
+                "ReactorBody: supply exactly one body source -- (box_min, box_max) "
+                f"or step_path; got {sources or 'none'}"
+            )
+        if has_box:
+            if self.box_min is None or self.box_max is None:
+                raise ValueError("ReactorBody: box_min and box_max go together")
             self.box_min = _vec(self.box_min)
             self.box_max = _vec(self.box_max)
             if any(a >= b for a, b in zip(self.box_min, self.box_max)):
@@ -261,12 +354,44 @@ class ReactorBody:
                 )
         elif self.stl_path is not None:
             raise NotImplementedError(
-                "STL-driven body is reserved for a follow-on PR; v0.1 supports "
-                "box-only bodies. Use box_min/box_max."
+                "STL-driven body is not implemented; pass the reactor as a STEP "
+                "file (step_path) or a box (box_min/box_max)."
             )
         else:
+            self.step_path = os.path.abspath(self.step_path)
+            if not os.path.isfile(self.step_path):
+                raise ValueError(f"ReactorBody.step_path: no such file {self.step_path}")
+            if self.step_scale <= 0:
+                raise ValueError(f"ReactorBody.step_scale must be > 0, got {self.step_scale}")
+            if self.step_rotate is not None:
+                if len(self.step_rotate) != 2:
+                    raise ValueError(
+                        "ReactorBody.step_rotate: a pair (from_vector, to_vector)"
+                    )
+                a, b = (_vec(v) for v in self.step_rotate)
+                if _norm(a) == 0 or _norm(b) == 0:
+                    raise ValueError("ReactorBody.step_rotate: vectors must be non-zero")
+                self.step_rotate = (a, b)
+            self.step_translate = _vec(self.step_translate)
+        if self.wall_cells_per_circle is not None and self.wall_cells_per_circle < 3:
             raise ValueError(
-                "ReactorBody: must supply either (box_min, box_max) or stl_path"
+                f"ReactorBody.wall_cells_per_circle must be >= 3, got "
+                f"{self.wall_cells_per_circle}"
+            )
+        if self.min_cell_size is not None and self.min_cell_size <= 0:
+            raise ValueError(
+                f"ReactorBody.min_cell_size must be > 0, got {self.min_cell_size}"
+            )
+        self.open_patches = {
+            str(name): _vec(point) for name, point in dict(self.open_patches).items()
+        }
+        reserved = {self.wall_patch_name}
+        if has_box:
+            reserved |= {self.endcap_lo_patch_name, self.endcap_hi_patch_name}
+        clash = sorted(reserved & set(self.open_patches))
+        if clash:
+            raise ValueError(
+                f"ReactorBody.open_patches: {clash} already name the body's own patches"
             )
         if self.bulk_cells not in _VALID_BULK_CELLS:
             raise ValueError(

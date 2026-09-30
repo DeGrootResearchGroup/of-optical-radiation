@@ -156,6 +156,14 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
     lines.append("(")
     lines.append("    cd _uvMesh/bulk_body")
     lines.append("    runApplication gmshToFoam ../bulk.msh")
+    # gmshToFoam writes every patch as type `patch`; the body wall is a wall
+    # (wall functions need the type). Set before any split or dual so every
+    # later step carries it.
+    for entry in ("type", "physicalType"):
+        lines.append(
+            f"    runApplication -s {entry} foamDictionary constant/polyMesh/boundary "
+            f"-entry entry0/{body.wall_patch_name}/{entry} -set wall"
+        )
     if body.bulk_cells in (
         "polyhedral", "structured", "structured_full", "structured_matryoshka",
     ):

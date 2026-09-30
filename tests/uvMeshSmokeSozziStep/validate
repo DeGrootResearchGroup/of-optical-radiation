@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Validate the uvMesh smoke test on the Sozzi & Taghipour STEP body.
+
+Validates:
+  - the mesh fills the drawing: total volume within 1 % of the exact
+    fluid volume of the STEP drawing (chamber + inlet pipe + riser, less
+    the lamp), 5.7643 L as OpenCASCADE computes it -- a missing pipe, a
+    body left in millimetres or a lamp left in the fluid each break this
+  - max non-orth < 90 deg, max skewness < 4, bad face pyramids < 0.1 %
+  - the patches the case's own boundary conditions name, with their types:
+    the body wall is a `wall`, the inlet and outlet are the two named
+    open faces, and the lamp's sleeve, flat end and tip are walls
+  - the inlet and outlet are the right faces: each is the disc of a pipe
+    (radius 9.55 mm, area 2.865e-4 m^2), from the patch face areas
+  - the bulk is dualised polyhedra and the lamp region is hex
+  - the lamp's seam couples to the bulk's with full coverage
+"""
+from __future__ import annotations
+
+import math
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+#: The exact fluid volume of SozziTaghipour.step, (chamber U inlet U riser) - lamp, in m^3.
+CAD_FLUID_VOLUME = 5.764330e-3
+#: Area of a pipe's end disc (radius 9.55 mm), m^2.
+PIPE_DISC_AREA = math.pi * 0.00955**2
+
+
+def read(path):
+    with open(path) as fh:
+        return fh.read()
+
+
+def fail(msg):
+    print(f"VALIDATE FAIL: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def passed(msg):
+    print(f"  ok  {msg}")
+
+
+log = read(os.path.join(HERE, "log.checkMesh"))
+
+m = re.search(r"Total volume\s*=\s*([\d.eE+-]+)\.", log)
+volume = float(m.group(1)) if m else None
+if volume is None or abs(volume / CAD_FLUID_VOLUME - 1) > 0.01:
+    fail(f"mesh volume {volume} m^3 is not within 1% of the drawing's {CAD_FLUID_VOLUME} m^3")
+passed(f"mesh volume {volume:.6e} m^3, {100 * (volume / CAD_FLUID_VOLUME - 1):+.2f}% of the drawing's")
+
+m = re.search(r"Min volume\s*=\s*([\d.eE+-]+)\.", log)
+if m is None or float(m.group(1)) <= 0:
+    fail("checkMesh: zero or negative cell volume")
+passed(f"min cell volume {float(m.group(1)):.3e} > 0")
+
+m = re.search(r"Mesh non-orthogonality Max:\s*([\d.eE+-]+)", log)
+if m is None or float(m.group(1)) >= 90.0:
+    fail(f"max non-orthogonality {m and m.group(1)} >= 90 deg")
+passed(f"max non-orthogonality {float(m.group(1)):.2f} deg")
+
+m = re.search(r"Max skewness\s*=\s*([\d.eE+-]+)", log)
+if m is None or float(m.group(1)) >= 4.0:
+    fail(f"max skewness {m and m.group(1)} >= 4")
+passed(f"max skewness {float(m.group(1)):.2f}")
+
+m_faces = re.search(r"^\s*faces:\s+(\d+)", log, re.MULTILINE)
+m_bad = re.search(r"(\d+)\s+faces are incorrectly oriented", log)
+n_faces = int(m_faces.group(1)) if m_faces else 0
+n_bad = int(m_bad.group(1)) if m_bad else 0
+if not n_faces or n_bad / n_faces >= 0.001:
+    fail(f"{n_bad} bad face pyramids of {n_faces} faces (>= 0.1 %)")
+passed(f"bad face pyramids {n_bad} / {n_faces} ({100 * n_bad / n_faces:.4f}%)")
+
+boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
+expected = {
+    "bodyWall": "wall",
+    "inlet": "patch",
+    "outlet": "patch",
+    "reactor_seam_lamp0": "patch",
+    "lamp0_wall": "wall",
+    "lamp0_seam": "patch",
+    "lamp0_endcap_A": "wall",
+    "lamp0_tip_B": "wall",
+    "nonConformalCyclic_on_reactor_seam_lamp0": "nonConformalCyclic",
+    "nonConformalCyclic_on_lamp0_seam": "nonConformalCyclic",
+}
+for name, kind in expected.items():
+    m = re.search(rf"^\s*{re.escape(name)}\s*\{{[^}}]*?\btype\s+(\S+?);", boundary,
+                  re.MULTILINE | re.DOTALL)
+    if m is None:
+        fail(f"patch '{name}' not found")
+    if m.group(1) != kind:
+        fail(f"patch '{name}': type {m.group(1)}, expected {kind}")
+    passed(f"patch {name} present with type {kind}")
+
+# The open faces: each named point must have claimed its pipe's end disc.
+def patch_area(name):
+    """Total area of a patch, from the ASCII polyMesh (face fans about the face centroid)."""
+    m = re.search(
+        rf"^\s*{re.escape(name)}\s*\{{[^}}]*?nFaces\s+(\d+);[^}}]*?startFace\s+(\d+);",
+        boundary, re.MULTILINE | re.DOTALL,
+    )
+    n_faces, start = int(m.group(1)), int(m.group(2))
+    mesh_dir = os.path.join(HERE, "constant", "polyMesh")
+
+    def entries(path):
+        text = read(os.path.join(mesh_dir, path))
+        body = text[text.index("(", text.index("\n", text.index("}", text.index("FoamFile")))):]
+        return re.findall(r"\(([^()]*)\)", body)
+
+    points = [tuple(map(float, e.split())) for e in entries("points")]
+    faces = entries("faces")[start:start + n_faces]
+    total = 0.0
+    for face in faces:
+        vs = [points[int(i)] for i in face.split()]
+        c = [sum(v[k] for v in vs) / len(vs) for k in range(3)]
+        for a, b in zip(vs, vs[1:] + vs[:1]):
+            u = [a[k] - c[k] for k in range(3)]
+            w = [b[k] - c[k] for k in range(3)]
+            cross = (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
+            total += 0.5 * math.sqrt(sum(x * x for x in cross))
+    return total
+
+
+for name in ("inlet", "outlet"):
+    area = patch_area(name)
+    if abs(area / PIPE_DISC_AREA - 1) > 0.02:
+        fail(f"patch '{name}' area {area:.4e} m^2 is not a pipe's end disc ({PIPE_DISC_AREA:.4e})")
+    passed(f"patch {name} is a pipe end disc: area {area:.4e} m^2")
+
+m_hex = re.search(r"^\s*hexahedra:\s+(\d+)", log, re.MULTILINE)
+m_tets = re.search(r"^\s*tetrahedra:\s+(\d+)", log, re.MULTILINE)
+m_polys = re.search(r"^\s*polyhedra:\s+(\d+)", log, re.MULTILINE)
+n_hex, n_tets, n_polys = (int(x.group(1)) if x else 0 for x in (m_hex, m_tets, m_polys))
+if n_tets or not n_hex or not n_polys:
+    fail(f"cell types: {n_hex} hex, {n_polys} polyhedra, {n_tets} tets")
+passed(f"{n_hex} hex (lamp region) + {n_polys} polyhedra (bulk) + 0 tets")
+
+ncc = read(os.path.join(HERE, "log.createNonConformalCouples"))
+for side in ("Source", "Target"):
+    m = re.search(rf"{side} min/average/max coverage = [\d.eE+-]+/([\d.eE+-]+)/", ncc)
+    if m is None or float(m.group(1)) < 0.999:
+        fail(f"NCC {side.lower()} average coverage {m and m.group(1)} < 0.999")
+    passed(f"NCC {side.lower()} average coverage {float(m.group(1)):.6f}")
+
+print()
+print("uvMeshSmokeSozziStep: all checks passed.")

@@ -50,7 +50,7 @@ boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
 
 expected_patches = {
     # bulk patches
-    "bulkWall":           "patch",
+    "bulkWall":           "wall",
     "endcap_lo":          "patch",
     "endcap_hi":          "patch",
     "reactor_seam_lamp0": "patch",
