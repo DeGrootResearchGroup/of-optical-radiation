@@ -439,3 +439,103 @@ def test_hemisphere_seam_combines_with_cylinder_seam(hemisphere_lamp, tmp_path):
         f"lamp0_seam should appear exactly once in the boundary list; "
         f"got {len(decls)} declarations."
     )
+
+
+# ----------------------------------------------------------------------
+# Curved cap edges: no chord between two points of a sphere
+# ----------------------------------------------------------------------
+
+# The 12 edges of a blockMesh hex, as index pairs into its 8 vertices.
+_HEX_EDGES = (
+    (0, 1), (1, 2), (2, 3), (3, 0),
+    (4, 5), (5, 6), (6, 7), (7, 4),
+    (0, 4), (1, 5), (2, 6), (3, 7),
+)
+
+
+def _parse_dict(text):
+    """The dict's spheres, vertex positions, hex blocks and projected edges.
+
+    Returns ``(spheres, points, hexes, projected)``: ``spheres`` maps a
+    geometry name to ``(centre, radius)``; ``points`` is a list of vertex
+    positions; ``hexes`` a list of 8-tuples of vertex indices; ``projected``
+    the set of ``(frozenset({a, b}), geometry)`` for every
+    ``project a b (geometry)`` edge.
+    """
+    import re
+    spheres = {}
+    geometry = text.split("\nvertices\n")[0]
+    for name, body in re.findall(r"^\s{4}(\S+)\s*\{([^}]*)\}", geometry, re.MULTILINE):
+        if "searchableSphere" in body:
+            centre = re.search(r"centre\s*\(([^)]*)\)", body).group(1).split()
+            radius = re.search(r"radius\s+([^;]+);", body).group(1)
+            spheres[name] = (tuple(map(float, centre)), float(radius))
+
+    def section(key):
+        return text.split(f"\n{key}\n")[1].split("\n);")[0]
+
+    number = r"[-+\d.eE]+"
+    points = [tuple(map(float, m.split())) for m in re.findall(
+        rf"\(\s*({number}\s+{number}\s+{number})\s*\)", section("vertices"))]
+    hexes = [tuple(map(int, m.split()))
+             for m in re.findall(r"hex \(([^)]*)\)", section("blocks"))]
+    projected = {(frozenset((int(a), int(b))), g)
+                 for a, b, g in re.findall(r"project\s+(\d+)\s+(\d+)\s+\((\S+)\)",
+                                           section("edges"))}
+    return spheres, points, hexes, projected
+
+
+@pytest.mark.parametrize("bulk_cells", [
+    None, "structured", "structured_full", "structured_matryoshka",
+])
+def test_every_block_edge_between_two_points_of_a_sphere_is_projected_onto_it(
+    two_hemisphere_lamp, tmp_path, bulk_cells,
+):
+    """A block edge with both ends on one of the cap spheres runs across
+    that sphere, so it must be projected onto it. Left straight, blockMesh
+    places the edge's points on the CHORD, which cuts under the sphere
+    (by 18% of the radius at the midpoint of a cubed-sphere cap edge);
+    the blocks meeting there pinch, and projecting the faces does not
+    repair it, because a face projection moves the points inside a face
+    but not those on its edges. The two cap layers of
+    `structured_matryoshka` share their middle sphere, and each once left
+    the edges on it to the other.
+    """
+    from uvmesh import ReactorBody
+    lamp = two_hemisphere_lamp
+    lamp.sleeve_patch_name = "lamp0_wall"
+    lamp.seam_patch_name = "lamp0_seam"
+    lamp.tip_patch_name_a = "lamp0_tip_A"
+    lamp.tip_patch_name_b = "lamp0_tip_B"
+    body = None if bulk_cells is None else ReactorBody(
+        box_min=(-0.1, -0.1, -0.1), box_max=(0.1, 0.1, 0.2),
+        bulk_cell_size=0.012, bulk_cells=bulk_cells,
+    )
+    write_annulus_dict(lamp, str(tmp_path), body=body)
+    spheres, points, hexes, projected = _parse_dict(
+        (tmp_path / "system" / "blockMeshDict").read_text())
+    assert spheres, "no cap sphere in the dict"
+
+    def on(sphere, i):
+        centre, radius = spheres[sphere]
+        return abs(math.dist(points[i], centre) - radius) < 1e-9 * radius
+
+    # An equator edge is projected onto the lamp's cylinder rather than the
+    # sphere; on the equator the two are the same circle, so any projection
+    # curves the edge correctly.
+    curved = {pair for pair, _ in projected}
+    chords = set()
+    for hex_ in hexes:
+        for a, b in _HEX_EDGES:
+            u, v = hex_[a], hex_[b]
+            for sphere in spheres:
+                if on(sphere, u) and on(sphere, v) and frozenset((u, v)) not in curved:
+                    chords.add((sphere, min(u, v), max(u, v)))
+    # A parse that found no sphere vertices would pass vacuously: every cap
+    # sphere must hold block vertices.
+    for sphere in spheres:
+        assert sum(on(sphere, i) for i in range(len(points))) >= 8, sphere
+    assert not chords, (
+        f"{len(chords)} block edges run straight between two points of a "
+        f"sphere: {sorted(chords)[:6]}"
+    )

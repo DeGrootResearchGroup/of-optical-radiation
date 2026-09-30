@@ -156,7 +156,6 @@ def write_hemisphere_cap(
     p_inner_existing: Optional[List[Vertex]] = None,
     p_outer_existing: Optional[List[Vertex]] = None,
     outer_is_seam: bool = True,
-    add_outer_edges: bool = True,
     radial_expansion: float = 1.0,
 ) -> Tuple[Sphere, Sphere, List[Vertex], List[Vertex]]:
     """Append a 5-block cubed-sphere annular hemisphere to `bmd`.
@@ -297,10 +296,12 @@ def write_hemisphere_cap(
     # meridian edges (one per quadrant corner, from polar-cap corner to
     # equator corner) projected onto each sphere -- 4 per sphere.
     #
-    # When `add_outer_edges` is False (matryoshka inner cap), skip the
-    # outer-sphere edges -- they'll be added by the outer cap, which
-    # shares the same P_outer vertices via p_inner_existing. Adding them
-    # twice would emit duplicate ProjectionEdge entries in the dict.
+    # The outer-sphere edges are always added here, including when the
+    # outer sphere is shared with a second cap layer (matryoshka): that
+    # layer skips them (`add_inner_edges=False`) so they appear once. Left
+    # out, they stay straight chords -- 18% of the radius under the sphere
+    # at an edge midpoint -- and the cells along them pinch; the face
+    # projection moves only the points inside a face, not on its edges.
     for k in range(4):
         j = (k + 1) % 4
         bmd.add_edge(ProjectionEdge(
@@ -311,15 +312,14 @@ def write_hemisphere_cap(
             np.array([P_inner[k], equator_inner[k]], dtype=object),
             geometries=[sphere_inner],
         ))
-        if add_outer_edges:
-            bmd.add_edge(ProjectionEdge(
-                np.array([P_outer[k], P_outer[j]], dtype=object),
-                geometries=[sphere_outer],
-            ))
-            bmd.add_edge(ProjectionEdge(
-                np.array([P_outer[k], equator_outer[k]], dtype=object),
-                geometries=[sphere_outer],
-            ))
+        bmd.add_edge(ProjectionEdge(
+            np.array([P_outer[k], P_outer[j]], dtype=object),
+            geometries=[sphere_outer],
+        ))
+        bmd.add_edge(ProjectionEdge(
+            np.array([P_outer[k], equator_outer[k]], dtype=object),
+            geometries=[sphere_outer],
+        ))
 
     zone = ZoneTag(zone_tag_name)
     if radial_expansion <= 0:

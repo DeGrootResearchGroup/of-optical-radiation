@@ -182,8 +182,8 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
         if use_matryoshka:
             # Inner cap: r=sleeve_radius -> r=annulus_outer_radius.
             # Outer faces are interior (shared with outer cap), so
-            # outer_is_seam=False and the outer projection edges are
-            # deferred to the outer cap (add_outer_edges=False).
+            # outer_is_seam=False. The inner cap owns the projection edges
+            # on the shared middle sphere; the outer cap skips them.
             sphere_inner_i, sphere_middle, p_inner_i, p_outer_i = \
                 write_hemisphere_cap(
                     bmd=bmd,
@@ -203,7 +203,6 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
                     zone_tag_name=f"{lamp.sleeve_patch_name}_matrA_{end_label}",
                     radial_expansion=lamp.radial_grading,
                     outer_is_seam=False,
-                    add_outer_edges=False,
                 )
             # Outer cap: r=annulus_outer_radius -> r=outer_cap_radius.
             # Inner faces are interior (shared with inner cap's outer
