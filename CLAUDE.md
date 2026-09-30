@@ -696,20 +696,26 @@ Sozzi & Taghipour reactor (`tests/uvMeshSmokeSozziStep`):
 
 ```python
 body = ReactorBody(
-    step_path="SozziTaghipour.step",      # every solid fused into one body
+    step_path="SozziTaghipour.step",      # its solids fused into one body
     step_scale=1e-3,                       # drawn in mm
     step_rotate=((0, 1, 0), (1, 0, 0)),    # drawing's +y onto the case's +x
-    open_patches={                         # a point on each open face
-        "inlet":  (1.739, 0.0, 0.0),
-        "outlet": (0.04765, 0.0, 0.8945),
-    },
     wall_patch_name="bodyWall",            # every other face; type wall
-    wall_cells_per_circle=24,              # resolve the 9.55 mm pipes
-    min_cell_size=0.002,
-    dual_feature_angle=100,                # right-angle pipe junctions
+    bulk_cell_size=0.008,
     bulk_cells="polyhedral",               # spherical-shell cap, capsule seam
 )
+pipes = [                                  # each pipe's own solid, an O-grid
+    Pipe(axis_start=(0.889, 0, 0), axis_end=(1.739, 0, 0), radius=0.00955,
+         open_patch_name="inlet", n_azimuth_per_quadrant=6, n_radial=4,
+         radial_grading=2.0, n_axial=100, axial_grading=4.0),
+    Pipe(axis_start=(0.04765, 0, 0.0445), axis_end=(0.04765, 0, 0.8945),
+         radius=0.00955, open_patch_name="outlet", ...),  # same cells
+]
+build(case_dir=".", lamps=lamps, body=body, pipes=pipes)
 ```
+
+Without `pipes`, the pipes stay in the bulk: name their open ends with
+`open_patches` (a point on each face) and resolve them with
+`wall_cells_per_circle` and `dual_feature_angle=100` (below).
 
 - **Placement**: scale about the origin, then `step_rotate` (the
   shortest rotation taking the first vector onto the second, as
@@ -755,8 +761,48 @@ body = ReactorBody(
   smoke cases lose 0.22-0.24 % of their volume to cut corners at 100, so
   the default stays 90; the Sozzi case, with no such edges, sets 100
   (smoke mesh: 2 -> 0 bad pyramids, max skew 2.89 -> 1.80, volume
-  unchanged). O-gridding the pipes into the structured region would
-  take the re-entrant edge out of the dual entirely.
+  unchanged). Meshing the pipes as O-grids (`Pipe`, below) takes the
+  re-entrant edge out of the dual entirely, and the Sozzi smoke case --
+  now with O-gridded pipes -- is Mesh OK at the default 90.
+- **Pipes: `build(..., pipes=[Pipe(...)])`** (uvmesh 0.10). Each pipe
+  is a structured O-grid (blockmeshbuilder `CylBlockStructContainer`:
+  a square core, bowed sides, and a ring graded toward the wall), built
+  in pipe-local coordinates from its junction to its open end, which is
+  the patch `open_patch_name`. It needs the pipe as its OWN solid in the
+  STEP file, meeting the body on the body's surface -- as the Sozzi
+  file draws both pipes: the inlet pipe starts on the chamber's end-wall
+  plane, and the riser's bottom face is already the saddle on the
+  chamber's r = 44.5 mm wall. The bulk script finds each pipe's solid
+  (centre of mass on the axis, within its length, volume within 5 % of
+  pi R^2 L; exactly one must match), leaves it out of the fused body,
+  and prints its footprint on the body with an OCC fragment before
+  dropping it; the footprint is recognized as `reactor_seam_pipe{i}` by
+  the same edges-on-the-tool seam test as a lamp's, sized to the pipe's
+  wall spacing, and written after meshing as
+  `pipe{i}/constant/geometry/footprint_world.stl` -- the bulk's own
+  triangles, which the dual keeps. `Allrun.mesh` then, per pipe:
+  `surfaceTransformPoints` takes the STL into pipe-local coordinates
+  (the inverse of the pipe's own placement: translate back, then rotate
+  the axis back onto +z), blockMesh projects the junction end onto it --
+  the rim onto it and the pipe's cylinder both, i.e. their intersection
+  -- and transformPoints places the pipe; mergeMeshes and one
+  createNonConformalCouples per pipe follow the lamps'. OpenFOAM 13
+  reads a triSurfaceMesh from `constant/geometry`, not
+  `constant/triSurface`; blockmeshbuilder has no triSurfaceMesh
+  geometry, so `pipe.TriSurface` adds one (allowed per dict, not in
+  blockmeshbuilder's shared list); and the ring's periodic last row of
+  edges had to lose its projection, or blockMesh refuses the duplicate
+  curved edge. Measured on the Sozzi smoke case (pipes 6 per quadrant,
+  4 radial graded 2, 100 axial graded 4; dual angle 90): each pipe
+  13200 hex, max non-orth 15.0 / 15.8 deg, skew 0.51 / 0.48; the whole
+  mesh Mesh OK, 54.6 deg, skew 1.65, volume -0.60 % (-0.80 % with the
+  pipes in the bulk); both open ends 2.8326e-4 m^2, the 24-gon's share
+  of the exact disc. Coupling coverage is 0.9959-0.9974 at the pipes
+  against 0.99989 at the lamp: a pipe's junction and its footprint are
+  two 24-gons on one circle with their corners at different angles, and
+  the slivers between them at the rim stay uncovered (the smoke
+  validate allows 0.995). Not done: boundary layers on the chamber
+  walls, and matching the footprint's rim nodes to the pipe's.
 - `bulk_cells="hybrid"` builds its cap zone along +z only and refuses a
   hemispherical lamp on any other axis; use `polyhedral` (Sozzi's lamp
   is along x).
@@ -1007,19 +1053,23 @@ and removing the lip artifact -- a regression invariant in
 `tests/uvMeshSmokeSozziStep` meshes the Sozzi & Taghipour reactor
 from the tutorial's `SozziTaghipour.step` (the example above, coarse
 in the chamber: `n_radial=6`, `radial_grading=3`,
-`n_azimuth_per_quadrant=8`, 8 mm bulk), in ~13 s. Validates: the mesh
-volume within 1 % of the drawing's exact fluid volume (5.7643 L, from
-OpenCASCADE: chamber + inlet pipe + riser - lamp; observed -0.80 %,
-the chamber wall faceted at 8 mm); the inlet and outlet each have a
-pipe disc's area (2.833e-4 against 2.865e-4 m^2 for the exact circle);
-the patch types (`bodyWall` a `wall`); no tets; NCC coverage >= 0.999
-(observed 0.99994); max non-orth 53.9 deg, max skew 1.78, and NO bad
-face pyramids (checkMesh `Mesh OK`) -- the validate requires zero,
-since the pipe-junction defect `dual_feature_angle=100` removes is
-exactly what a looser bound let through. 32642 hex around the lamp +
-62310 polyhedra (`bulk_cells="polyhedral"`; as `structured_matryoshka`
-it was -0.61 %, 61.6 deg, skew 1.80, 92481 hex + 47557 polyhedra, and
-at dual angle 90 skew 2.89 with 2 bad pyramids).
+`n_azimuth_per_quadrant=8`, 8 mm bulk; both pipes O-grids), in ~15 s.
+Validates: the mesh volume within 1 % of the drawing's exact fluid
+volume (5.7643 L, from OpenCASCADE: chamber + inlet pipe + riser -
+lamp; observed -0.60 %, the chamber wall faceted at 8 mm); the inlet
+and outlet each have a pipe disc's area (2.8326e-4 against 2.865e-4
+m^2 for the exact circle); the patch types (`bodyWall` and the pipe
+walls `wall`, every seam and its coupling); no tets; every coupling's
+coverage, in the final createNonConformalCouples report (lamp >= 0.999,
+observed 0.99989; pipes >= 0.995, observed 0.9959-0.9974); max
+non-orth 54.6 deg, max skew 1.65, and NO bad face pyramids (checkMesh
+`Mesh OK`) -- the validate requires zero, since pipe mouths dualised in
+the bulk are exactly what a looser bound let through. 59043 hex (lamp
+region and pipes) + 19302 polyhedra. Earlier forms of the case, for
+reference: pipes in the bulk at dual angle 100, -0.80 %, 53.9 deg,
+skew 1.78, 32642 hex + 62310 polyhedra; as `structured_matryoshka`,
+-0.61 %, 61.6 deg, skew 1.80, and at dual angle 90 skew 2.89 with 2
+bad pyramids.
 
 `tests/uvMeshSmokeHemisphereStructuredMatryoshka` exercises
 `bulk_cells="structured_matryoshka"`. The annulus uses TWO concentric
@@ -1078,7 +1128,7 @@ guards the edges in every cap mode.
 | `"structured_full"`     | ~13000 hex     | ~4600 poly | 0.99984 / 0.99992 | 60° | 1.54 | 0 | research-grade conformal NCC; corner defects at the seam-disc edge |
 | `"structured_matryoshka"` | ~39000 hex   | ~3300 poly | 0.99990 / 0.99994 | 64° | 1.68 | 0 | **UV reactor dose accuracy**: uniform spherical cells near the lamp wall; corner defects pushed out to 2× radius (low-G zone) |
 
-`tools/uvMesh/tests/` contains a **pytest unit-test suite** (157
+`tools/uvMesh/tests/` contains a **pytest unit-test suite** (184
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.
 Where the smoke cases check end-to-end mesh validity, the unit tests
 isolate single behaviours of the helper modules:
@@ -1133,6 +1183,25 @@ isolate single behaviours of the helper modules:
   (open-patch match, rotation sign, scale, cap reciprocal, morphed-cap
   grading, outer-layer balance, cylinder grading, wall retype, the
   series exponent, two body sources) turn at least one test red.
+- `test_pipe.py` — `Pipe` validation and its axial-cell default; the
+  pipe dict is a five-block O-grid with its wall, seam and open patches
+  once each, every junction vertex projected onto the footprint STL and
+  the rim's onto the pipe's cylinder too, no vertex of the open end on
+  the footprint, no curved edge written twice, the ring graded to the
+  wall by the reciprocal and both parts along the axis; the placement
+  tokens checked against an independent Rodrigues rotation (forward
+  puts local +z on the axis, inverse undoes it, for four axes);
+  `Allrun.mesh` meshes each pipe after the bulk script, footprint
+  transform before blockMesh before placement, merged and coupled;
+  duplicate or taken open-patch names and box bodies refused; and, in
+  gmsh, a STEP chamber with a separate pipe solid: the pipe left out of
+  the bulk, its footprint the seam `reactor_seam_pipe0` on the chamber's
+  face within the pipe's radius, the footprint STL written on that
+  disc, and a pipe of the wrong radius failing the script. Eleven of
+  twelve targeted mutations turn a test red; the twelfth -- keeping the
+  pipe's volume after printing its footprint -- changes nothing a test
+  can see, since that volume is in no physical group and is not
+  written; it only costs its meshing.
 
 The unit tests run before the OpenFOAM regression cases in CI; a
 unit-test failure fails the build immediately (cheap signal). Run

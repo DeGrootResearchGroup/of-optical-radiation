@@ -4,10 +4,10 @@
 The first case with a real reactor body rather than a box. The body is
 the tutorial's own CAD drawing, `SozziTaghipour.step` (four solids: the
 chamber, the inlet pipe, the outlet riser and the lamp, in millimetres
-with the chamber axis along +y). uvmesh fuses the solids, scales them to
-metres and rotates +y onto +x, so the lamp axis is the case's x axis as
-in `tutorials/uvReactorSozzi2006`. That rotation takes STEP x to -y
-where the tutorial's own STL export swaps x and y; the two differ by the
+with the chamber axis along +y). uvmesh scales the solids to metres and
+rotates +y onto +x, so the lamp axis is the case's x axis as in
+`tutorials/uvReactorSozzi2006`. That rotation takes STEP x to -y where
+the tutorial's own STL export swaps x and y; the two differ by the
 reflection y -> -y, which the reactor is symmetric under (the lamp and
 inlet lie on the axis and the outlet riser in the y = 0 plane), so the
 mesh occupies exactly the tutorial's geometry.
@@ -21,19 +21,20 @@ cut from the body, and it contains the lamp.
     sleeve to 15 mm, graded toward the sleeve, over the cylinder and,
     as a cubed-sphere shell, over the tip; the bulk's cut is the
     matching capsule, which carries the seam.
-  * Inlet: the disc at the far end of the inlet pipe (x = 1.739).
-  * Outlet: the disc at the top of the riser (z = 0.8945).
+  * The two pipes (radius 9.55 mm) are their own solids in the file, and
+    each is meshed as a structured O-grid coupled to the chamber at its
+    footprint: the inlet pipe on the chamber's end wall (x = 0.889, a
+    disc), ending in the `inlet` at x = 1.739; the riser on the chamber's
+    side (a saddle on the r = 44.5 mm wall), ending in the `outlet` at
+    z = 0.8945.
   * Everything else: `bodyWall`.
 
 Coarse in the chamber, to keep the case quick; it checks the pipeline end
-to end, not the resolution a flow solve needs. The pipes are the
-exception: at the chamber's 8 mm they are two cells across and the
-faceted mesh loses ~17% of their volume, so the walls are sized from
-their curvature.
+to end, not the resolution a flow solve needs.
 """
 import os
 
-from uvmesh import Lamp, ReactorBody, build
+from uvmesh import Lamp, Pipe, ReactorBody, build
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STEP = os.path.join(HERE, "..", "..", "tutorials", "uvReactorSozzi2006", "SozziTaghipour.step")
@@ -52,32 +53,28 @@ LAMPS = [
     ),
 ]
 
+# Each pipe from its junction with the chamber to its open end; cells
+# ~2.5 mm around, graded toward the wall, and growing along the pipe from
+# ~3.5 mm at the junction.
+PIPE_CELLS = dict(radius=0.00955, n_azimuth_per_quadrant=6, n_radial=4, radial_grading=2.0,
+                  n_axial=100, axial_grading=4.0)
+PIPES = [
+    Pipe(axis_start=(0.889, 0.0, 0.0), axis_end=(1.739, 0.0, 0.0),
+         open_patch_name="inlet", **PIPE_CELLS),
+    Pipe(axis_start=(0.04765, 0.0, 0.0445), axis_end=(0.04765, 0.0, 0.8945),
+         open_patch_name="outlet", **PIPE_CELLS),
+]
+
 BODY = ReactorBody(
     step_path=STEP,
     step_scale=1e-3,
     step_rotate=((0.0, 1.0, 0.0), (1.0, 0.0, 0.0)),
-    open_patches={
-        "inlet": (1.739, 0.0, 0.0),
-        "outlet": (0.04765, 0.0, 0.8945),
-    },
     wall_patch_name="bodyWall",
     bulk_cell_size=0.008,
-    # The pipes (radius 9.55 mm) are narrower than two bulk cells; size
-    # cells on curved walls from their curvature so they are resolved
-    # (24 around a circle: ~2.5 mm in the pipes), floored below the seam
-    # spacing so that size is reachable.
-    wall_cells_per_circle=24,
-    min_cell_size=0.002,
-    # The inlet pipe meets the chamber's end wall, and the riser its
-    # side, at right angles: re-entrant edges, where dualising at the
-    # default feature angle of 90 leaves wrongly oriented faces. Above 90
-    # they are dualised as smooth wall; the reactor has no flat-faced
-    # right-angle corner that needs keeping sharp.
-    dual_feature_angle=100,
     # A spherical-shell cap and a capsule seam: no rim for cells to meet
     # at the flat-disc envelope of the structured caps.
     bulk_cells="polyhedral",
 )
 
-build(case_dir=HERE, lamps=LAMPS, body=BODY)
+build(case_dir=HERE, lamps=LAMPS, body=BODY, pipes=PIPES)
 print(f"Wrote {HERE}/_uvMesh/")

@@ -7,16 +7,18 @@ Validates:
     the lamp), 5.7643 L as OpenCASCADE computes it -- a missing pipe, a
     body left in millimetres or a lamp left in the fluid each break this
   - max non-orth < 90 deg, max skewness < 4, and no bad face pyramids:
-    the pipe junctions, where dualising left wrongly oriented faces at
-    polyDualMesh's default feature angle, are dualised cleanly at the
-    case's 100 degrees
+    with the pipes meshed as O-grids the bulk has no re-entrant pipe
+    mouth to dualise (dualised in the bulk, those mouths left wrongly
+    oriented faces at polyDualMesh's default feature angle)
   - the patches the case's own boundary conditions name, with their types:
-    the body wall is a `wall`, the inlet and outlet are the two named
-    open faces, and the lamp's sleeve, flat end and tip are walls
+    the body wall is a `wall`, the inlet and outlet are the two pipes'
+    open ends, the lamp's sleeve, flat end and tip and the pipe walls are
+    walls, and each structured piece's seam is coupled to the bulk's
   - the inlet and outlet are the right faces: each is the disc of a pipe
     (radius 9.55 mm, area 2.865e-4 m^2), from the patch face areas
-  - the bulk is dualised polyhedra and the lamp region is hex
-  - the lamp's seam couples to the bulk's with full coverage
+  - the bulk is dualised polyhedra and the lamp region and pipes are hex
+  - each seam couples to the bulk's: the lamp's with full coverage, each
+    pipe's to within the slivers between two polygons on its rim
 """
 from __future__ import annotations
 
@@ -91,6 +93,14 @@ expected = {
     "nonConformalCyclic_on_reactor_seam_lamp0": "nonConformalCyclic",
     "nonConformalCyclic_on_lamp0_seam": "nonConformalCyclic",
 }
+for i in (0, 1):
+    expected.update({
+        f"pipe{i}_wall": "wall",
+        f"pipe{i}_seam": "patch",
+        f"reactor_seam_pipe{i}": "patch",
+        f"nonConformalCyclic_on_reactor_seam_pipe{i}": "nonConformalCyclic",
+        f"nonConformalCyclic_on_pipe{i}_seam": "nonConformalCyclic",
+    })
 for name, kind in expected.items():
     m = re.search(rf"^\s*{re.escape(name)}\s*\{{[^}}]*?\btype\s+(\S+?);", boundary,
                   re.MULTILINE | re.DOTALL)
@@ -141,7 +151,7 @@ m_polys = re.search(r"^\s*polyhedra:\s+(\d+)", log, re.MULTILINE)
 n_hex, n_tets, n_polys = (int(x.group(1)) if x else 0 for x in (m_hex, m_tets, m_polys))
 if n_tets or not n_hex or not n_polys:
     fail(f"cell types: {n_hex} hex, {n_polys} polyhedra, {n_tets} tets")
-passed(f"{n_hex} hex (lamp region) + {n_polys} polyhedra (bulk) + 0 tets")
+passed(f"{n_hex} hex (lamp region, pipes) + {n_polys} polyhedra (bulk) + 0 tets")
 
 # No cell set may outlive the dual: gmshToFoam's `fluid` set indexes the tet mesh, and
 # decomposePar (which checkMesh does not stand in for) stops on its out-of-range cells.
@@ -150,12 +160,22 @@ if os.path.isdir(sets) and os.listdir(sets):
     fail(f"stale cell sets left in the mesh: {os.listdir(sets)}")
 passed("no stale cell sets in constant/polyMesh")
 
+# Each createNonConformalCouples run reports every coupling made so far, in the order made;
+# the last run's report covers all three. The lamp's seam and the bulk's are both fine
+# polygons on one cylinder and sphere. A pipe's junction and its footprint are two 24-sided
+# polygons on one circle with their corners at different angles, and the slivers between
+# them at the rim are left uncovered.
 ncc = read(os.path.join(HERE, "log.createNonConformalCouples"))
-for side in ("Source", "Target"):
-    m = re.search(rf"{side} min/average/max coverage = [\d.eE+-]+/([\d.eE+-]+)/", ncc)
-    if m is None or float(m.group(1)) < 0.999:
-        fail(f"NCC {side.lower()} average coverage {m and m.group(1)} < 0.999")
-    passed(f"NCC {side.lower()} average coverage {float(m.group(1)):.6f}")
+last = ncc[ncc.rindex("Adding nonConformalCyclic interfaces"):]
+coverages = re.findall(r"(Source|Target) min/average/max coverage = [\d.eE+-]+/([\d.eE+-]+)/", last)
+minima = [("lamp0", 0.999), ("pipe0", 0.995), ("pipe1", 0.995)]
+if len(coverages) != 2 * len(minima):
+    fail(f"NCC: {len(coverages) // 2} couplings reported, expected {len(minima)}")
+for (couple, minimum), pair in zip(minima, zip(coverages[0::2], coverages[1::2])):
+    for side, average in pair:
+        if float(average) < minimum:
+            fail(f"NCC {couple} {side.lower()} average coverage {average} < {minimum}")
+        passed(f"NCC {couple} {side.lower()} average coverage {float(average):.6f}")
 
 print()
 print("uvMeshSmokeSozziStep: all checks passed.")

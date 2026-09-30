@@ -16,9 +16,12 @@ from __future__ import annotations
 import math
 import os
 from textwrap import dedent
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
-from .geometry import _Z_AXIS_ONLY_BULK_CELLS, Lamp, ReactorBody
+from .geometry import _Z_AXIS_ONLY_BULK_CELLS, Lamp, Pipe, ReactorBody
+
+#: Each pipe's footprint, as the bulk meshes it, in world coordinates.
+FOOTPRINT_WORLD_STL = "footprint_world.stl"
 
 
 def rotation_axis_angle(
@@ -52,28 +55,36 @@ def rotation_axis_angle(
     return (tuple(c / sin for c in cross), math.atan2(sin, cos))
 
 
-def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> None:
+def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
+                      pipes: Sequence[Pipe] = ()) -> None:
     """Write `<case_dir>/bulk_body.py` (the gmsh emitter for the bulk mesh).
 
     The emitted script:
-      1. Builds the reactor body: a box, or the solids of a STEP file fused
-         into one and placed by the body's scale / rotation / translation.
+      1. Builds the reactor body: a box, or the solids of a STEP file placed
+         by the body's scale / rotation / translation and fused into one --
+         less each pipe's own solid, whose footprint on the body's surface
+         is printed on it instead.
       2. Cuts a cylindrical volume per lamp at radius
-         `annulus_outer_radius`, padded slightly past each axis end so the
-         boolean is robust to floating-point endpoint matching.
+         `annulus_outer_radius`, padded slightly past each flat axis end so
+         the boolean is robust to floating-point endpoint matching.
       3. Classifies the resulting surfaces into:
             <body.wall_patch_name>
             <name> for each of body.open_patches (the face nearest its point)
             <body.endcap_lo_patch_name>, <body.endcap_hi_patch_name> (box only)
-            <lamp.seam_patch_name (renamed to reactor_seam_lamp{i})>
-            ... per lamp ...
-      4. Adds a Distance + Threshold field around each seam so the bulk
-         cells near the AMI match the annulus's circumferential spacing.
-      5. Writes `bulk.msh` (msh2 format -- gmshToFoam can read it).
+            reactor_seam_lamp{i} per lamp, reactor_seam_pipe{i} per pipe
+      4. Sizes the cells at each seam to the structured side's spacing
+         there, growing to the bulk size across a band.
+      5. Writes `bulk.msh` (msh2 format -- gmshToFoam can read it), and
+         each pipe's footprint as meshed, `pipe{i}/constant/geometry/
+         footprint_world.stl`, for the pipe's junction to be projected onto.
 
-    Patch naming on the BULK side uses `reactor_seam_lamp{i}` to make the
-    NCC fuse pair (lamp{i}_seam, reactor_seam_lamp{i}) unambiguous.
+    Patch naming on the BULK side uses `reactor_seam_lamp{i}` /
+    `reactor_seam_pipe{i}` to make each non-conformal pair unambiguous.
     """
+    if pipes and body.box_min is not None:
+        raise NotImplementedError(
+            "Pipes are meshed from their own solids in a STEP body; a box body has none."
+        )
     if body.bulk_cells in _Z_AXIS_ONLY_BULK_CELLS:
         for i, lamp in enumerate(lamps):
             if lamp.has_hemisphere() and any(
@@ -112,7 +123,25 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
     band = body.near_lamp_band_thickness
     if band is None:
         band = 2 * seam_size
-    min_size = seam_size if body.min_cell_size is None else body.min_cell_size
+
+    # Each pipe's footprint is a seam too, sized to the pipe's own spacing.
+    pipe_seams = [
+        {
+            "i": i,
+            "seam_name": f"reactor_seam_pipe{i}",
+            "axis_start": pipe.axis_start,
+            "u": pipe.axis_unit(),
+            "length": pipe.length(),
+            "radius": pipe.radius,
+            "size": pipe.wall_spacing(),
+            "stl": os.path.join(f"pipe{i}", "constant", "geometry", FOOTPRINT_WORLD_STL),
+        }
+        for i, pipe in enumerate(pipes)
+    ]
+    if body.min_cell_size is None:
+        min_size = min([seam_size] + [p["size"] for p in pipe_seams])
+    else:
+        min_size = body.min_cell_size
 
     # Each lamp's cut: axis as world-coord pair + radius + bulk patch name +
     # endcap-shape flags. The bulk subtracts a *capsule* (cylinder fused with
@@ -192,6 +221,7 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         ENDCAP_LO_NAME = {body.endcap_lo_patch_name!r}
         ENDCAP_HI_NAME = {body.endcap_hi_patch_name!r}
         LAMP_CUTS = {lamp_cuts!r}
+        PIPES = {pipe_seams!r}
         SEAM_SIZE = {seam_size!r}
         BULK_SIZE = {body.bulk_cell_size!r}
         MIN_SIZE  = {min_size!r}
@@ -214,14 +244,48 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             )
             body_dimtag = (3, box)
         else:
-            # Every solid in the file, fused into one body. A lamp solid
-            # left in the file is harmless: each lamp's cut below is at
-            # least as large as the lamp, so its volume goes with the cut.
+            # Every solid in the file, placed, then fused into one body. A
+            # lamp solid left in the file is harmless: each lamp's cut below
+            # is at least as large as the lamp, so its volume goes with it.
             solids = [
                 dt for dt in gmsh.model.occ.importShapes(STEP_PATH) if dt[0] == 3
             ]
             if not solids:
                 raise RuntimeError(f"No solids in {{STEP_PATH}}")
+            if STEP_SCALE != 1.0:
+                gmsh.model.occ.dilate(solids, 0, 0, 0, STEP_SCALE, STEP_SCALE, STEP_SCALE)
+            if STEP_ROTATION is not None:
+                (rx, ry, rz), angle = STEP_ROTATION
+                gmsh.model.occ.rotate(solids, 0, 0, 0, rx, ry, rz, angle)
+            if any(STEP_TRANSLATE):
+                gmsh.model.occ.translate(solids, *STEP_TRANSLATE)
+
+            # A pipe meshed as its own O-grid is its own solid in the file:
+            # the one whose centre of mass is on the pipe's axis, within its
+            # length, and whose volume is the pipe's. It stays out of the body.
+            def is_pipe_solid(dt, pipe):
+                centre = gmsh.model.occ.getCenterOfMass(*dt)
+                a, u, length, radius = pipe["axis_start"], pipe["u"], pipe["length"], pipe["radius"]
+                r = [centre[k] - a[k] for k in range(3)]
+                s = sum(r[k] * u[k] for k in range(3))
+                d_perp = math.sqrt(max(sum(c * c for c in r) - s * s, 0.0))
+                volume = math.pi * radius * radius * length
+                return (0.0 < s < length and d_perp < 0.01 * radius
+                        and abs(gmsh.model.occ.getMass(*dt) - volume) < 0.05 * volume)
+
+            pipe_solids = []
+            for pipe in PIPES:
+                matches = [dt for dt in solids if is_pipe_solid(dt, pipe)]
+                if len(matches) != 1:
+                    raise RuntimeError(
+                        f"Pipe {{pipe['i']}}: {{len(matches)}} solids of {{STEP_PATH}} "
+                        "match it; a pipe meshed as an O-grid must be one solid of its "
+                        "own, on the pipe's axis, with the pipe's volume."
+                    )
+                pipe_solids.append(matches[0])
+                solids.remove(matches[0])
+            if not solids:
+                raise RuntimeError(f"No solid of {{STEP_PATH}} is left for the body")
             if len(solids) > 1:
                 solids, _ = gmsh.model.occ.fuse(
                     solids[:1], solids[1:], removeObject=True, removeTool=True,
@@ -231,20 +295,26 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
                     f"The solids in {{STEP_PATH}} fuse into {{len(solids)}} "
                     "separate bodies; the reactor must be one connected solid."
                 )
-            if STEP_SCALE != 1.0:
-                gmsh.model.occ.dilate(solids, 0, 0, 0, STEP_SCALE, STEP_SCALE, STEP_SCALE)
-            if STEP_ROTATION is not None:
-                (rx, ry, rz), angle = STEP_ROTATION
-                gmsh.model.occ.rotate(solids, 0, 0, 0, rx, ry, rz, angle)
-            if any(STEP_TRANSLATE):
-                gmsh.model.occ.translate(solids, *STEP_TRANSLATE)
             body_dimtag = solids[0]
+
+            # Print each pipe's footprint on the body's surface -- the
+            # fragment splits the faces the two share -- then drop the pipe.
+            if pipe_solids:
+                _, pieces = gmsh.model.occ.fragment([body_dimtag], pipe_solids)
+                if len(pieces[0]) != 1:
+                    raise RuntimeError(
+                        f"Printing the pipes on the body split it into {{len(pieces[0])}} "
+                        "pieces; each pipe must meet the body on its surface, not overlap it."
+                    )
+                body_dimtag = pieces[0][0]
+                for piece in pieces[1:]:
+                    gmsh.model.occ.remove(piece, recursive=True)
 
         # Cut each lamp's capsule (cylinder, with optional hemispherical end
         # caps fused at axis_start or axis_end) out of the body. Record each
         # cut tool's shape so the seam surfaces -- the parts of the body's
         # boundary the tool left -- can be recognized afterwards.
-        lamp_axes = []
+        seam_tools = []
         for cut in LAMP_CUTS:
             ax = cut["axis_start"]
             ay = cut["axis_end"]
@@ -340,10 +410,20 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
                     (cut["endcap_b_hemi"], ay, cap_ext_b),
                 ) if is_hemi and ext <= 0
             ]
-            lamp_axes.append(dict(
+            seam_tools.append(dict(
                 name=cut["seam_name"], start=ax, u=(ux, uy, uz), radius=radius,
                 s0=-(pad_a + cap_ext_a), s1=length + pad_b + cap_ext_b,
-                spheres=spheres,
+                spheres=spheres, size=SEAM_SIZE, band=BAND,
+            ))
+
+        # Each pipe's footprint: bounded by the pipe's cylinder, within a
+        # radius of the junction along the axis either way (a saddle dips
+        # below the point where the axis meets the body).
+        for pipe in PIPES:
+            seam_tools.append(dict(
+                name=pipe["seam_name"], start=pipe["axis_start"], u=pipe["u"],
+                radius=pipe["radius"], s0=-pipe["radius"], s1=pipe["radius"],
+                spheres=[], size=pipe["size"], band=2 * pipe["size"],
             ))
 
         # ----------------------------------------------------------------
@@ -407,7 +487,7 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         # any cap-zone volumes from the hybrid fragment) so the
         # cap-zone-interior surfaces (lamp seam pieces inside the cap
         # zone) get classified too.
-        seam_groups = {{tool["name"]: [] for tool in lamp_axes}}
+        seam_groups = {{tool["name"]: [] for tool in seam_tools}}
         wall_tags      = []
         endcap_lo_tags = []
         endcap_hi_tags = []
@@ -460,7 +540,7 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
                 ts = [lo[0] + (hi[0] - lo[0]) * k / 8 for k in range(9)]
                 xyz = gmsh.model.getValue(1, abs(curve), ts)
                 points += [xyz[k:k + 3] for k in range(0, len(xyz), 3)]
-            for tool in lamp_axes:
+            for tool in seam_tools:
                 if points and all(abs(tool_distance(p, tool)) < OPEN_TOL for p in points):
                     return tool["name"]
             return None
@@ -562,18 +642,23 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
             pg_vol = gmsh.model.addPhysicalGroup(3, [vol_tag])
             gmsh.model.setPhysicalName(3, pg_vol, "fluid")
 
-        # Mesh sizing fields.
-        all_seam_tags = [t for tags in seam_groups.values() for t in tags]
-        if all_seam_tags:
+        # Mesh sizing fields: each seam's cells match the structured side's
+        # spacing there, growing to the bulk size across a band.
+        thresholds = []
+        for tool in seam_tools:
             dist_f = gmsh.model.mesh.field.add("Distance")
-            gmsh.model.mesh.field.setNumbers(dist_f, "SurfacesList", all_seam_tags)
+            gmsh.model.mesh.field.setNumbers(dist_f, "SurfacesList", seam_groups[tool["name"]])
             thr_f = gmsh.model.mesh.field.add("Threshold")
             gmsh.model.mesh.field.setNumber(thr_f, "InField", dist_f)
-            gmsh.model.mesh.field.setNumber(thr_f, "SizeMin", SEAM_SIZE)
+            gmsh.model.mesh.field.setNumber(thr_f, "SizeMin", tool["size"])
             gmsh.model.mesh.field.setNumber(thr_f, "SizeMax", BULK_SIZE)
             gmsh.model.mesh.field.setNumber(thr_f, "DistMin", 0.0)
-            gmsh.model.mesh.field.setNumber(thr_f, "DistMax", BAND)
-            gmsh.model.mesh.field.setAsBackgroundMesh(thr_f)
+            gmsh.model.mesh.field.setNumber(thr_f, "DistMax", tool["band"])
+            thresholds.append(thr_f)
+        if thresholds:
+            min_f = gmsh.model.mesh.field.add("Min")
+            gmsh.model.mesh.field.setNumbers(min_f, "FieldsList", thresholds)
+            gmsh.model.mesh.field.setAsBackgroundMesh(min_f)
 
         gmsh.option.setNumber("Mesh.CharacteristicLengthMin", MIN_SIZE)
         gmsh.option.setNumber("Mesh.CharacteristicLengthMax", BULK_SIZE)
@@ -582,6 +667,34 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str) -> No
         gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
         gmsh.model.mesh.generate(3)
         gmsh.write(os.path.join(HERE, "bulk.msh"))
+
+        # Each pipe's footprint as the bulk meshed it, in world coordinates,
+        # for the pipe's junction end to be projected onto: the two sides of
+        # the coupling then lie on one surface. (The dual of the bulk keeps
+        # this surface: its boundary faces lie on the same triangles.)
+        if PIPES:
+            node_tags, coords, _ = gmsh.model.mesh.getNodes()
+            xyz = dict(zip(node_tags, zip(coords[0::3], coords[1::3], coords[2::3])))
+            for pipe in PIPES:
+                path = os.path.join(HERE, pipe["stl"])
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as fh:
+                    fh.write("solid footprint\\n")
+                    for tag in seam_groups[pipe["seam_name"]]:
+                        types, _, element_nodes = gmsh.model.mesh.getElements(2, tag)
+                        for element_type, nodes in zip(types, element_nodes):
+                            if element_type != 2:
+                                raise RuntimeError(
+                                    "Footprint of pipe %d: element type %d, not a "
+                                    "3-node triangle" % (pipe["i"], element_type)
+                                )
+                            for k in range(0, len(nodes), 3):
+                                fh.write("  facet normal 0 0 0\\n    outer loop\\n")
+                                for n in nodes[k:k + 3]:
+                                    fh.write("      vertex %.15g %.15g %.15g\\n" % xyz[n])
+                                fh.write("    endloop\\n  endfacet\\n")
+                    fh.write("endsolid footprint\\n")
+                print("Wrote", path, file=sys.stderr)
         gmsh.finalize()
         print("Wrote", os.path.join(HERE, "bulk.msh"), file=sys.stderr)
         """)

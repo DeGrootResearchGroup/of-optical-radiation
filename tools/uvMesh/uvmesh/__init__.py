@@ -22,9 +22,18 @@ Patch naming convention (per lamp `i`, 0-based):
     lamp{i}_endcap_A  (axis_start side)    -- (bulk has no matching face;
     lamp{i}_endcap_B  (axis_end side)          annulus end caps are walls today)
 
-The two seam patches are fused by `createNonConformalCouples` in Allrun.mesh.
+and per pipe `i` (`build(..., pipes=[Pipe(...)])`, a STEP body's pipe
+solid meshed as an O-grid):
+
+    Pipe piece                             Bulk piece
+    ----------                             ----------
+    pipe{i}_wall      (pipe wall)          reactor_seam_pipe{i}  (its footprint)
+    pipe{i}_seam      (junction end)
+    <open_patch_name> (open end)
+
+Each pair of seam patches is fused by `createNonConformalCouples` in Allrun.mesh.
 """
-from .geometry import Lamp, ReactorBody
+from .geometry import Lamp, Pipe, ReactorBody
 from .pipeline import build
 
-__all__ = ["Lamp", "ReactorBody", "build"]
+__all__ = ["Lamp", "Pipe", "ReactorBody", "build"]

@@ -24,6 +24,11 @@ def _sub(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 
+def _unit(v):
+    n = _norm(v)
+    return (v[0] / n, v[1] / n, v[2] / n)
+
+
 def graded_cell_sizes(width: float, n: int, expansion: float) -> tuple:
     """First and last cell sizes of `n` cells over `width` with blockMesh's
     expansion ratio `expansion` (last cell size / first cell size).
@@ -135,9 +140,7 @@ class Lamp:
         return _norm(_sub(self.axis_end, self.axis_start))
 
     def axis_unit(self) -> tuple:
-        L = self.length()
-        d = _sub(self.axis_end, self.axis_start)
-        return (d[0] / L, d[1] / L, d[2] / L)
+        return _unit(_sub(self.axis_end, self.axis_start))
 
     def radial_cell_sizes(self) -> tuple:
         """First (sleeve-wall) and last radial cell sizes of the annulus."""
@@ -151,6 +154,80 @@ class Lamp:
         """True if either end cap is hemispherical."""
         return (self.endcap_a_shape == "hemisphere"
                 or self.endcap_b_shape == "hemisphere")
+
+
+@dataclass
+class Pipe:
+    """One straight pipe of a STEP reactor body, meshed as a structured O-grid.
+
+    Coordinates are world-frame metres. `axis_start` is where the pipe's
+    axis meets the body it joins (the junction); `axis_end` is the centre of
+    its open end, which becomes the patch `open_patch_name` -- an inlet or
+    an outlet. The pipe must be its own solid in the STEP file, meeting the
+    rest of the body on the body's surface: the bulk leaves that solid out,
+    prints its footprint on the body's surface, and couples the pipe's
+    junction end to the footprint non-conformally, as a lamp's seam is.
+    The junction end is projected onto the footprint, so it need not be
+    flat -- a riser meeting a cylindrical chamber ends in a saddle.
+
+    The cross-section is an O-grid: a square core, `n_azimuth_per_quadrant`
+    cells a side, and a ring of `4 * n_azimuth_per_quadrant` cells around by
+    `n_radial` from the core to the wall. `core_fraction` places the core's
+    corners at that fraction of the radius, and `core_curvature` bows its
+    sides toward the circle (0 keeps them straight). `radial_grading` is the
+    ring's innermost cell over its wall cell, so values above 1 pack cells
+    at the wall. Along the axis `n_axial` cells (default: about the
+    azimuthal spacing at the wall) grow by `axial_grading` from the junction
+    to the open end (last cell / first).
+    """
+
+    axis_start: tuple
+    axis_end: tuple
+    radius: float
+    open_patch_name: str
+    n_azimuth_per_quadrant: int = 8
+    n_radial: int = 6
+    radial_grading: float = 1.0  # ring's innermost cell / wall cell
+    core_fraction: float = 0.55
+    core_curvature: float = 0.25
+    n_axial: Optional[int] = None  # auto: about the azimuthal spacing at the wall
+    axial_grading: float = 1.0  # open-end cell / junction cell
+    wall_patch_name: str = ""  # auto-set to "pipe{i}_wall" in pipeline if empty
+    seam_patch_name: str = ""  # auto-set to "pipe{i}_seam"
+
+    def __post_init__(self):
+        self.axis_start = _vec(self.axis_start)
+        self.axis_end = _vec(self.axis_end)
+        if self.radius <= 0:
+            raise ValueError(f"Pipe.radius must be > 0, got {self.radius}")
+        if self.length() <= 0:
+            raise ValueError(f"Pipe: axis_start and axis_end coincide ({self.axis_start})")
+        if not self.open_patch_name:
+            raise ValueError("Pipe.open_patch_name: name the patch at the pipe's open end")
+        for name in ("n_azimuth_per_quadrant", "n_radial"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"Pipe.{name} must be >= 1, got {getattr(self, name)}")
+        for name in ("radial_grading", "axial_grading"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"Pipe.{name} must be > 0, got {getattr(self, name)}")
+        if not 0 < self.core_fraction < 1:
+            raise ValueError(f"Pipe.core_fraction must be in (0, 1), got {self.core_fraction}")
+        if self.core_curvature < 0:
+            raise ValueError(f"Pipe.core_curvature must be >= 0, got {self.core_curvature}")
+        if self.n_axial is None:
+            self.n_axial = max(2, int(round(self.length() / self.wall_spacing())))
+        elif self.n_axial < 1:
+            raise ValueError(f"Pipe.n_axial must be >= 1, got {self.n_axial}")
+
+    def length(self) -> float:
+        return _norm(_sub(self.axis_end, self.axis_start))
+
+    def axis_unit(self) -> tuple:
+        return _unit(_sub(self.axis_end, self.axis_start))
+
+    def wall_spacing(self) -> float:
+        """The azimuthal cell spacing along the pipe wall."""
+        return 2 * math.pi * self.radius / (4 * self.n_azimuth_per_quadrant)
 
 
 @dataclass
