@@ -8,6 +8,10 @@
     10 k particles):
   * Total wall-clock with 8-core MPI:            ~3-5 hours
 
+The opticalRadiationFoam and total estimates were made with nTheta = 1 (32 rays).
+The case now uses nPhi = 16, nTheta = 8 (256 rays); DOM cost scales with the number
+of rays, so expect that stage to take several times longer. Not yet re-timed at 7 M cells.
+
 Not run by tutorials/Allrun unless RUN_LONG_TUTORIALS=1 is set.
 
 Quick run:
