@@ -1862,7 +1862,17 @@ case (`P = 35 W`, `L_arc = 0.80 m`, `r_L = 0.01 m`,
 ```
 setFluenceRate -latestTime
 setFluenceRate -time 500 -P 35 -Larc 0.80 -rL 0.01 -sigmaW 35.67
+setFluenceRate -latestTime -xStart 0 -xEnd 0.80
 ```
+
+`-xStart` / `-xEnd` limit G to the lamp arc's axial extent (zero
+outside), as in the paper's radial model. ⚠️ Without them the formula is
+applied at EVERY x: the Sozzi inlet pipe lies on the lamp axis inside
+the sleeve radius, so `r` clamps to `r_L` and the whole 0.85 m pipe gets
+G at the sleeve (~70 mW/cm²). On the tutorial mesh and flow that added
+~11 mJ/cm² to every particle before the lamp and moved the log
+reduction from 1.58 (arc only) to 2.07 (whole reactor). The tutorial
+passes `-xStart 0 -xEnd 0.80`.
 
 Standard `timeSelector` flags pick the time directory the field is
 written to. Run before `foamPostProcess -dict system/postProcess.dict
@@ -2538,14 +2548,16 @@ mesh tooling:
   via the legacy VTK output without needing the OpenFOAMReader.
 
   `uvReactorSozzi2006` (analytical) — `Allrun` solves flow then
-  sets `G` via `setFluenceRate` (Sozzi 2006 eq. 3, infinite-line
-  source). Result: **10008/10008 escaped**, mean dose **70.28
-  mJ/cm²** (paper: 68 — within 3.4 %), min 28.7, max 397 (paper
-  ~270), log reduction at `kInact = 0.1 cm²/mJ` = **2.05** (paper
-  1.87). The near-lamp particles dominate `maxDose` and are
-  sensitive to the boundary-face values of G; the mean and log
-  reduction are dominated by bulk particles and reproduce the
-  paper within a few percent.
+  sets `G` via `setFluenceRate -xStart 0 -xEnd 0.80` (Sozzi 2006
+  eq. 3, infinite-line source, on the lamp arc only). Result
+  (2026-10-01; the 1,635,888-cell tutorial mesh and its realizable
+  k-epsilon flow at time 1000, solved at `b634a20`; tracker `726714d`):
+  **10008/10008 escaped**, mean dose **57.1 mJ/cm²** (paper: 68), min
+  19.2, max 299 (paper ~270), log reduction at `kInact = 0.1 cm²/mJ`
+  = **1.58** (paper's MPSS model 1.87, its radial model 1.36). The
+  earlier figures recorded here (mean 70.28, log reduction 2.05) were
+  taken with G applied along the whole reactor, inlet pipe included,
+  and do not describe this case.
 
   `uvReactorSozzi2006-DOM` (DOM-driven) — `Allrun` solves flow
   then runs `opticalRadiationFoam` (single-band DOM, 64 rays,

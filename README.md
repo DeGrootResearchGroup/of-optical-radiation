@@ -102,7 +102,8 @@ in absorbing/scattering participating media:
   constants.
 - Companion utility `setFluenceRate` writes the analytical
   infinite-line-source `G(r)` (Sozzi & Taghipour 2006 eq. 3) for cases
-  where the lamp can be modelled that way without a full RTE solve.
+  where the lamp can be modelled that way without a full RTE solve;
+  `-xStart` / `-xEnd` limit it to the lamp arc.
 
 ### Both
 
@@ -205,7 +206,7 @@ side-by-side comparison in ParaView:
 ```sh
 cd tutorials/uvReactorSozzi2006        # analytical infinite-line G
 ./Allrun                # mesh + flow solve + setFluenceRate + radiationDose
-./validate              # paper targets; log_red ~2.05
+./validate              # paper targets; log_red ~1.58
 
 cd ../uvReactorSozzi2006-DOM           # DOM-computed G
 ./Allrun                # mesh + flow solve + opticalRadiationFoam + radiationDose

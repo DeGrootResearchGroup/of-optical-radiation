@@ -10,9 +10,9 @@ This is the DOM-driven sibling of ../uvReactorSozzi2006 (which uses
 setFluenceRate's analytical infinite-line formula). The DOM solve
 correctly attenuates the per-chord path through the medium and
 accounts for end-cap radiation, which the analytical formula
-ignores; net result is a slightly lower bulk dose than analytical.
-Observed: log_red ~1.39 (DOM) vs ~2.05 (analytical); both bracket
-the paper's 1.87.
+ignores. Observed: log_red ~1.39 (DOM). On the same mesh and flow the
+analytical formula on the lamp arc only gives 1.58 (see that case's
+validate); the paper reports 1.87.
 
 Targets:
   escape fraction > 0.95                (paper: ~100 %)

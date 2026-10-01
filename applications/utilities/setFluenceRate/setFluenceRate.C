@@ -19,6 +19,12 @@ Description
     The lamp axis is assumed to lie along +x at (y, z) = (0, 0); r is
     the cylindrical radius sqrt(y^2 + z^2), clamped at r_L.
 
+    The formula holds along the lamp's arc only. -xStart and -xEnd give
+    the arc's axial extent; G is zero outside it, as in the radial model
+    of Sozzi & Taghipour (2006), which has no lamp-end emission. Without
+    them the formula is applied at every x, including any inlet pipe on
+    the lamp axis, where r < r_L clamps G to its value at the sleeve.
+
     Defaults match the Sozzi 2006 25 GPM L-shape case (water, 70%
     transmissivity per cm, 35 W lamp, 80 cm arc).
 
@@ -32,6 +38,7 @@ Description
 Usage
     setFluenceRate -latestTime
     setFluenceRate -time 500 -P 35 -Larc 0.80 -rL 0.01 -sigmaW 35.67
+    setFluenceRate -latestTime -xStart 0 -xEnd 0.80
 
 \*---------------------------------------------------------------------------*/
 
@@ -56,6 +63,12 @@ int main(int argc, char *argv[])
     argList::addOption("sigmaW", "scalar",
         "Water absorption coefficient [1/m] (default 35.67, "
         "= -ln(0.7) per cm)");
+    argList::addOption("xStart", "scalar",
+        "Axial start of the lamp arc [m]; G = 0 for x below it "
+        "(default: no limit)");
+    argList::addOption("xEnd",   "scalar",
+        "Axial end of the lamp arc [m]; G = 0 for x above it "
+        "(default: no limit)");
 
     #include "setRootCase.H"
     #include "createTime.H"
@@ -66,14 +79,28 @@ int main(int argc, char *argv[])
     const scalar Larc   = args.optionLookupOrDefault<scalar>("Larc",   0.80);
     const scalar rL     = args.optionLookupOrDefault<scalar>("rL",     0.01);
     const scalar sigmaW = args.optionLookupOrDefault<scalar>("sigmaW", 35.67);
+    const scalar xStart = args.optionLookupOrDefault<scalar>("xStart", -great);
+    const scalar xEnd   = args.optionLookupOrDefault<scalar>("xEnd",    great);
     const scalar twoPi  = 2.0*constant::mathematical::pi;
+
+    if (xEnd <= xStart)
+    {
+        FatalErrorInFunction
+            << "-xEnd (" << xEnd << ") must exceed -xStart (" << xStart << ")"
+            << exit(FatalError);
+    }
 
     Info<< "setFluenceRate parameters:" << nl
         << "    P       = " << P      << " W" << nl
         << "    L_arc   = " << Larc   << " m" << nl
         << "    r_L     = " << rL     << " m" << nl
-        << "    sigma_w = " << sigmaW << " 1/m" << nl
-        << endl;
+        << "    sigma_w = " << sigmaW << " 1/m" << nl;
+    if (args.optionFound("xStart") || args.optionFound("xEnd"))
+    {
+        Info<< "    arc     = x in [" << xStart << ", " << xEnd << "] m"
+            << " (G = 0 outside)" << nl;
+    }
+    Info<< endl;
 
     forAll(timeDirs, ti)
     {
@@ -99,8 +126,12 @@ int main(int argc, char *argv[])
             )
         );
 
-        auto Gat = [&](const scalar y, const scalar z) -> scalar
+        auto Gat = [&](const scalar x, const scalar y, const scalar z) -> scalar
         {
+            if (x < xStart || x > xEnd)
+            {
+                return 0;
+            }
             const scalar r = std::max(std::sqrt(y*y + z*z), rL);
             return P/(twoPi*Larc*r)*std::exp(-sigmaW*(r - rL));
         };
@@ -108,7 +139,7 @@ int main(int argc, char *argv[])
         const volVectorField& C = mesh.C();
         forAll(G, i)
         {
-            G[i] = Gat(C[i].y(), C[i].z());
+            G[i] = Gat(C[i].x(), C[i].y(), C[i].z());
         }
 
         // The default 'calculated' BC has no evaluate() that fills from
@@ -123,7 +154,7 @@ int main(int argc, char *argv[])
             const vectorField& cfp = mesh.boundary()[patchi].Cf();
             forAll(gp, facei)
             {
-                gp[facei] = Gat(cfp[facei].y(), cfp[facei].z());
+                gp[facei] = Gat(cfp[facei].x(), cfp[facei].y(), cfp[facei].z());
             }
         }
 
