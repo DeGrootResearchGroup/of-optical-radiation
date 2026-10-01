@@ -8,10 +8,12 @@ The paper reports for the L-shape reactor at 25 GPM (Section 4.3, Figure 5):
 
 This tutorial sets G via setFluenceRate's analytical infinite-line
 formula (Sozzi 2006 eq. 3) on the lamp arc only, x from 0 to 0.80 m,
-and zero elsewhere. On the tutorial mesh (1,635,888 cells) and its
-realizable k-epsilon flow at time 1000, with 10,008 particles, that gave
-a mean dose of 57.1 mJ/cm^2 and a log reduction of 1.58 at k = 0.1
-(2026-10-01). A DOM-driven sibling lives at ../uvReactorSozzi2006-DOM.
+and zero elsewhere. On the tutorial mesh (1,635,909 cells) and its
+k-omega SST flow at iteration 2400 (the run stops at endTime 2500), with
+9,998 particles on 3 OpenMP threads, that gave a mean dose of
+61.8 mJ/cm^2 and a log reduction of 1.56 at k = 0.1 (2026-10-01). The
+same G on the realizable k-epsilon flow this tutorial used before gave
+57.1 and 1.58. A DOM-driven sibling lives at ../uvReactorSozzi2006-DOM.
 The paper's own radial (line-source) model gives 1.36 (its Table 2) and
 its multiple-point-source model 1.87.
 
@@ -23,8 +25,8 @@ details.
 
 Targets:
   escape fraction > 0.95                (paper: ~100 %)
-  mean dose       in [45, 75] mJ/cm^2   (paper: 68; this case 57.1)
-  log reduction   in [1.3, 1.9]         (paper: 1.87; this case 1.58)
+  mean dose       in [45, 75] mJ/cm^2   (paper: 68; this case 61.8)
+  log reduction   in [1.3, 1.9]         (paper: 1.87; this case 1.56)
   range max/min   > 5                   (paper: ~270/21 ≈ 13)
 
 The script reads postProcessing/radiationDose/<latest>/summary.dat

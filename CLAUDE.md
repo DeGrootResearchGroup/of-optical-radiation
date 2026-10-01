@@ -2549,59 +2549,60 @@ mesh tooling:
 
   Geometry comes from a STEP file processed via gmsh's OpenCASCADE
   backend (boolean `(body ∪ inlet ∪ outlet) − lamp`), meshed with
-  snappyHexMesh (~365 k cells, max non-orth 49°, watertight).
-  Steady RANS solve with k-ω SST via foamRun's `incompressibleFluid`
-  solver (`kLowReWallFunction` / `omegaWallFunction`, k solved every
-  iteration, 2 non-orthogonal correctors), the dose tracker reading
-  `omega`. ⚠️ Until 2026-10-01 the tutorials ran realizable k-ε
-  (`kqRWallFunction`, no non-orthogonal correctors); every result
-  below in this entry -- convergence iteration, runtime, doses --
-  was measured with that model and does not describe the SST
-  tutorial. It moved to SST because, on a mesh resolved to the lamp
-  wall, realizable k-ε would not settle near the lamp and SST did.
-  radiationDose post-process with
-  DRW dispersion (`Cl = 0.15`), `wallReflection = true`. Flow
-  converges at iter ~516 via the fvSolution `residualControl`
-  thresholds; 10008 particles are injected on that snapshot
-  (matching the paper's sample size). Both cases marked
-  `LONG_RUNNING`; not run by `tutorials/Allrun` unless
-  `RUN_LONG_TUTORIALS=1` is set. Runtime: ~43 min for foamRun, ~90
-  s for the radiationDose post-process. Each case's `Allrun`
-  finishes with a `foamToVTK` stage so ParaView can read the case
-  via the legacy VTK output without needing the OpenFOAMReader.
+  snappyHexMesh and renumbered: 1,635,909 cells, max non-orth 46.6°
+  (snappyHexMesh does not reproduce exactly; another build gave
+  1,635,888). Steady RANS solve with k-ω SST via foamRun's
+  `incompressibleFluid` solver (`kLowReWallFunction` /
+  `omegaWallFunction`, k solved every iteration, 2 non-orthogonal
+  correctors), then the radiationDose post-process reading `omega`,
+  with DRW dispersion (`Cl = 0.15`) and `wallReflection = true`.
+  Both cases are `LONG_RUNNING`; not run by `tutorials/Allrun` unless
+  `RUN_LONG_TUTORIALS=1` is set. Each case's `Allrun` finishes with a
+  `foamToVTK` stage so ParaView can read the case via the legacy VTK
+  output without needing the OpenFOAMReader.
+
+  Measured 2026-10-01 on that mesh, 8 ranks, OOR `659ec4a`: the flow
+  does NOT meet `residualControl` -- the residuals level off from about
+  iteration 2000 (Uy ~1.3e-3, p ~2.8e-3, k ~2.3e-4) -- and stops at
+  endTime 2500 after 6932 s; the inlet pressure stayed within 0.5 %
+  over its last 500 iterations. The doses below are on the flow at
+  iteration 2400 (the last written), 9,998 particles seeded on this
+  mesh's inlet, all escaped, the tracker on 3 OpenMP threads (its
+  random walk depends on the count). With realizable k-ε the tutorials
+  instead stopped on `residualControl` at iteration ~1290, and moved to
+  SST because, on a mesh resolved to the lamp wall, realizable k-ε
+  would not settle near the lamp and SST did.
 
   `uvReactorSozzi2006` (analytical) — `Allrun` solves flow then
   sets `G` via `setFluenceRate -xStart 0 -xEnd 0.80` (Sozzi 2006
-  eq. 3, infinite-line source, on the lamp arc only). Result
-  (2026-10-01; the 1,635,888-cell tutorial mesh and its realizable
-  k-epsilon flow at time 1000, solved at `b634a20`; tracker `726714d`):
-  **10008/10008 escaped**, mean dose **57.1 mJ/cm²** (paper: 68), min
-  19.2, max 299 (paper ~270), log reduction at `kInact = 0.1 cm²/mJ`
-  = **1.58** (paper's MPSS model 1.87, its radial model 1.36). The
-  earlier figures recorded here (mean 70.28, log reduction 2.05) were
-  taken with G applied along the whole reactor, inlet pipe included,
-  and do not describe this case.
+  eq. 3, infinite-line source, on the lamp arc only). Mean dose
+  **61.8 mJ/cm²** (paper: 68), min 15.6, max 369, log reduction at
+  `kInact = 0.1 cm²/mJ` **1.56** (the paper's MPSS model 1.87, its
+  radial model 1.36). The same G on the realizable k-ε flow gave 57.1
+  and 1.58 (the other mesh build, 10,008 particles); figures recorded
+  earlier (mean 70.28, log reduction 2.05) applied G along the whole
+  reactor, inlet pipe included.
 
   `uvReactorSozzi2006-DOM` (DOM-driven) — `Allrun` solves flow
-  then runs `opticalRadiationFoam` (single-band DOM, 64 rays,
-  `constantExtinction` `kappa = 35.67 1/m` matching the analytical
-  `sigmaW`, `diffuseEmitter` on `lampWall` with `emissivePower =
-  P/(pi D L_arc) = 696.42 W/m^2`). Uses `system/controlDict.DOM`
-  for the radiation step (swapped in over `system/controlDict` and
-  restored on exit via a shell trap); seeds `0/I` into the latest
-  flow time so `startFrom latestTime` finds it; runs for one outer
-  step with `stopAt nextWrite`; then carries the flow fields
-  forward into the DOM time directory so `radiationDose` sees `U`
-  and `G` in the same time. Result: mean dose **64.45 mJ/cm²**
-  (paper: 68, 5 % low), max ~290, log reduction **1.39** (paper
-  1.87). The lower log reduction vs the analytical sibling is
-  real physics: DOM correctly attenuates the per-chord path
-  through the medium and accounts for end-cap emission, where the
-  infinite-line formula spreads 35 W uniformly along the arc with
-  no end effects. Both bracket the paper's 1.87.
+  then runs `opticalRadiationFoam` (single-band DOM, 64 directions,
+  1x1 pixels, linearUpwind rays, `constantExtinction` `kappa = 35.67
+  1/m` matching the analytical `sigmaW`, `diffuseEmitter` on
+  `lampWall` with `emissivePower = P/(pi D L_arc) = 696.42 W/m^2`).
+  Uses `system/controlDict.DOM` for the radiation step (swapped in
+  over `system/controlDict` and restored on exit via a shell trap);
+  seeds `0/I` into the latest flow time so `startFrom latestTime`
+  finds it; runs for one outer step with `stopAt nextWrite`; then
+  carries the flow fields forward into the DOM time directory so
+  `radiationDose` sees `U` and `G` in the same time. The DOM solve
+  takes 432 s on 8 ranks. Mean dose **76.0 mJ/cm²**, max 564, log
+  reduction **1.54**; with first-order upwind rays 74.1 and 1.56. The
+  DOM's mean is higher than the line source's because it is brighter
+  near the sleeve and emits past the lamp ends, but the log reduction,
+  set by the least-dosed particles, agrees with the line source's to
+  0.02.
 
-  Each case has its own `validate` script with a targeted
-  log-reduction window: `[1.6, 2.3]` for analytical, `[1.2, 1.7]`
+  Each case has its own `validate` script: mean dose `[45, 75]` and log
+  reduction `[1.3, 1.9]` for analytical, `[55, 85]` and `[1.2, 1.7]`
   for DOM.
 - **`refractiveInterface2D`** — full pedagogical version of the
   multi-region refractive-coupling case. `foamMultiRun` with the

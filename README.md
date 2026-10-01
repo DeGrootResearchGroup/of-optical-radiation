@@ -206,11 +206,11 @@ side-by-side comparison in ParaView:
 ```sh
 cd tutorials/uvReactorSozzi2006        # analytical infinite-line G
 ./Allrun                # mesh + flow solve + setFluenceRate + radiationDose
-./validate              # paper targets; log_red ~1.58
+./validate              # paper targets; log_red ~1.56
 
 cd ../uvReactorSozzi2006-DOM           # DOM-computed G
 ./Allrun                # mesh + flow solve + opticalRadiationFoam + radiationDose
-./validate              # same paper; log_red ~1.39 (chord attenuation + end caps)
+./validate              # same paper; log_red ~1.54
 ```
 
 Both cases write a `VTK/` directory at the end of their `Allrun` so
