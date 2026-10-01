@@ -168,6 +168,23 @@ bool Foam::functionObjects::radiationDose::read(const dictionary& dict)
             escapePatchIDs_.insert(patchi);
         }
     }
+
+    // Patches the seeding model injects from. A random step can carry a
+    // particle back out through its inlet; it reflects there rather than
+    // ending on a boundary the flow does not leave by. An injection patch
+    // that is also an escape patch stays an escape patch.
+    const wordList injectionPatches(seeding_->injectionPatches());
+    injectionPatchIDs_.clear();
+    forAll(injectionPatches, i)
+    {
+        const label patchi =
+            mesh_.boundaryMesh().findIndex(injectionPatches[i]);
+        if (patchi >= 0 && !escapePatchIDs_.found(patchi))
+        {
+            injectionPatchIDs_.insert(patchi);
+        }
+    }
+
     maxTime_ = termDict.lookupOrDefault<scalar>("maxTime", 0);
     maxDose_ = termDict.lookupOrDefault<scalar>("maxDose", 0);
     wallReflection_ =
@@ -497,6 +514,7 @@ void Foam::functionObjects::radiationDose::runBatch
             dtMax_,
             cflMax_,
             escapePatchIDs_,
+            injectionPatchIDs_,
             maxTime_,
             maxDose_,
             wallReflection_,
@@ -695,6 +713,7 @@ bool Foam::functionObjects::radiationDose::executeUnsteady
                 dtMax_,
                 cflMax_,
                 escapePatchIDs_,
+                injectionPatchIDs_,
                 maxTime_,
                 maxDose_,
                 wallReflection_,

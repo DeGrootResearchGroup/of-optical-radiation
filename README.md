@@ -96,7 +96,10 @@ in absorbing/scattering participating media:
   gravity / buoyancy, and optional Brownian motion via the OU exact
   Langevin update).
 - Specular wall reflection on non-escape patches, escape classification
-  via configurable `escapePatches`.
+  via configurable `escapePatches`. Particles that step back through
+  their injection patch reflect off it; particles cross non-conformal
+  couplings (uvMesh seams), reflecting only off parts of a seam the
+  other side does not cover.
 - Output: per-particle dose CSV, summary stats (mean / stdev / min /
   max), and log reduction at any number of inactivation rate
   constants.
@@ -243,7 +246,8 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 `incidentFluxSlab2D`, `iesEmitterEnergy`.
 
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
-`pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`.
+`pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`,
+`doseDispersionOmega`, `doseNonConformalSeam`, `doseInletReturn`.
 
 mesh tooling: `uvMeshSmoke`, `uvMeshSmokeHemisphere`,
 `uvMeshSmokeHemisphereStructured`, `uvMeshSmokeHemisphereStructuredFull`,

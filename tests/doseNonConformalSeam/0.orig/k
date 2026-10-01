@@ -1,0 +1,48 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: tracking across a non-conformal seam
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      k;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 2 -2 0 0 0 0];
+
+// Uniform turbulence, k = 2^-5: fluctuations of sqrt(2k/3) ~ 0.14 m/s on
+// the 0.5 m/s plug flow, enough to bring particles to the seam at every
+// angle and to carry the ones caught in the left strips out of them.
+internalField   uniform 0.03125;
+
+boundaryField
+{
+    inlet
+    {
+        type            zeroGradient;
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    walls
+    {
+        type            zeroGradient;
+    }
+    seamL
+    {
+        type            zeroGradient;
+    }
+    seamR
+    {
+        type            zeroGradient;
+    }
+}
+
+// ************************************************************************* //

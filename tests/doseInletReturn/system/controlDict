@@ -1,0 +1,54 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: a random step back through the inlet
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+
+application     postProcess;
+startTime       0;
+endTime         0;
+deltaT          1;
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  8;
+
+// The dose smoke box's plug flow (0.5 m/s) with a strong random walk
+// (fluctuations of ~0.4 m/s): about one particle in eight takes its first
+// step back upstream, through the inlet it was injected from. It must
+// reflect off the inlet and go on; `validate` checks every track reaches
+// the outlet with dose t mJ/cm^2.
+
+functions
+{
+    radiationDose
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+        U               U;
+        fluenceRate     G;
+        seed            7;
+        seeding         { type patchInjection; patches (inlet); nParticles 300; }
+        dispersion
+        {
+            type        discreteRandomWalk;
+            k           k;
+            epsilon     epsilon;
+            Cl          0.15;
+        }
+        termination     { escapePatches (outlet); maxTime 20; maxDose 0; }
+        integration     { dtMax 0.05; cflMax 0.5; }
+        output          { kInact (0.1); }
+    }
+}
+
+// ************************************************************************* //
