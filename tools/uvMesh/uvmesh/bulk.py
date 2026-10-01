@@ -128,10 +128,18 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
         }
         for i, layer in enumerate(wall_layers)
     ]
+    # Each refinement zone as its nested cylinders, for gmsh's Cylinder field.
+    refinement_cylinders = [
+        cyl for zone in body.refinements for cyl in zone.cylinders(body.bulk_cell_size)
+    ]
     if body.min_cell_size is None:
-        min_size = min([seam_size] + [p["size"] for p in pipe_seams + layer_cuts])
+        min_size = min([seam_size] + [p["size"] for p in pipe_seams + layer_cuts]
+                       + [cyl[3] for cyl in refinement_cylinders])
     else:
         min_size = body.min_cell_size
+    # The STEP file relative to the script, for running the script on another machine.
+    step_rel = (os.path.relpath(body.step_path, case_dir)
+                if body.step_path is not None else None)
 
     # Each lamp's cut: axis as world-coord pair + radius + bulk patch name +
     # endcap-shape flags. The bulk subtracts a *capsule* (cylinder fused with
@@ -203,6 +211,9 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
         BOX_MIN = {tuple(body.box_min) if body.box_min else None!r}
         BOX_MAX = {tuple(body.box_max) if body.box_max else None!r}
         STEP_PATH      = {body.step_path!r}
+        STEP_REL       = {step_rel!r}  # the same file relative to this script
+        if STEP_PATH is not None and not os.path.isfile(STEP_PATH):
+            STEP_PATH = os.path.normpath(os.path.join(HERE, STEP_REL))
         STEP_SCALE     = {body.step_scale!r}
         STEP_ROTATION  = {rotation!r}  # (unit axis, angle) or None
         STEP_TRANSLATE = {tuple(body.step_translate)!r}
@@ -216,6 +227,10 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
         SEAM_SIZE = {seam_size!r}
         BULK_SIZE = {body.bulk_cell_size!r}
         MIN_SIZE  = {min_size!r}
+        # (centre, half axis, radius, size) of each refinement zone's nested cylinders.
+        REFINEMENT_CYLINDERS = {refinement_cylinders!r}
+        OPTIMIZE_THRESHOLD = {body.optimize_threshold!r}
+        OPTIMIZE_NETGEN = {body.optimize_netgen!r}
         WALL_CELLS_PER_CIRCLE = {body.wall_cells_per_circle!r}
         BAND      = {band!r}
         BULK_CELLS = {body.bulk_cells!r}
@@ -590,6 +605,14 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
         # For a wall layer's sleeve, a point inside the surface is tested as
         # well: an end wall's edge, or the wall's inside a window, can lie on
         # the sleeve while the surface itself does not.
+        def inside_parametric(tag, uv):
+            # gmsh 4.8 takes parametric coordinates here; later versions (4.15
+            # at least) take Cartesian ones unless told otherwise.
+            try:
+                return gmsh.model.isInside(2, tag, uv, parametric=True)
+            except TypeError:
+                return gmsh.model.isInside(2, tag, uv)
+
         def seam_of(tag):
             points = []
             for _, curve in gmsh.model.getBoundary([(2, tag)], oriented=False):
@@ -606,7 +629,7 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
             lo, hi = gmsh.model.getParametrizationBounds(2, tag)
             grid = [[lo[0] + (hi[0] - lo[0]) * a / 6, lo[1] + (hi[1] - lo[1]) * b / 6]
                     for a in range(1, 6) for b in range(1, 6)]
-            inside = [gmsh.model.getValue(2, tag, g) for g in grid if gmsh.model.isInside(2, tag, g)]
+            inside = [gmsh.model.getValue(2, tag, g) for g in grid if inside_parametric(tag, g)]
             for tool in seam_tools:
                 if "windows" in tool:
                     if inside and all(sleeve_distance(p, tool) < OPEN_TOL for p in points + inside):
@@ -725,6 +748,19 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
             gmsh.model.mesh.field.setNumber(thr_f, "DistMin", 0.0)
             gmsh.model.mesh.field.setNumber(thr_f, "DistMax", tool["band"])
             thresholds.append(thr_f)
+        # Each refinement zone: its size inside each nested cylinder, the
+        # bulk size outside it (gmsh's Cylinder field spans the centre plus
+        # and minus the half axis); the Min over them grades the zone out.
+        for centre, half_axis, radius, size in REFINEMENT_CYLINDERS:
+            cyl_f = gmsh.model.mesh.field.add("Cylinder")
+            for key, value in zip(("XCenter", "YCenter", "ZCenter"), centre):
+                gmsh.model.mesh.field.setNumber(cyl_f, key, value)
+            for key, value in zip(("XAxis", "YAxis", "ZAxis"), half_axis):
+                gmsh.model.mesh.field.setNumber(cyl_f, key, value)
+            gmsh.model.mesh.field.setNumber(cyl_f, "Radius", radius)
+            gmsh.model.mesh.field.setNumber(cyl_f, "VIn", size)
+            gmsh.model.mesh.field.setNumber(cyl_f, "VOut", BULK_SIZE)
+            thresholds.append(cyl_f)
         if thresholds:
             min_f = gmsh.model.mesh.field.add("Min")
             gmsh.model.mesh.field.setNumbers(min_f, "FieldsList", thresholds)
@@ -734,6 +770,9 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
         gmsh.option.setNumber("Mesh.CharacteristicLengthMax", BULK_SIZE)
         if WALL_CELLS_PER_CIRCLE is not None:
             gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", WALL_CELLS_PER_CIRCLE)
+        gmsh.option.setNumber("Mesh.OptimizeThreshold", OPTIMIZE_THRESHOLD)
+        if OPTIMIZE_NETGEN:
+            gmsh.option.setNumber("Mesh.OptimizeNetgen", 1)
         gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
         gmsh.model.mesh.generate(3)
         gmsh.write(os.path.join(HERE, "bulk.msh"))
@@ -742,27 +781,53 @@ def write_bulk_script(body: ReactorBody, lamps: List[Lamp], case_dir: str,
         # for the pipe's junction end to be projected onto: the two sides of
         # the coupling then lie on one surface. (The dual of the bulk keeps
         # this surface: its boundary faces lie on the same triangles.)
+        #
+        # With a margin: the ring of the body's own surface triangles that
+        # touch the footprint. The footprint's rim is a polygon inscribed in
+        # the pipe's circle, so without the margin a junction-end point within
+        # the chords' sag of the pipe wall (tens of microns) has its nearest
+        # surface point on the rim, is pulled toward the axis, and crushes a
+        # wall cell thinner than that; blockMesh then carries the correction
+        # along the pipe. With the surface continued past the rim, the point
+        # lands on the surface, and the rim, projected onto this surface and
+        # the pipe's cylinder, on their true intersection.
+        def triangles(tag, what):
+            types, _, element_nodes = gmsh.model.mesh.getElements(2, tag)
+            out = []
+            for element_type, nodes in zip(types, element_nodes):
+                if element_type != 2:
+                    raise RuntimeError(
+                        "%s: element type %d, not a 3-node triangle" % (what, element_type)
+                    )
+                out.extend(tuple(nodes[k:k + 3]) for k in range(0, len(nodes), 3))
+            return out
+
         if PIPES:
             node_tags, coords, _ = gmsh.model.mesh.getNodes()
             xyz = dict(zip(node_tags, zip(coords[0::3], coords[1::3], coords[2::3])))
+            body_surfaces = sorted(set(
+                abs(t) for _, t in gmsh.model.getBoundary(
+                    gmsh.model.getEntities(3), combined=False, oriented=False)
+            ))
             for pipe in PIPES:
+                footprint = set(seam_groups[pipe["seam_name"]])
+                facets = [f for tag in sorted(footprint)
+                          for f in triangles(tag, "Footprint of pipe %d" % pipe["i"])]
+                footprint_nodes = set(n for f in facets for n in f)
+                for tag in body_surfaces:
+                    if tag in footprint:
+                        continue
+                    facets.extend(f for f in triangles(tag, "Surface %d" % tag)
+                                  if footprint_nodes.intersection(f))
                 path = os.path.join(HERE, pipe["stl"])
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, "w") as fh:
                     fh.write("solid footprint\\n")
-                    for tag in seam_groups[pipe["seam_name"]]:
-                        types, _, element_nodes = gmsh.model.mesh.getElements(2, tag)
-                        for element_type, nodes in zip(types, element_nodes):
-                            if element_type != 2:
-                                raise RuntimeError(
-                                    "Footprint of pipe %d: element type %d, not a "
-                                    "3-node triangle" % (pipe["i"], element_type)
-                                )
-                            for k in range(0, len(nodes), 3):
-                                fh.write("  facet normal 0 0 0\\n    outer loop\\n")
-                                for n in nodes[k:k + 3]:
-                                    fh.write("      vertex %.15g %.15g %.15g\\n" % xyz[n])
-                                fh.write("    endloop\\n  endfacet\\n")
+                    for f in facets:
+                        fh.write("  facet normal 0 0 0\\n    outer loop\\n")
+                        for n in f:
+                            fh.write("      vertex %.15g %.15g %.15g\\n" % xyz[n])
+                        fh.write("    endloop\\n  endfacet\\n")
                     fh.write("endsolid footprint\\n")
                 print("Wrote", path, file=sys.stderr)
         gmsh.finalize()

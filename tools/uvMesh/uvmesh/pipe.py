@@ -7,8 +7,11 @@ translates the resulting polyMesh into world coordinates after blockMesh.
 
 The cross-section is an O-grid: a square core block surrounded by four ring
 blocks, the core's sides bowed toward the circle. The ring runs from the
-core's corners to the pipe wall and is graded toward the wall. Along the
-axis a single block runs the pipe's length.
+core's corners to the pipe wall and is graded toward the wall -- or, with a
+wall layer, to a circle inside the wall, the layer's four blocks filling the
+space between that circle and the wall. Along the axis, one block of
+uniform cells runs to the open end, and an optional second block next to
+the junction grades them down to the body's finer cells there.
 
 The junction end is projected onto the pipe's FOOTPRINT: the patch of the
 body's surface the pipe meets, written by the bulk script as
@@ -65,13 +68,22 @@ def _allow_geometry(bmd: BlockMeshDict, geometry_type: type) -> None:
 def write_pipe_dict(pipe: Pipe, case_dir: str) -> None:
     """Write `<case_dir>/system/blockMeshDict` for one pipe's O-grid."""
     length = pipe.length()
+    radii = [pipe.core_fraction * pipe.radius, pipe.radius]
+    n_radial = [pipe.n_radial]
+    layered = pipe.wall_layer_thickness > 0
+    if layered:
+        radii.insert(1, pipe.radius - pipe.wall_layer_thickness)
+        n_radial.append(pipe.n_wall_layer)
+    axial = pipe.axial_blocks()
+    zs = np.concatenate([[0.0], np.cumsum([block_length for block_length, _, _ in axial])])
+    zs[-1] = length
     struct = CylBlockStructContainer(
-        np.array([pipe.core_fraction * pipe.radius, pipe.radius]),
+        np.array(radii),
         np.linspace(0.0, 2.0 * math.pi, 5),
-        np.array([0.0, length]),
-        np.array([pipe.n_radial]),
+        zs,
+        np.array(n_radial),
         pipe.n_azimuth_per_quadrant,
-        np.array([pipe.n_axial]),
+        np.array([cells for _, cells, _ in axial]),
         inner_arc_curve=pipe.core_curvature,
         zone_tag=pipe.wall_patch_name,
     )
@@ -88,14 +100,19 @@ def write_pipe_dict(pipe: Pipe, case_dir: str) -> None:
     # blockmeshbuilder takes a block's grading in each direction from the
     # vertex row at the low end of that direction. The ring's radial index
     # runs from the core outward, so packing cells at the wall is a ratio
-    # (wall cell / core-side cell) below 1. Core and ring share their axial
-    # edges, so both carry the axial grading. A uniform ratio keeps the
-    # default element, which blockmeshbuilder recognizes by identity.
+    # (wall cell / core-side cell) below 1; with a wall layer, the layer is
+    # the second radial block. Along the axis, the junction segment (if any)
+    # is the first block. Core and ring share their axial edges, so both
+    # carry the axial grading. A uniform ratio keeps the default element,
+    # which blockmeshbuilder recognizes by identity.
     if pipe.radial_grading != 1.0:
         tube.grading[0, :, :, 0] = SimpleGradingElement(1.0 / pipe.radial_grading)
-    if pipe.axial_grading != 1.0:
-        for part in (tube, core):
-            part.grading[:, :, 0, 2] = SimpleGradingElement(pipe.axial_grading)
+    if layered and pipe.wall_layer_grading != 1.0:
+        tube.grading[1, :, :, 0] = SimpleGradingElement(1.0 / pipe.wall_layer_grading)
+    for k, (_, _, grading) in enumerate(axial):
+        if grading != 1.0:
+            for part in (tube, core):
+                part.grading[:, :, k, 2] = SimpleGradingElement(grading)
 
     footprint = TriSurface(FOOTPRINT_STL, name=f"{pipe.seam_patch_name}_footprint")
     for part in (tube, core):

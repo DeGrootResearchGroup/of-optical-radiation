@@ -119,7 +119,7 @@ jobs:
                   source /opt/openfoam13/etc/bashrc
                   set -e
                   # Install the in-tree uvmesh helper. The Docker image
-                  # ships its dependencies (python3-gmsh, numpy,
+                  # ships its dependencies (gmsh built from source, numpy,
                   # blockmeshbuilder, pytest) but the helper itself is
                   # bind-mounted from the checkout, so the install must
                   # run inside the test container.

@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uvmesh"
-version = "0.11.0"
+version = "0.12.0"
 description = "Hybrid O-grid-annulus + polyhedral-bulk mesh generator for UV reactor cases"
 requires-python = ">=3.8"
 # blockmeshbuilder is pinned from upstream and must be installed separately:
 #   pip install git+https://github.com/NauticalMile64/blockmeshbuilder.git
-# gmsh's Python bindings come from the system gmsh package (apt: python3-gmsh)
-# -- PyPI's `gmsh` wheel is x86_64 only, so the apt route is the only option
-# on arm64. Neither is listed here as a hard pip dependency.
+# gmsh's Python bindings come from a system gmsh: the repository's Dockerfile
+# builds 4.15.2 from source with Netgen (PyPI's Linux wheels are x86_64 only,
+# and Ubuntu's python3-gmsh 4.8 lacks Netgen, which optimize_netgen needs).
+# Neither is listed here as a hard pip dependency.
 dependencies = ["numpy"]
 
 [project.optional-dependencies]

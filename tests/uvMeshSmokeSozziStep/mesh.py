@@ -57,10 +57,10 @@ LAMPS = [
 ]
 
 # Each pipe from its junction with the chamber to its open end; cells
-# ~2.5 mm around, graded toward the wall, and growing along the pipe from
-# ~3.5 mm at the junction.
+# ~2.5 mm around, graded toward the wall, ~8 mm along the pipe, shrinking
+# over the last 40 mm to 2.5 mm at the junction.
 PIPE_CELLS = dict(radius=0.00955, n_azimuth_per_quadrant=6, n_radial=4, radial_grading=2.0,
-                  n_axial=100, axial_grading=4.0)
+                  n_axial=100, junction_length=0.04, junction_cell_size=0.0025)
 PIPES = [
     Pipe(axis_start=(0.889, 0.0, 0.0), axis_end=(1.739, 0.0, 0.0),
          open_patch_name="inlet", **PIPE_CELLS),

@@ -201,9 +201,15 @@ def _write_allrun_mesh(case_dir: str, lamps: List[Lamp],
         lines.append("# where polyDualMesh's obtuse-tet artifact doesn't apply);")
         lines.append("# stitchMesh fuses the cap and bulk subsets across the")
         lines.append("# cylindrical cap-zone interface.")
+    # A bulk.msh newer than the script was meshed from it elsewhere (with a
+    # gmsh that has Netgen, say): keep it rather than meshing again.
     lines.append("(")
     lines.append("    cd _uvMesh")
-    lines.append("    python3 bulk_body.py")
+    lines.append("    if [ bulk.msh -nt bulk_body.py ]; then")
+    lines.append("        echo \"uvMesh: keeping bulk.msh, newer than bulk_body.py\"")
+    lines.append("    else")
+    lines.append("        python3 bulk_body.py")
+    lines.append("    fi")
     lines.append(")")
     # Each pipe after the bulk script, which writes the footprint its
     # junction end is projected onto: bring that surface into the pipe's

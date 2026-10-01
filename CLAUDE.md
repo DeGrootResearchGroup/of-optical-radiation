@@ -706,7 +706,8 @@ body = ReactorBody(
 pipes = [                                  # each pipe's own solid, an O-grid
     Pipe(axis_start=(0.889, 0, 0), axis_end=(1.739, 0, 0), radius=0.00955,
          open_patch_name="inlet", n_azimuth_per_quadrant=6, n_radial=4,
-         radial_grading=2.0, n_axial=100, axial_grading=4.0),
+         radial_grading=2.0, n_axial=100,         # uniform, ~8 mm
+         junction_length=0.04, junction_cell_size=0.0025),  # graded to the chamber
     Pipe(axis_start=(0.04765, 0, 0.0445), axis_end=(0.04765, 0, 0.8945),
          radius=0.00955, open_patch_name="outlet", ...),  # same cells
 ]
@@ -804,7 +805,9 @@ Without `pipes`, the pipes stay in the bulk: name their open ends with
   blockmeshbuilder's shared list); and the ring's periodic last row of
   edges had to lose its projection, or blockMesh refuses the duplicate
   curved edge. Measured on the Sozzi smoke case (pipes 6 per quadrant,
-  4 radial graded 2, 100 axial graded 4; dual angle 90): each pipe
+  4 radial graded 2, 100 axial graded 4 -- the whole-pipe axial grading
+  of uvmesh 0.10-0.11, replaced in 0.12 by uniform cells and a junction
+  segment, below; dual angle 90): each pipe
   13200 hex, max non-orth 15.0 / 15.8 deg, skew 0.51 / 0.48; the whole
   mesh Mesh OK, 54.6 deg, skew 1.65, volume -0.60 % (-0.80 % with the
   pipes in the bulk); both open ends 2.8326e-4 m^2, the 24-gon's share
@@ -857,6 +860,64 @@ Without `pipes`, the pipes stay in the bulk: name their open ends with
   127608 hex, 0.2 deg; coupling 0.99991 at the lamp and the layer,
   0.9986-0.9995 at the pipes. Not done: layers under the window (the
   riser's junction), and on the end walls.
+- **Pipe axial cells: uniform, plus a junction segment** (uvmesh 0.12;
+  `Pipe.axial_grading` is gone). `n_axial` uniform cells fill the pipe
+  less `junction_length`, over which the cells shrink geometrically to
+  `junction_cell_size` at the junction, to meet the body's finer cells.
+  `axial_blocks()` rounds the segment's cell count from the progression
+  and then bisects its grading so its last cell equals the uniform cell
+  exactly: keeping the ratio and rounding the count left a 5 % jump at
+  the block boundary (caught by `test_pipe.py`). Why: grading the whole
+  pipe toward its junction puts its LONGEST cells at the open boundary,
+  and that destabilized the tutorial's LTS PIMPLE solve. Measured on the
+  Sozzi production layout (lamp and chamber cylinder wall-resolved,
+  `kLowReWallFunction`, two non-orthogonal correctors, 100 iterations
+  from rest), pipes 12 per quadrant, 8 radial graded 4, axial cells
+  graded x4 from the junction to ~7 mm at the open ends: inlet pressure
+  swung to -128,000 and ended alternating +125 / -19, Ux residual 0.016,
+  max k 296 with 13,135 cells above 10, max |U| 38.8 m/s in an
+  inlet-pipe wall cell near the open end. Every disturbance started in
+  the segment next to the open end and spread back to the junction; the
+  pipe-body interfaces stayed calm. Same mesh with uniform ~4 mm cells
+  graded over the last 30 mm to 1.25 mm: inlet pressure 47.7 and falling
+  smoothly, Ux residual 6.2e-4, max k 4.6, max |U| 7.7 m/s where the
+  riser leaves the chamber; pipes' max aspect ratio 14, non-orth 21-22.
+- **Pipe wall layer** (`wall_layer_thickness`, `n_wall_layer`,
+  `wall_layer_grading`; uvmesh 0.12). A separate ring of cells between
+  the wall and a concentric circle inside it, which the O-grid's ring then
+  ends on. The O-grid ring's grid lines are blended between the core's
+  bowed sides and the wall, so they are not concentric with it, and wall
+  cells much thinner than that departure are sheared toward 90 deg. ⚠️ It
+  did NOT cure the 88 deg pipe cells it was built for -- the footprint
+  margin (Pipeline pitfalls) did. And wall-resolved pipes (10 um first
+  cell) diverged in the tutorial's flow solve with either
+  `kLowReWallFunction` or `kqRWallFunction`, with whole-pipe or uniform
+  axial cells (blow-up from iteration 3-4 in the pipes' wall cells
+  25-50 um from the wall, far half of each pipe), so the Sozzi meshes
+  keep their pipes in the log-law region (8 radial graded 4, y+ ~31-38)
+  with no wall layer.
+- **Refinement zones: `ReactorBody(refinements=[Refinement(...)])`**
+  (uvmesh 0.12). A cylinder of the bulk meshed at `cell_size`, grading
+  into the bulk through nested cylinders (`Refinement.cylinders`), each
+  `growth` (1.5) times coarser and two of its own cells larger in radius
+  and past each end; each is a gmsh `Cylinder` field in the bulk's Min
+  field, and the size floor follows them down. Built for the Sozzi inlet
+  jet, which crossed 4 mm bulk cells (~5 across its 19 mm) between the
+  inlet pipe and the lamp tip and lost its momentum before reaching the
+  lamp: a zone from x = 0.79 to 0.889 m, radius 12 mm, at the pipe's
+  1.25 mm spacing took the bulk from 85,015 to 96,373 polyhedra, and the
+  jet then reached the tip.
+- **Tet optimization: `ReactorBody(optimize_threshold=..., optimize_netgen=...)`**
+  (uvmesh 0.12) set gmsh's `Mesh.OptimizeThreshold` (default 0.3, gmsh's
+  own; tets below that quality are optimized) and `Mesh.OptimizeNetgen`
+  (default off; needs a gmsh built with Netgen, see Pipeline pitfalls).
+  Measured on the Sozzi bulk with a 22 mm lamp layer (1.5 mm near the
+  lamp, 4 mm bulk, dual 100; checkMesh of the dual alone): threshold 0.3,
+  85,015 cells, Failed 3 checks, non-orth 96.7, skewness 8.33 (3 faces);
+  threshold 0.5, Mesh OK, 51.9 deg, 1.62; HXT (`Mesh.Algorithm3D` 10) at
+  0.3, Mesh OK, 89,611 cells, 53.2 deg, 1.84. With the jet zone above,
+  threshold 0.5 and Netgen (gmsh 4.15.2, macOS PyPI): 96,373 cells, Mesh
+  OK, 52.8 deg, 1.63; the whole mesh 1,232,629 cells, Mesh OK, 52.8 deg.
 - `bulk_cells="hybrid"` builds its cap zone along +z only and refuses a
   hemispherical lamp on any other axis; use `polyhedral` (Sozzi's lamp
   is along x).
@@ -994,11 +1055,41 @@ silently. Recorded here so they don't get reintroduced.
   must have lamp-unique names so they aren't collapsed across the
   bulk + annulus pieces. The `lamp{i}_endcap_A/B` convention keeps
   them distinct.
-- **PyPI's `gmsh` wheel is x86_64-only.** Apple-Silicon containers
-  (linuxArm64) need `apt install python3-gmsh` instead. The
-  Dockerfile uses the apt path; pyproject.toml lists neither gmsh
-  nor blockmeshbuilder as a hard pip dependency to keep the
-  helper installable from either route.
+- **A pipe's footprint STL needs a margin past its rim.** The pipe's
+  junction end is projected onto the footprint STL; written as the
+  footprint alone, its rim is a polygon of chords sagging tens of um
+  inside the pipe's circle, and with 10 um wall cells the near-wall
+  vertices were pulled onto the chords, crushing the first cells and
+  carrying the shear the length of the pipe. The STL now includes every
+  body triangle sharing a node with the footprint. Sozzi, pipes with a
+  10 um wall layer: whole mesh Failed 4 checks, non-orth 94.9 (4,507 faces
+  above 70), 4 wrongly oriented faces, skewness 37.6, pipes' own non-orth
+  88 deg; with the margin Mesh OK, 56.6, none above 70, skewness 1.76,
+  pipes 21-22 deg, volume unchanged. (In the bulk script's f-string
+  template, write the node set as `set(...)`: a `{...}` comprehension is
+  evaluated when the script is generated.)
+- **The bulk script falls back to a STEP file beside it** when the
+  absolute `step_path` it was generated with does not exist -- the case
+  moved, or a host path read inside a container.
+- **`Allrun.mesh` keeps a `bulk.msh` newer than `bulk_body.py`**, so a
+  bulk meshed elsewhere (a gmsh with Netgen on the host) survives the
+  run; regenerating the case rewrites `bulk_body.py` and so re-meshes.
+- **The Dockerfile builds gmsh from source (4.15.2, with Netgen and
+  OpenCASCADE, no GUI)**, because neither packaged route has Netgen
+  on arm64: PyPI's `gmsh` Linux wheels are x86_64-only, and
+  Ubuntu 22.04's `python3-gmsh` is 4.8.4, built without Netgen,
+  which `ReactorBody(optimize_netgen=True)` needs. The build step
+  asserts gmsh reports both Netgen and OpenCASCADE; the Python API
+  lands in `/usr/local/lib` (`PYTHONPATH` set in the image). Built
+  2026-10-01 in ~5 min (4 jobs); the uvmesh suite (228) passes in
+  it, and the Sozzi bulk meshed in it with Netgen came out 96,833
+  cells, 52.1 deg, skewness 1.66, Mesh OK (on the macOS PyPI gmsh
+  4.15.2 with Netgen: 96,373 cells, 52.8 deg, 1.63 -- different
+  OpenCASCADE builds). gmsh 4.15 changed `isInside` to Cartesian
+  coordinates unless `parametric=True`; the bulk script handles
+  both. pyproject.toml lists neither gmsh nor blockmeshbuilder as
+  a hard pip dependency to keep the helper installable from any
+  route.
 
 ### Coverage
 
@@ -1255,11 +1346,15 @@ isolate single behaviours of the helper modules:
   the test was strengthened for them (the window's ends checked away
   from the corners the radial sides share; the end wall checked).
 - `test_pipe.py` — `Pipe` validation and its axial-cell default; the
+  junction segment's cells, laid out as blockMesh will from
+  `axial_blocks()`, meeting the uniform cells exactly and starting within
+  one progression step of `junction_cell_size`; a wall layer as four more
+  blocks between two concentric circles; the
   pipe dict is a five-block O-grid with its wall, seam and open patches
   once each, every junction vertex projected onto the footprint STL and
   the rim's onto the pipe's cylinder too, no vertex of the open end on
   the footprint, no curved edge written twice, the ring graded to the
-  wall by the reciprocal and both parts along the axis; the placement
+  wall by the reciprocal and the junction segment along the axis; the placement
   tokens checked against an independent Rodrigues rotation (forward
   puts local +z on the axis, inverse undoes it, for four axes);
   `Allrun.mesh` meshes each pipe after the bulk script, footprint
@@ -1267,12 +1362,26 @@ isolate single behaviours of the helper modules:
   duplicate or taken open-patch names and box bodies refused; and, in
   gmsh, a STEP chamber with a separate pipe solid: the pipe left out of
   the bulk, its footprint the seam `reactor_seam_pipe0` on the chamber's
-  face within the pipe's radius, the footprint STL written on that
-  disc, and a pipe of the wrong radius failing the script. Eleven of
+  face within the pipe's radius, the footprint STL written as that
+  disc plus one ring of the face's own triangles around it, and a pipe
+  of the wrong radius failing the script. The 0.12 additions (layer
+  grading and radius, junction-segment grading, the footprint margin)
+  each turn a test red when mutated. Of the 0.10 set, eleven of
   twelve targeted mutations turn a test red; the twelfth -- keeping the
   pipe's volume after printing its footprint -- changes nothing a test
   can see, since that volume is in no physical group and is not
   written; it only costs its meshing.
+- `test_refinement.py` — `Refinement` and the new `ReactorBody`
+  settings validated; the nested cylinders growing by `growth` up to the
+  bulk size, none for a zone as coarse as the bulk, a slanted zone
+  growing along its own axis; the bulk script's zone sizes, lowered
+  floor, `OptimizeThreshold` / `OptimizeNetgen` and `Cylinder` fields;
+  `Allrun.mesh`'s keep-a-newer-`bulk.msh` test before the bulk script;
+  in gmsh, a box whose tets inside a zone come out near its size,
+  coarser in the next ring and at the bulk size in the far corners; and
+  the bulk script run from a moved case finding the STEP file beside it.
+  Deleting the fields from the Min field, or the fallback, turns a test
+  red.
 
 The unit tests run before the OpenFOAM regression cases in CI; a
 unit-test failure fails the build immediately (cheap signal). Run

@@ -175,10 +175,25 @@ class Pipe:
     `n_radial` from the core to the wall. `core_fraction` places the core's
     corners at that fraction of the radius, and `core_curvature` bows its
     sides toward the circle (0 keeps them straight). `radial_grading` is the
-    ring's innermost cell over its wall cell, so values above 1 pack cells
-    at the wall. Along the axis `n_axial` cells (default: about the
-    azimuthal spacing at the wall) grow by `axial_grading` from the junction
-    to the open end (last cell / first).
+    ring's innermost cell over its outermost, so values above 1 pack cells
+    toward the wall.
+
+    Along the axis the cells are uniform: `n_axial` of them (default: about
+    the azimuthal spacing at the wall) over the pipe's length, less a
+    `junction_length` next to the junction, where the cells shrink
+    geometrically to `junction_cell_size` at the junction itself, to meet the
+    body's finer cells there. The open end keeps full-size cells, where
+    grading the whole pipe toward its junction would put its longest cells
+    at the open boundary.
+
+    A `wall_layer_thickness` above 0 puts a separate ring of `n_wall_layer`
+    cells between the wall and a circle that far inside it, graded by
+    `wall_layer_grading` (its innermost cell over its wall cell); the O-grid's
+    ring then ends on that circle. Resolving the viscous sublayer needs this:
+    the O-grid ring's grid lines are blended between the core's bowed sides
+    and the wall, so they are not concentric with the wall, and wall cells
+    much thinner than that departure are sheared to near 90 degrees of
+    non-orthogonality. Between two circles the layer's lines are concentric.
     """
 
     axis_start: tuple
@@ -187,11 +202,15 @@ class Pipe:
     open_patch_name: str
     n_azimuth_per_quadrant: int = 8
     n_radial: int = 6
-    radial_grading: float = 1.0  # ring's innermost cell / wall cell
+    radial_grading: float = 1.0  # ring's innermost cell / outermost cell
+    wall_layer_thickness: float = 0.0  # 0: the O-grid's ring runs to the wall
+    n_wall_layer: int = 8
+    wall_layer_grading: float = 1.0  # layer's innermost cell / wall cell
     core_fraction: float = 0.55
     core_curvature: float = 0.25
-    n_axial: Optional[int] = None  # auto: about the azimuthal spacing at the wall
-    axial_grading: float = 1.0  # open-end cell / junction cell
+    n_axial: Optional[int] = None  # uniform part; auto: about the azimuthal spacing at the wall
+    junction_length: float = 0.0  # 0: uniform all the way to the junction
+    junction_cell_size: Optional[float] = None  # axial cell size at the junction
     wall_patch_name: str = ""  # auto-set to "pipe{i}_wall" in pipeline if empty
     seam_patch_name: str = ""  # auto-set to "pipe{i}_seam"
 
@@ -204,23 +223,90 @@ class Pipe:
             raise ValueError(f"Pipe: axis_start and axis_end coincide ({self.axis_start})")
         if not self.open_patch_name:
             raise ValueError("Pipe.open_patch_name: name the patch at the pipe's open end")
-        for name in ("n_azimuth_per_quadrant", "n_radial"):
+        for name in ("n_azimuth_per_quadrant", "n_radial", "n_wall_layer"):
             if getattr(self, name) < 1:
                 raise ValueError(f"Pipe.{name} must be >= 1, got {getattr(self, name)}")
-        for name in ("radial_grading", "axial_grading"):
+        for name in ("radial_grading", "wall_layer_grading"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"Pipe.{name} must be > 0, got {getattr(self, name)}")
         if not 0 < self.core_fraction < 1:
             raise ValueError(f"Pipe.core_fraction must be in (0, 1), got {self.core_fraction}")
+        # The layer's inner circle must clear the core's corners, which sit
+        # at core_fraction of the radius.
+        room = (1 - self.core_fraction) * self.radius
+        if not 0 <= self.wall_layer_thickness < room:
+            raise ValueError(
+                f"Pipe.wall_layer_thickness must be in [0, {room:g}) -- inside the wall and "
+                f"outside the core's corners -- got {self.wall_layer_thickness}"
+            )
         if self.core_curvature < 0:
             raise ValueError(f"Pipe.core_curvature must be >= 0, got {self.core_curvature}")
+        if not 0 <= self.junction_length < self.length():
+            raise ValueError(
+                f"Pipe.junction_length must be in [0, {self.length():g}) -- shorter than the "
+                f"pipe -- got {self.junction_length}"
+            )
+        uniform_length = self.length() - self.junction_length
         if self.n_axial is None:
-            self.n_axial = max(2, int(round(self.length() / self.wall_spacing())))
+            self.n_axial = max(2, int(round(uniform_length / self.wall_spacing())))
         elif self.n_axial < 1:
             raise ValueError(f"Pipe.n_axial must be >= 1, got {self.n_axial}")
+        if self.junction_length > 0:
+            if self.junction_cell_size is None or self.junction_cell_size <= 0:
+                raise ValueError(
+                    "Pipe.junction_cell_size must be > 0 when junction_length is set, "
+                    f"got {self.junction_cell_size}"
+                )
+            # The segment must hold at least a cell of either end's size for
+            # a geometric progression between them to fit it.
+            longest = max(self.junction_cell_size, uniform_length / self.n_axial)
+            if self.junction_length <= longest:
+                raise ValueError(
+                    f"Pipe.junction_length ({self.junction_length:g}) must exceed its end cells "
+                    f"(junction {self.junction_cell_size:g}, uniform "
+                    f"{uniform_length / self.n_axial:g})"
+                )
 
     def length(self) -> float:
         return _norm(_sub(self.axis_end, self.axis_start))
+
+    def axial_blocks(self) -> list:
+        """The pipe's axial blocks from the junction outward, as
+        `(length, cells, grading)` with grading blockMesh's last cell over
+        first: the graded junction segment (if any), then the uniform rest.
+
+        The junction segment's cells grow geometrically toward the uniform
+        cells. Its cell count is that of the progression from
+        `junction_cell_size` to the uniform cell size, rounded; its grading
+        is then solved for so that its last cell is exactly the uniform cell
+        size -- the segment meets the uniform cells without a jump -- which
+        leaves its junction cell within a rounding of the size asked for.
+        """
+        uniform_length = self.length() - self.junction_length
+        uniform = (uniform_length, self.n_axial, 1.0)
+        if self.junction_length == 0:
+            return [uniform]
+        seg, first, last = self.junction_length, self.junction_cell_size, uniform_length / self.n_axial
+        if math.isclose(first, last):
+            return [(seg, max(1, int(round(seg / last))), 1.0), uniform]
+        # A progression from `first` to `last` over the segment has common
+        # ratio (L - first) / (L - last), from L = (last r - first) / (r - 1).
+        ratio = (seg - first) / (seg - last)
+        cells = max(1, int(round(1 + math.log(last / first) / math.log(ratio))))
+        if cells == 1:
+            return [(seg, 1, 1.0), uniform]
+        # With the count rounded, the ratio r whose `cells` cells ending in
+        # `last` sum to the segment: last * (1 + 1/r + ... + 1/r^(cells-1)) = L,
+        # which falls monotonically in r. Bisected on log r.
+        def excess(log_r):
+            q = math.exp(-log_r)
+            return last * sum(q**i for i in range(cells)) - seg
+
+        lo, hi = -20.0, 20.0
+        for _ in range(200):
+            mid = 0.5 * (lo + hi)
+            lo, hi = (mid, hi) if excess(mid) > 0 else (lo, mid)
+        return [(seg, cells, math.exp(0.5 * (lo + hi) * (cells - 1))), uniform]
 
     def axis_unit(self) -> tuple:
         return _unit(_sub(self.axis_end, self.axis_start))
@@ -385,6 +471,56 @@ class WallLayer:
 
 
 @dataclass
+class Refinement:
+    """A cylinder of the bulk meshed finer than `ReactorBody.bulk_cell_size`.
+
+    World-frame metres: the cylinder of `radius` around the segment from
+    `axis_start` to `axis_end` gets cells of `cell_size`. Outside it the
+    size grows by `growth` per step in nested cylinders, each two of its
+    own cells larger in radius and past each end, until it reaches the
+    bulk size -- so the zone grades into the bulk rather than jumping to
+    it. For a jet that must reach a lamp, say, run the zone along the
+    jet's path with the pipe's own spacing.
+
+    The sizes are gmsh's; the dual (`bulk_cells="polyhedral"`) gives
+    polyhedra somewhat larger than the tets they are built on.
+    """
+
+    axis_start: tuple
+    axis_end: tuple
+    radius: float
+    cell_size: float
+    growth: float = 1.5
+
+    def __post_init__(self):
+        self.axis_start = _vec(self.axis_start)
+        self.axis_end = _vec(self.axis_end)
+        if _norm(_sub(self.axis_end, self.axis_start)) <= 0:
+            raise ValueError(f"Refinement: axis_start and axis_end coincide ({self.axis_start})")
+        for name in ("radius", "cell_size"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"Refinement.{name} must be > 0, got {getattr(self, name)}")
+        if self.growth <= 1:
+            raise ValueError(f"Refinement.growth must be > 1, got {self.growth}")
+
+    def cylinders(self, bulk_cell_size: float) -> list:
+        """The nested cylinders as `(centre, half_axis, radius, size)`,
+        innermost first, finer than `bulk_cell_size`: `half_axis` runs from
+        the centre to one end (gmsh's Cylinder field spans the centre plus
+        and minus it)."""
+        half = tuple(0.5 * (b - a) for a, b in zip(self.axis_start, self.axis_end))
+        centre = tuple(a + h for a, h in zip(self.axis_start, half))
+        u = _unit(half)
+        out, size, radius, extra = [], self.cell_size, self.radius, 0.0
+        while size < bulk_cell_size:
+            out.append((centre, tuple(h + extra * c for h, c in zip(half, u)), radius, size))
+            radius += 2 * size
+            extra += 2 * size
+            size *= self.growth
+        return out
+
+
+@dataclass
 class ReactorBody:
     """Outer reactor body that the bulk gmsh script will mesh.
 
@@ -428,6 +564,19 @@ class ReactorBody:
     resolves pipes much narrower than `bulk_cell_size`. `min_cell_size`
     floors every size (default: the seam spacing); lower it when
     `wall_cells_per_circle` should reach below the seam spacing.
+    `refinements` are `Refinement` zones meshed finer than the bulk (the
+    floor follows them down).
+
+    `optimize_threshold` is gmsh's `Mesh.OptimizeThreshold`: tets of lower
+    quality are reworked by its optimizer (gmsh's default 0.3). Raising it
+    removes slivers whose duals come out with wrongly oriented faces -- on
+    a Sozzi bulk with 1.5 mm cells against a 22 mm lamp seam, 3 such faces
+    at 0.3 and none at 0.5. `optimize_netgen` adds gmsh's Netgen
+    optimizer, which needs a gmsh built with Netgen; the bulk script fails
+    with gmsh's own message otherwise. The bulk script reads the STEP file
+    beside the case if its absolute path is not found, so it can be run on
+    another machine (one whose gmsh has Netgen, say); `Allrun.mesh` keeps a
+    `bulk.msh` newer than the script instead of meshing again.
 
     `dual_feature_angle` (degrees, default 90) is `polyDualMesh`'s feature
     angle: a boundary edge between faces whose normals differ by more
@@ -554,6 +703,9 @@ class ReactorBody:
     wall_cells_per_circle: Optional[int] = None  # curvature-based sizing on curved walls
     min_cell_size: Optional[float] = None  # floor on every bulk size; auto = seam spacing
     dual_feature_angle: float = 90.0  # polyDualMesh feature angle, degrees
+    refinements: tuple = ()  # Refinement zones of the bulk
+    optimize_threshold: float = 0.3  # gmsh Mesh.OptimizeThreshold (its default)
+    optimize_netgen: bool = False  # gmsh Mesh.OptimizeNetgen; needs a gmsh built with Netgen
     wall_patch_name: str = "bulkWall"
     endcap_lo_patch_name: str = "endcap_lo"  # box bodies only
     endcap_hi_patch_name: str = "endcap_hi"  # box bodies only
@@ -629,6 +781,13 @@ class ReactorBody:
             raise ValueError(
                 f"ReactorBody.dual_feature_angle must be in (0, 180] degrees, got "
                 f"{self.dual_feature_angle}"
+            )
+        self.refinements = tuple(self.refinements)
+        if not all(isinstance(r, Refinement) for r in self.refinements):
+            raise ValueError("ReactorBody.refinements: a sequence of Refinement zones")
+        if not 0 < self.optimize_threshold < 1:
+            raise ValueError(
+                f"ReactorBody.optimize_threshold must be in (0, 1), got {self.optimize_threshold}"
             )
         self.open_patches = {
             str(name): _vec(point) for name, point in dict(self.open_patches).items()

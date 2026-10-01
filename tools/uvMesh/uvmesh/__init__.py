@@ -41,7 +41,7 @@ and per wall layer `i` (`build(..., wall_layers=[WallLayer(...)])`):
 
 Each pair of seam patches is fused by `createNonConformalCouples` in Allrun.mesh.
 """
-from .geometry import Lamp, Pipe, ReactorBody, WallLayer
+from .geometry import Lamp, Pipe, ReactorBody, Refinement, WallLayer
 from .pipeline import build
 
-__all__ = ["Lamp", "Pipe", "ReactorBody", "WallLayer", "build"]
+__all__ = ["Lamp", "Pipe", "ReactorBody", "Refinement", "WallLayer", "build"]

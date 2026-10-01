@@ -48,10 +48,21 @@ def _pipe(**kwargs):
     ({"n_radial": 0}, "n_radial must be >= 1"),
     ({"n_azimuth_per_quadrant": 0}, "n_azimuth_per_quadrant must be >= 1"),
     ({"radial_grading": 0.0}, "radial_grading must be > 0"),
-    ({"axial_grading": -1.0}, "axial_grading must be > 0"),
+    ({"junction_length": -0.01}, r"junction_length must be in \[0, 0.1\)"),
+    ({"junction_length": 0.1, "junction_cell_size": 0.001},
+     r"junction_length must be in \[0, 0.1\)"),
+    ({"junction_length": 0.03}, "junction_cell_size must be > 0"),
+    ({"junction_length": 0.03, "junction_cell_size": 0.0}, "junction_cell_size must be > 0"),
+    # 10 uniform cells over the remaining 97 mm are 9.7 mm long: a 3 mm segment cannot hold one.
+    ({"junction_length": 0.003, "junction_cell_size": 0.001}, "must exceed its end cells"),
     ({"core_fraction": 1.0}, r"core_fraction must be in \(0, 1\)"),
     ({"core_curvature": -0.1}, "core_curvature must be >= 0"),
     ({"n_axial": 0}, "n_axial must be >= 1"),
+    ({"n_wall_layer": 0}, "n_wall_layer must be >= 1"),
+    ({"wall_layer_grading": 0.0}, "wall_layer_grading must be > 0"),
+    ({"wall_layer_thickness": -1e-4}, r"wall_layer_thickness must be in \[0, 0.0045\)"),
+    # The core's corners sit at 0.55 of the 10 mm radius: a 4.5 mm layer reaches them.
+    ({"wall_layer_thickness": 0.0045}, r"wall_layer_thickness must be in \[0, 0.0045\)"),
 ])
 def test_pipe_rejects_bad_settings(kwargs, match):
     with pytest.raises(ValueError, match=match):
@@ -63,6 +74,49 @@ def test_pipe_axial_cells_default_to_the_wall_spacing():
     spacing = 2 * math.pi * 0.01 / 20
     assert pipe.wall_spacing() == pytest.approx(spacing)
     assert pipe.n_axial == round(0.5 / spacing)
+    # With a junction segment, the default counts the uniform part only.
+    graded = _pipe(n_axial=None, axis_end=(0, 0, 0.5), n_azimuth_per_quadrant=5,
+                   junction_length=0.1, junction_cell_size=0.001)
+    assert graded.n_axial == round(0.4 / spacing)
+
+
+def _block_cells(length, cells, grading):
+    """The cell sizes blockMesh gives a block edge: a geometric progression
+    over `length` whose last cell is `grading` times its first."""
+    if cells == 1 or grading == 1.0:
+        return [length / cells] * cells
+    r = grading ** (1.0 / (cells - 1))
+    first = length * (r - 1) / (r**cells - 1)
+    return [first * r**i for i in range(cells)]
+
+
+def test_a_uniform_pipe_is_one_axial_block():
+    assert _pipe().axial_blocks() == [(pytest.approx(0.1), 10, 1.0)]
+
+
+def test_the_junction_segment_grades_the_uniform_cells_down_to_the_junction_cell():
+    """The segment's cells, as blockMesh will lay them out, run from about the
+    junction cell asked for to exactly the uniform cell size, and the two
+    blocks tile the pipe."""
+    pipe = _pipe(junction_length=0.03, junction_cell_size=0.002)
+    (seg_len, seg_cells, grading), (rest_len, rest_cells, rest_grading) = pipe.axial_blocks()
+    assert seg_len + rest_len == pytest.approx(0.1)
+    assert (rest_cells, rest_grading) == (10, 1.0)
+    uniform = rest_len / rest_cells  # 7 mm
+    sizes = _block_cells(seg_len, seg_cells, grading)
+    assert sum(sizes) == pytest.approx(0.03)
+    # No jump where the segment meets the uniform cells.
+    assert sizes[-1] == pytest.approx(uniform, rel=1e-12)
+    # The junction cell is the one asked for, within one step of the progression.
+    step = sizes[1] / sizes[0]
+    assert 0.002 / step < sizes[0] < 0.002 * step
+    assert seg_cells > 1 and sizes[0] < sizes[-1]
+
+
+def test_a_junction_cell_as_large_as_the_uniform_cells_gives_an_ungraded_segment():
+    pipe = _pipe(junction_length=0.035, junction_cell_size=0.0065)  # uniform: 6.5 mm
+    (seg_len, seg_cells, grading), _ = pipe.axial_blocks()
+    assert grading == 1.0 and seg_cells == round(0.035 / 0.0065)
 
 
 # ----------------------------------------------------------------------
@@ -135,15 +189,57 @@ def test_the_junction_end_is_projected_onto_the_footprint_and_its_rim_onto_the_w
     assert len(pairs) == len(set(pairs))
 
 
-def test_the_ring_is_graded_toward_the_wall_and_the_pipe_along_its_axis(tmp_path):
-    text = _dict(_pipe(radial_grading=4.0, axial_grading=3.0), tmp_path)
-    gradings = re.findall(r"simpleGrading \(([^)]*)\)", text)
-    assert len(gradings) == 5
-    triples = [tuple(float(g) for g in s.split()) for s in gradings]
-    # The core: graded along the axis only. The ring: its radial index runs
-    # from the core outward, so packing cells at the wall is a ratio of 1/4.
-    assert triples.count((1.0, 1.0, 3.0)) == 1
-    assert triples.count((0.25, 1.0, 3.0)) == 4
+def test_the_ring_is_graded_toward_the_wall_and_the_junction_segment_along_the_axis(tmp_path):
+    pipe = _pipe(radial_grading=4.0, junction_length=0.03, junction_cell_size=0.002)
+    (seg_len, seg_cells, grading), (_, rest_cells, _) = pipe.axial_blocks()
+    text = _dict(pipe, tmp_path)
+    blocks = re.findall(r"hex \([^)]*\) \S+ \((\d+) (\d+) (\d+)\) simpleGrading \(([^)]*)\)", text)
+    assert len(blocks) == 10
+    kinds = sorted((int(nz), tuple(round(float(g), 9) for g in s.split()))
+                   for _, _, nz, s in blocks)
+    g = round(grading, 9)
+    # Core and ring alike: the junction segment (graded along the axis) and the
+    # uniform rest. The ring's radial index runs from the core outward, so
+    # packing cells at the wall is a ratio of 1/4.
+    assert kinds == sorted(
+        [(seg_cells, (1.0, 1.0, g)), (rest_cells, (1.0, 1.0, 1.0))]
+        + [(seg_cells, (0.25, 1.0, g))] * 4 + [(rest_cells, (0.25, 1.0, 1.0))] * 4
+    )
+    # The segment ends on a ring of vertices 30 mm from the junction.
+    assert any(math.isclose(p[2], seg_len) for p, _ in _vertices(text))
+    assert seg_len == pytest.approx(0.03)
+
+
+def test_a_wall_layer_is_a_concentric_ring_of_blocks_at_the_wall(tmp_path):
+    """Four more blocks, between a circle `wall_layer_thickness` inside the
+    wall and the wall, with their own cell count and grading; the O-grid's
+    ring keeps its own and ends on that circle, whose vertices are projected
+    onto a cylinder of its radius -- the junction end's onto the footprint
+    as well, and the rim still onto the wall."""
+    pipe = _pipe(radial_grading=2.0, wall_layer_thickness=0.002, n_wall_layer=5,
+                 wall_layer_grading=8.0)
+    text = _dict(pipe, tmp_path)
+    blocks = re.findall(r"hex \([^)]*\) \S+ \((\d+) (\d+) (\d+)\) simpleGrading \(([^)]*)\)", text)
+    assert len(blocks) == 9
+    kinds = sorted((int(nr), tuple(float(g) for g in grading.split()))
+                   for nr, _, _, grading in blocks)
+    # The ring (3 radial cells, 1/2), the core (4 x 4 cells a side), the layer (5, 1/8).
+    assert kinds == [(3, (0.5, 1.0, 1.0))] * 4 + [(4, (1.0, 1.0, 1.0))] + [(5, (0.125, 1.0, 1.0))] * 4
+    geometries = _geometries(text)
+    inner = {n for n, body in geometries.items()
+             if "searchableCylinder" in body and re.search(r"radius\s+0\.008;", body)}
+    walls = {n for n, body in geometries.items()
+             if "searchableCylinder" in body and re.search(r"radius\s+0\.01;", body)}
+    (footprint,) = [n for n, body in geometries.items() if "triSurfaceMesh" in body]
+    assert inner and walls
+    vertices = _vertices(text)
+    circle = [(p, g) for p, g in vertices if math.isclose(math.hypot(p[0], p[1]), 0.008)]
+    rim = [(p, g) for p, g in vertices if math.isclose(math.hypot(p[0], p[1]), 0.01)]
+    assert len(circle) == len(rim) == 8
+    assert all(g & inner and not g & walls for _, g in circle)
+    assert all(g & walls for _, g in rim)
+    for points in (circle, rim):
+        assert [footprint in g for p, g in points] == [abs(p[2]) < 1e-12 for p, g in points]
 
 
 def test_a_uniform_pipe_keeps_uniform_grading(tmp_path):
@@ -314,12 +410,19 @@ def test_a_pipe_solid_is_left_out_and_its_footprint_printed_as_a_seam(pipe_case,
     r = ((seam[:, 1]) ** 2 + (seam[:, 2] - 0.1) ** 2) ** 0.5
     assert abs(seam[:, 0] - 0.04).max() < 1e-12
     assert r.max() == pytest.approx(0.01, abs=1e-9)
-    # The footprint surface, as meshed: triangles on the disc.
+    # The footprint surface, as meshed: the disc's triangles and a margin of
+    # the wall's triangles that touch it, all on the chamber's face x = 0.04.
     stl = (tmp_path / "pipe0" / "constant" / "geometry" / "footprint_world.stl").read_text()
     vertices = [tuple(map(float, v)) for v in re.findall(r"vertex (\S+) (\S+) (\S+)", stl)]
     assert len(vertices) >= 3 * 8 and len(vertices) % 3 == 0
-    assert all(abs(x - 0.04) < 1e-12 and math.hypot(y, z - 0.1) < 0.01 + 1e-9
-               for x, y, z in vertices)
+    assert all(abs(x - 0.04) < 1e-12 for x, _, _ in vertices)
+    radii = [math.hypot(y, z - 0.1) for _, y, z in vertices]
+    facets = [radii[k:k + 3] for k in range(0, len(radii), 3)]
+    inside = [f for f in facets if max(f) < 0.01 + 1e-9]
+    margin = [f for f in facets if max(f) >= 0.01 + 1e-9]
+    assert len(inside) >= 8 and margin
+    # The margin is one ring: every triangle of it has a vertex on the rim.
+    assert all(min(f) < 0.01 + 1e-9 for f in margin)
 
 
 def test_a_pipe_no_solid_matches_fails_the_script(pipe_case, tmp_path):
