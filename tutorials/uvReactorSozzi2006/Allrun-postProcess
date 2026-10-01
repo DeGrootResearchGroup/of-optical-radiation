@@ -7,8 +7,14 @@ set -e
 # Sets up the analytical fluence-rate field G via setFluenceRate and
 # runs radiationDose on the latest converged flow state. Assumes the
 # flow solve has produced at least one time directory.
+#
+# G is set on the lamp's 80 cm arc only (x from 0 to 0.80 m) and is zero
+# elsewhere, as in the paper's radial model. Applied at every x, the
+# formula would also fill the inlet pipe, which lies on the lamp axis
+# inside the sleeve radius, with G at the sleeve (about 70 mW/cm^2), and
+# every particle would collect ~11 mJ/cm^2 before reaching the lamp.
 
-runApplication setFluenceRate -latestTime
+runApplication setFluenceRate -latestTime -xStart 0 -xEnd 0.80
 runApplication foamPostProcess -dict system/postProcess.dict -latestTime
 
 # Convert flow + G fields to VTK so ParaView can render the
