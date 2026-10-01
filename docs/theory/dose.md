@@ -301,6 +301,40 @@ draws short steps and spread the particles too little. The step is
 instead limited so that $\sqrt{2 K \Delta t}$ does not exceed the CFL
 displacement.
 
+### Langevin model
+
+A well-mixed Langevin model of the fluctuating velocity
+{cite}`thomson1987`, for isotropic Gaussian turbulence whose variance
+$\sigma^2 = \tfrac23 k$ varies in space. The particle carries a
+normalized velocity $\mathbf{v} = \mathbf{u}'/\sigma$ that relaxes on the
+Lagrangian time scale $T_L$:
+
+$$
+d\mathbf{v} \;=\; \left(-\frac{\mathbf{v}}{T_L} + \nabla \sigma\right) dt
+  + \sqrt{\frac{2}{T_L}}\; d\mathbf{W},
+\qquad \mathbf{u}' = \sigma\, \mathbf{v} .
+$$
+
+It is the first-order model that keeps a uniform distribution of particles
+uniform in such turbulence, and it keeps velocity memory: $\mathbf{u}'$ is
+correlated over about $T_L$, so particles spread as $\sigma^2 t^2$ at first
+and as $2 K t$ once $t \gg T_L$. Unlike the discrete random walk it never
+holds a velocity through an eddy that is long compared with the distance
+over which the turbulence changes. $T_L = \tau_e/2$, so its long-time
+diffusivity $\sigma^2 T_L$ is the walk's $K$.
+
+Each step integrates $\mathbf{v}$ and the displacement exactly with the
+coefficients frozen at the step's start; the end velocity and the
+displacement are jointly Gaussian with known moments. Frozen coefficients
+are consistent only on steps short against $T_L$, so the step is limited to
+`maxStepFraction` (default 0.05) times $T_L$. Where $T_L$ is shorter than
+`minLagrangianTime` (default $10^{-4}$ s), as next to a wall resolved with a
+$k$-$\omega$ model, the step follows the random displacement model with the
+same $K$ instead, and $\mathbf{v}$ is drawn afresh from its stationary
+distribution when the particle leaves that zone. The model's cost is in
+those short steps: on a wall-resolved reactor mesh it takes an order of
+magnitude more steps than the walks.
+
 ```{warning}
 DRW is a *RANS* closure. In an LES driver where the carrier-phase $k$
 spectrum is already resolved by the fluid solver, adding DRW double-counts

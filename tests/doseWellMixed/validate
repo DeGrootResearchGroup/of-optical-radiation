@@ -8,17 +8,19 @@ K = k tau_e / 3 falls as y^4 towards that wall, as in a viscous sublayer
 (makeFields). 5000 particles are seeded uniformly and walked for 10 s, twice
 from the same seed: `wellMixed` (the corrected walk) and `uncorrected`
 (wellMixed false), and once with the random displacement model with the
-same K (`randomDisplacement`). The well-mixed condition says the corrected
-walk and the random displacement model must stay uniform; the uncorrected
-walk has no drift and collects particles where K is small.
+same K (`randomDisplacement`) and once with the Langevin model (`langevin`).
+The well-mixed condition says the corrected walk, the random displacement
+model and the Langevin model must stay uniform; the uncorrected walk has no
+drift and collects particles where K is small.
 
 The distribution is read from the trajectories' recorded vertices, every
-100th step (0.5 s), over the second half of the walk. Not from the end
-points: a track that times out stops at the end of the segment in which
-maxTime falls, which is a face or wall crossing, so end points sit on cell
-faces. The step is never shortened by the CFL bound here (dtMax 5 ms,
-cflMax 2), so the vertices are snapshots at common times, not samples
-weighted towards wherever steps are short.
+100th step (0.5 s), over the second half of the walk. The step is never
+shortened by the CFL bound here (dtMax 5 ms, cflMax 2), so for the two walks
+and the random displacement model the vertices are snapshots at common
+times, not samples weighted towards wherever steps are short. The Langevin
+model's steps are a fraction of the local Lagrangian time scale, so it is
+judged at its end points instead, all at maxTime (one snapshot of 5000
+particles: a standard error of 4 % per 10 mm band).
 
 This checks:
 
@@ -74,12 +76,17 @@ def occupancy(x, length, nbins):
 
 fails = []
 results = {}
-for func in ("wellMixed", "randomDisplacement", "uncorrected"):
+for func in ("wellMixed", "randomDisplacement", "langevin", "uncorrected"):
     try:
         seeds, ends, t_end, snap = tracks(func)
     except (OSError, ValueError, IndexError) as e:
         print(f"FAIL: cannot read {func}'s trajectories: {e}")
         sys.exit(1)
+    if func == "langevin":
+        # Its steps are a fraction of the local T_L, so a vertex every 100
+        # steps is not a common-time snapshot; judge it at its end points,
+        # which are all at maxTime.
+        snap = ends
     if len(seeds) < 4900 or np.any(np.abs(t_end - 10.0) > 1e-6):
         fails.append(f"{func}: {len(seeds)} tracks, not every one walked to 10 s")
     bands = occupancy(snap[:, 1], H, 10)
@@ -115,5 +122,5 @@ if fails:
     for f in fails:
         print("FAIL:", f)
     sys.exit(1)
-print("PASS: the corrected walk and the random displacement model stay well mixed;"
+print("PASS: the corrected walk, the random displacement and Langevin models stay well mixed;"
       " the uncorrected walk does not")

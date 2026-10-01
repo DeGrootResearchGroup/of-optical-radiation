@@ -250,8 +250,9 @@ Foam::dose::
     ├── noDispersion               (deterministic streamlines)
     ├── discreteRandomWalk         (Gosman-Ioannides DRW, well mixed by default;
     │                               needs k and epsilon or omega)
-    └── randomDisplacement         (diffusion walk with the DRW's K, no eddy memory)
-        both own an eddyDiffusivity (k, tau_e, K = k tau_e / 3, grad K at a particle)
+    ├── randomDisplacement         (diffusion walk with the DRW's K, no eddy memory)
+    └── langevin                   (well-mixed Langevin model with the same K)
+        all three own an eddyDiffusivity (k, tau_e, K = k tau_e / 3, grad K, grad sigma)
 
   motionModel                      (RTS family — particle equation of motion)
     ├── tracer                     (V = U + u'; algebraic, fluid-following)
@@ -300,7 +301,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/dosePathCloud/dosePathCloud.{H,C}` | Foam::lagrangian::Cloud<dosePathParticle> subclass; case config + runToCompletion driver |
 | `src/radiationDose/track/track.{H,C}` | Per-particle trajectory storage (vertices + endReason) |
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
-| `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk, randomDisplacement) + eddyDiffusivity, the turbulence sampling both walks share |
+| `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk, randomDisplacement, langevin) + eddyDiffusivity, the turbulence sampling they share |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
 | `tests/` | Thirty-seven regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
@@ -1578,7 +1579,7 @@ dispersionModel
                               Cmu       0.09;       // with omega; default 0.09
                               Cl        0.15;       // optional, default 0.15
                               wellMixed true;       // optional, default true
-└── randomDisplacement     Diffusion form with the same K = k tau_e / 3 and
+├── randomDisplacement     Diffusion form with the same K = k tau_e / 3 and
                            the same entries (k, epsilon/omega, Cmu, Cl,
                            tauEMax): dx = (U + grad K) dt + sqrt(2K dt) xi,
                            a fresh draw every step, no eddy memory. Well
@@ -1587,6 +1588,16 @@ dispersionModel
                            long (see below). Config:
                               type     randomDisplacement;
                               omega    omega;      // or epsilon
+└── langevin               Thomson's well-mixed Langevin model, same K:
+                           normalized velocity v = u'/sigma, OU on T_L =
+                           tau_e / 2 with drift grad(sigma), integrated
+                           exactly per step (frozen coefficients); keeps
+                           velocity memory; the diffusion limit where T_L <
+                           minLagrangianTime. Config:
+                              type              langevin;
+                              omega             omega;   // or epsilon
+                              maxStepFraction   0.05;    // step <= this x T_L
+                              minLagrangianTime 1e-4;    // s; diffusion below
 
 motionModel
 ├── tracer                 V = U + u' (algebraic, fluid-following). Default
@@ -1716,6 +1727,77 @@ draw in the CFL, `doseRandomWalkDiffusivity`'s long instance spread at 0.799 of 
 `maxStep` is caught by neither test (both fields are gentle on the step scale): it is an accuracy
 guard, not a correctness condition there.
 
+**`langevin`, the well-mixed Langevin model** (added 2026-10-01, PR after #88, by the project
+owner's choice to keep velocity memory where the DRW's eddies are too long). Thomson's (1987)
+model for isotropic Gaussian turbulence in normalized form, v = u'/sigma:
+`dv = (-v/T_L + grad sigma) dt + sqrt(2/T_L) dW`, u' = sigma v, T_L = tau_e / 2 (so
+sigma^2 T_L = K, the walks' diffusivity; grad sigma = grad k / (3 sigma) from `eddyDiffusivity`).
+Each step is integrated exactly with the coefficients frozen at its start: n (the end velocity's
+random part) and X (its time integral's) jointly Gaussian, var n = 1 - e^-2h,
+var X = 2T^2(h - 2(1 - e^-h) + (1 - e^-2h)/2), cov = T(1 - e^-h)^2, h = dt/T; the conditional
+residual var X - cov^2/var n cancels catastrophically for small h and is the series
+T^2(h^3/6 - h^5/60) below h = 0.01. ⚠️ **Frozen coefficients are consistent only for steps short
+against T_L** -- with dt >> T_L the scheme drops the part of the diffusion-limit drift that comes
+from sigma varying along the path -- so `maxStep` is `maxStepFraction` (0.05) x T_L, and below
+`minLagrangianTime` (1e-4 s) the step is the random displacement model's with the same K, v redrawn
+from N(0,1) on leaving that zone. With k-omega SST, T_L ~ 1 us at a resolved wall, so the diffusion
+zone is the sublayer, where eddies are sub-micron and the two descriptions agree.
+Defaults chosen with the 1-D harness on the Sozzi sleeve and chamber-wall profiles
+(`langevin_profile_1d.py` in the run directory, outside the repository; 10,000 particles, 6 s,
+dtMax 0.5 ms, occupancy from common-time snapshots every 10 ms over the second half), occupancy
+within 20 um / 100 um / 300 um / 1 mm / 3 mm of the wall over uniform:
+chamber h 0.05: 1.32 / 1.13 / 1.07 / 1.08 / 1.03; h 0.1: 1.32 / 1.15 / 1.18 / 1.11 / 1.04;
+h 0.2: 1.32 / 1.16 / 1.33 / 1.18 / 1.06; sleeve h 0.05: 1.26 / 0.84 / 1.00 / 1.03 / 1.02;
+h 0.1: 1.26 / 0.96 / 1.11 / 1.09 / 1.03; h 0.2: 1.26 / 1.17 / 1.29 / 1.16 / 1.06 (all with the
+switch at 100 us; 99 % of the time in Langevin mode; a 10 us switch was no better: sleeve
+1.28 / 1.32 / 1.27 / 1.13 / 1.05 at 60 % more steps). For comparison the Ito walk at dt 0.5 ms:
+chamber 1.38 / 1.22 / 1.07 / 1.03, sleeve 1.41 / -- / -- / 1.02; scatter between runs is
+~0.15 in the 20-100 um bands. Cost: ~3,200 steps per particle-second at h 0.05 against 200 at
+dtMax 5 ms.
+
+**Langevin on the Sozzi reactor** (2026-10-01; settings as the table above, maxStepFraction 0.05,
+minLagrangianTime 1e-4 s; run directory `results.md`, outside the repository). The table's row is
+measured on this branch rebased onto main 256b449, i.e. with #89's seam and inlet fixes: every
+particle escapes but one timed out on the uvmesh, none on the snappy mesh (uvmesh line source
+44.2 / 1.470, DOM 48.4 / 1.443; snappy 46.1 / 1.443 and 50.2 / 1.439; max dose 464 / 637 and
+229 / 352). Before #89 (419 stuck on the uvmesh seams) the doses were 44.2 / 1.467, 48.6 / 1.438,
+46.2 / 1.439, 50.4 / 1.438 -- the seam losses barely moved them. It agrees with
+`randomDisplacement` on both meshes (log reduction within 0.03) and the meshes with each other;
+residence p50 / p90 3.2 / 5.5 s; ~300 s on one thread for the uvmesh line source
+(randomDisplacement at 5 ms: ~100 s).
+⚠️ **Do not judge its near-wall occupancy from trajectory vertices**: its steps differ by orders of
+magnitude between zones, so a vertex every N steps is not a time sample (stride 2500 read 4.6-8.3x
+at 200-500 um from the walls, stride 25 ~1.15x there and 0.01-0.4x within 100 um). Use common-time
+snapshots: tracker instances stopped at maxTime, whose end points are exact now (`snapshot_occupancy.py`,
+1.5 / 2 / 2.5 s pooled, ~19,000 particles, 0.1 < x < 0.7 m). Count over the shell's volume share,
+chamber wall 0-50 / 50-100 / 100-200 / 200-500 um: langevin 0.07 / 0.31 / 0.66 / 1.08; the
+converged diffusion walk (randomDisplacement, dtMax 0.5 ms) 0.18 / 0.46 / 0.67 / 0.94; wellMixed
+DRW 9.95 / 11.0 / 5.93 / 2.06; randomDisplacement at 5 ms 5.45 / 5.66 / 2.65 / 1.15 (sleeve
+similar, fewer counts). A snapshot after one injection is not uniform next to the walls -- the
+sublayer fills slowly -- so the converged diffusion walk is the reference, not 1: the Langevin model
+matches it to ~2 standard errors (slightly low within 200 um of the chamber wall; not resolved
+whether velocity memory or the zone switch does it), and the over-fills of the DRW and of the 5 ms
+diffusion walk are real.
+
+⚠️ **Hybrids of the DRW and the diffusion walk were tried first and do not work** (1-D harness,
+same profiles, dt 0.5 ms; `drw_wall_profile_1d.py` modes `hyb` and `lim`). The aim was the DRW
+where an eddy is short against K's gradient length (r = sigma tau |grad K| / K < c) and the
+diffusion walk elsewhere. (1) Ending a held eddy when the particle enters the diffusion zone
+truncates only wall-ward eddies: a net drift away from the wall, 0.2-0.6x uniform at 0.3-1 mm for
+every c (that variant was replaced in the harness by the next; it is the three-line change of
+ending the eddy, r = 0, whenever a step starts in the diffusion zone). (2) Choosing the walk at each eddy's START (an eddy always runs out) removes that, but the
+zone boundary is a jump in (sigma, tau) with K continuous, and eddies carried across it break the
+well-mixed condition: 2.2x within 100 um at c = 0.05, recovering only for c <= 0.01. (3) A
+continuous version -- the DRW with each eddy's lifetime capped so its length sqrt(2K tau) <=
+c K/|grad K|, sigma raised to keep K -- is non-monotone in c (chamber 2.0x at c 0.2, 2.4x at 0.1,
+2.2x at 0.05) and well mixed only for c <= 0.02, which leaves eddies unshortened in 14-19 % of the
+gap (the sublayer, where they are sub-micron anyway, and where K is flat). The reason under all
+three: on a wall-resolved SST profile r is 0.3-0.65 across the whole buffer and log layer
+(0.3-9 mm from the chamber wall), so the DRW is outside its well-mixed regime over most of the
+34.5 mm gap, not only next to the wall; a well-mixed hybrid keeps it almost nowhere it differs from
+the diffusion walk. Holding a velocity through an eddy is the defect; the Langevin model's
+continuously relaxing velocity is the fix for keeping memory.
+
 **What is done in practice** (surveyed 2026-10-01; codes read from source or official docs,
 literature from abstracts/full text where accessible):
 no production RANS particle-dispersion model found corrects the DRW for the well-mixed
@@ -1753,6 +1835,8 @@ occupancy breakdowns, and every run's code in `results.md` of the run directory
 | DRW wellMixed | 67.6 / 1.52 | 47.1 / 1.45 | 87.6 / 1.48 | 51.7 / 1.44 |
 | randomDisplacement | 45.5 / 1.49 | 46.3 / 1.46 | 49.4 / 1.47 | 50.4 / 1.46 |
 | randomDisplacement, dtMax 0.5 ms | 46.4 / 1.47 | | | |
+| langevin (2026-10-01, defaults) | 44.2 / 1.47 | 46.1 / 1.44 | 48.4 / 1.44 | 50.2 / 1.44 |
+| langevin, maxStepFraction 0.1 | 44.8 / 1.48 | | | |
 
 With `randomDisplacement` the two meshes agree (mean within 2 %, log reduction within 0.04);
 with the corrected DRW the wall-resolved mesh is still 44 % high in mean dose (eddy memory, below).
@@ -1794,8 +1878,13 @@ faceted sleeve, r < 10 mm; with them it is 61 %.)
   20 um at dt = 0.5 / 0.05 ms, 1.02 / 1.01x within 1 mm. So the remaining
   excess is the eddy memory, not the drift or K. The test cases cannot
   see it: their near-wall eddies are microns long against millimetres of
-  K gradient. `randomDisplacement` is that Ito walk; prefer it on a mesh
-  resolved to the wall (Sozzi table above).
+  K gradient. `randomDisplacement` is that Ito walk, and `langevin` the
+  well-mixed model that keeps velocity memory; use one of them, not the
+  DRW, on a mesh resolved to the wall (Sozzi table above). They give the
+  same reactor doses; `langevin` costs ~3x the run time and is the one to
+  use when short-time dispersion or a physical particle velocity matters
+  (with the `inertial` motion model, `randomDisplacement`'s step-sized
+  white noise is not a velocity to drag a particle with).
 - **Drift into a wall where K is largest at the wall.** The drift points
   up the K gradient; where K peaks at a wall, slow eddies (|u'| < u_d)
   are pinned against it for their lifetime -- a closed box with k largest
@@ -1825,7 +1914,9 @@ inner loop driven by `trackToAndHitFace`:
 ```
 dispersion.beginStep(state, coordinates, tetIs, dtMax, rng)   # draws for a step <= dtMax
 V = U(coordinates, tetIs) + dispersion.fluctuation(state, dtMax)
-dt = min(dtMax, cflMax * cbrt(V_cell) / |V|)
+Vcfl = U + dispersion.cflFluctuation(state, dtMax)            # never the step's random draw
+h = cflMax * cbrt(V_cell)
+dt = min(dtMax, h / |Vcfl|, dispersion.maxStep(state, h), maxTime - t)
 if dt < dtMax: V = U + dispersion.fluctuation(state, dt)      # same draws, shorter step
 dispersion.endStep(state, dt)                                  # age the eddy by dt
 reset(0)                              # stepFraction tracks 0->1 over this dt
@@ -2607,7 +2698,23 @@ radiationDose:
   `doseWellMixed` is for. Two more instances run `randomDisplacement`
   with the same K (short, and long with cflMax 0.4 so its step limit
   binds at 4 ms): measured 1.017 and 1.018. A CFL bound that sees its
-  random draw fails it (0.799), as does half the noise (0.51).
+  random draw fails it (0.799), as does half the noise (0.51). Four more (2026-10-01, with the Langevin model) against the closed form
+  for an Ornstein-Uhlenbeck velocity with a stationary start,
+  2 sigma^2 T_L (t - T_L (1 - e^-t/T_L)), T_L = tau_e / 2:
+  `shortLangevin` (T_L 50 us, below minLagrangianTime, so the
+  diffusion limit) 1.014 of 2KT; `longLangevin` 0.9834 (expected
+  0.975); `earlyLangevin`, the long case stopped at 10 ms < T_L,
+  0.1734 (expected 0.1758) -- velocity memory, where a memoryless walk
+  gives 1; and `earlyWellMixed`, the corrected walk at the same time,
+  0.2127 (expected exactly t/tau_e = 0.2, one held eddy; seed 5 lands
+  high: seeds 6-9 give 1.009/1.028/0.998/0.983 of 0.2, and the Langevin
+  1.008/0.997/1.019/1.014 of 0.1758 -- all instances share seed 5, so
+  their sampling errors are correlated). Mutation-checked: T_L = tau_e
+  fails it (1.75); no grad(sigma), no reflection pass (uniform fields);
+  dropping the displacement's residual noise, or a CFL bound that sees
+  the draw, pass both tests and are dismissed, not missed: at
+  h <= 0.05 the residual is h^2/12 of the long-time spread and the
+  noise a small part of the step's displacement.
 - **`doseWellMixed`** — the well-mixed condition. A closed box,
   40 x 100 x 20 mm of 2 mm cubes, U = 0, walls all round. With
   s = y/H and f = (1 - (1 - s)^2)^2: k = 0.03 f (zero on the wall
@@ -2619,10 +2726,14 @@ radiationDose:
   vertices recorded every 100 steps are snapshots at common times
   (with CFL binding they are not: steps are shorter where sigma is
   large, and a per-step sample over-weights those regions -- it read
-  1.59x at the top of this box for a walk that is uniform). Not end
-  points either: a timed-out track stops at the end of the segment in
-  which maxTime falls, a face or wall crossing, so end points sit on
-  faces (16-37 % of them, measured). Validate (vertices from 5 s on):
+  1.59x at the top of this box for a walk that is uniform). Until the
+  last step was cut to end at maxTime (2026-10-01, with the Langevin
+  model) end points were no good either: a timed-out track stopped at
+  the end of the segment in which maxTime fell, a face or wall
+  crossing, so end points sat on faces (16-37 % of them, measured).
+  They are exact now, and the Langevin instance, whose steps vary per
+  particle so its vertices are not common-time snapshots, is judged at
+  them. Validate (vertices from 5 s on):
   the corrected walk moved the particles (mean |dy| > 10 mm), and is
   uniform to 12 % in ten 10 mm bands of y and in x and z, and to 25 %
   in the 4 mm next to the low-k wall; the uncorrected walk's low-k
@@ -2638,7 +2749,13 @@ radiationDose:
   runs `randomDisplacement` with the same K and is held to the same
   checks: measured bands 0.970-1.024, wall 1.031, x 0.963-1.041,
   z 0.960-1.035, |dy| 21.7 mm. Without its drift it fails (1.58x in a
-  band), as does half its noise (0.72 off). ~6 s with all three.
+  band), as does half its noise (0.72 off). A fourth runs `langevin`
+  with maxStepFraction 0.1 and minLagrangianTime 2e-3 (its defaults
+  would step in microseconds in the low-k half and take minutes; the
+  switch still lies inside the box, near y = 15 mm), judged at its end
+  points: bands 0.946-1.080, wall 1.010, x 0.970-1.042, z 0.970-1.056.
+  Without its grad(sigma) drift it fails (1.49x), without reflecting
+  v (z band 1.65x). ~18 s with all four.
 - **`doseNonConformalSeam`** — the dose smoke box's channel cut at
   x = 0.5 by a seam bowed toward +x (arc through x = 0.505 at
   y = 0.05), meshed 8 x 4 across it on the left and 11 x 5 on the
@@ -3128,19 +3245,11 @@ real driver case ever calls for it.
    summary statistics over a rolling cohort vs. cumulative
    CSV growth); pick them up against a real driver case.
 
-5. **Particles stranded at non-conformal couplings.** On the uvmesh Sozzi mesh particles get
-   `stuck` on the lamp-layer and chamber-layer seams (r ~ 22 and 36.5 mm), in proportion to the
-   number of seam crossings: 423 of 9,987 with `randomDisplacement` at dtMax 5 ms, 870 at 0.5 ms
-   (~9 %, median 1.7 s into the track), 299 with the corrected DRW, ~0 on a conformal mesh. They
-   drop out of the dose statistics mid-flight, so they bias the escaped population. A tracker
-   issue (hitBasicPatch on a coupling's original or error faces), independent of the dispersion
-   model; measured 2026-10-01 (run directory `results.md`).
+5. **Particles stranded at non-conformal couplings** -- fixed in #89 (`hitNonConformalOrigPatch`
+   retries along the face normal, then reflects off uncovered faces; see Integration kernel).
 
-6. **Back-diffusion through the inlet.** A particle seeded on the inflow patch whose first
-   `randomDisplacement` step points out through it is marked `stuck` (the inlet is neither a wall
-   nor an escape patch): 115 of 9,998 on the snappy Sozzi mesh, 58 on the uvmesh, all at t = 0.
-   They are a random subset of the seeds, so the escaped doses are not biased, but the count is
-   lost. Reflecting at non-escape inflow patches (or seeding a small distance inside) would fix it.
+6. **Back-diffusion through the inlet** -- fixed in #89 (a step back out through the particle's
+   injection patch reflects; `tests/doseInletReturn`).
 
 7. **Near-wall eddy time scale.** SST's Cl/(Cmu omega) gives tau_e ~ 2 us at the Sozzi sleeve,
    where DNS fits put the Lagrangian time scale at tau_L+ ~ 10 (~25 ms at an assumed

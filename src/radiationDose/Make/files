@@ -15,6 +15,7 @@ dispersionModels/noDispersion/noDispersion.C
 dispersionModels/eddyDiffusivity/eddyDiffusivity.C
 dispersionModels/discreteRandomWalk/discreteRandomWalk.C
 dispersionModels/randomDisplacement/randomDisplacement.C
+dispersionModels/langevin/langevin.C
 
 motionModels/motionModel/motionModel.C
 motionModels/motionModel/newMotionModel.C

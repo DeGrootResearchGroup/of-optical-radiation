@@ -81,6 +81,22 @@ functions
         $wellMixedDrw;
         dispersion  { $drw; type randomDisplacement; }
     }
+    // The Langevin model. At its defaults (steps of 0.05 T_L, the diffusion
+    // limit below T_L = 0.1 ms) particles in the low-k half would step in
+    // microseconds and the case would take minutes; here the diffusion limit
+    // takes over below T_L = 2 ms (y < ~15 mm) and steps are 0.1 T_L, which
+    // still puts the switch between the two inside the box.
+    langevin
+    {
+        $wellMixedDrw;
+        dispersion
+        {
+            $drw;
+            type                langevin;
+            maxStepFraction     0.1;
+            minLagrangianTime   2e-3;
+        }
+    }
 }
 
 // ************************************************************************* //

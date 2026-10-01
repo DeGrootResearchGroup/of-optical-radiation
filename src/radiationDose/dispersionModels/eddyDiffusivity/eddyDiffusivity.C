@@ -194,6 +194,7 @@ Foam::dose::eddyDiffusivity::sample Foam::dose::eddyDiffusivity::at
     s.tau = tau;
     s.K = k*tau/3.0;
     s.gradK = (tau*gradk + k*gradTau)/3.0;
+    s.gradSigma = s.sigma > 0 ? gradk/(3.0*s.sigma) : vector::zero;
     return s;
 }
 

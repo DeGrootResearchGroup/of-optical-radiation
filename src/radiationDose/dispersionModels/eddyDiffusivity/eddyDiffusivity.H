@@ -84,6 +84,10 @@ public:
 
         //- Gradient of K [m/s]
         vector gradK;
+
+        //- Gradient of sigma [1/s]: grad(k) / (3 sigma), zero where k is
+        //  nil
+        vector gradSigma;
     };
 
 

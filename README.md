@@ -107,7 +107,11 @@ in absorbing/scattering participating media:
   eddy memory: well mixed by construction, and the better choice
   next to a resolved wall, where an eddy can be a third of the
   distance to the wall long and still carry particles into the
-  sublayer.
+  sublayer. `langevin` is Thomson's well-mixed Langevin model with the same
+  long-time diffusivity: it keeps the velocity memory the random
+  walk has (spreading as sigma^2 t^2 at first) and stays well mixed
+  next to a resolved wall, at the cost of steps that are a fraction
+  of the Lagrangian time scale there.
 - Configurable equation of motion (RTS-selectable `motionModel`:
   `tracer` for fluid-following particles, `inertial` for finite-Stokes
   point particles with Stokes or Schiller-Naumann drag, optional
@@ -380,6 +384,7 @@ src/radiationDose/                           (radiationDose library)
         eddyDiffusivity/     k, tau_e, K = k tau_e / 3 and grad(K) at a particle (shared)
         discreteRandomWalk/  Gosman-Ioannides DRW, well mixed (needs k and epsilon or omega)
         randomDisplacement/  diffusion random walk with the same K (needs k and epsilon or omega)
+        langevin/            well-mixed Langevin model with the same K (needs k and epsilon or omega)
     motionModels/            motionModel RTS family
         motionModel/         abstract base + factory
         tracer/              V = U + u' (fluid tracer)
@@ -487,7 +492,8 @@ radiationDose:
 - Wilson, J. D. & Sawford, B. L. (1996). *Review of Lagrangian
   stochastic models for trajectories in the turbulent atmosphere.*
   Boundary-Layer Meteorol. **78**, 191–210. — The random displacement
-  model as the diffusion limit of the well-mixed Langevin model.
+  model as the diffusion limit of the well-mixed Langevin model, and
+  the Langevin model itself.
 - Schiller, L. & Naumann, A. (1933). *Über die grundlegenden
   Berechnungen bei der Schwerkraftaufbereitung.* Z. Ver. Deutsch.
   Ing. **77**, 318–320. — Re_p-corrected drag.
