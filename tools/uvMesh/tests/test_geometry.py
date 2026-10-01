@@ -285,3 +285,56 @@ def test_reactor_body_structured_full_cap_factor_user_override():
         cap_extension_factor=2.5,
     )
     assert body.cap_extension_factor == pytest.approx(2.5)
+
+
+def test_reactor_body_accepts_structured_matryoshka_bulk_cells():
+    """'structured_matryoshka' uses two concentric structured cap
+    layers, pushing the cube-corner topological defects out to twice
+    the lamp's annulus radius."""
+    body = ReactorBody(
+        box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+        bulk_cells="structured_matryoshka",
+    )
+    assert body.bulk_cells == "structured_matryoshka"
+    # Default outer cap radius factor.
+    assert body.outer_cap_radius_factor == pytest.approx(2.0)
+
+
+def test_reactor_body_matryoshka_radius_factor_user_override():
+    body = ReactorBody(
+        box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+        bulk_cells="structured_matryoshka",
+        outer_cap_radius_factor=3.0,
+    )
+    assert body.outer_cap_radius_factor == pytest.approx(3.0)
+
+
+def test_reactor_body_matryoshka_rejects_radius_factor_le_1():
+    """outer_cap_radius_factor must be > 1.0 because the outer cap
+    must EXTEND past the inner cap. factor=1.0 collapses the outer
+    cap to zero thickness; factor<1.0 inverts it."""
+    with pytest.raises(ValueError, match="outer_cap_radius_factor"):
+        ReactorBody(
+            box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+            bulk_cells="structured_matryoshka",
+            outer_cap_radius_factor=1.0,
+        )
+    with pytest.raises(ValueError, match="outer_cap_radius_factor"):
+        ReactorBody(
+            box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+            bulk_cells="structured_matryoshka",
+            outer_cap_radius_factor=0.5,
+        )
+
+
+def test_reactor_body_radius_factor_le_1_ok_for_other_modes():
+    """The outer_cap_radius_factor validation only fires for
+    matryoshka mode. Other modes don't use the field, so an invalid
+    value shouldn't raise."""
+    # No error -- value unused.
+    body = ReactorBody(
+        box_min=(0,0,0), box_max=(1,1,1), bulk_cell_size=0.1,
+        bulk_cells="structured_full",
+        outer_cap_radius_factor=0.5,
+    )
+    assert body.bulk_cells == "structured_full"

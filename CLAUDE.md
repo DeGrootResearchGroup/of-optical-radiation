@@ -299,7 +299,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Twenty-nine regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Thirty regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -678,11 +678,15 @@ body = ReactorBody(
     box_min=(-0.04, -0.04, 0.0),
     box_max=( 0.04,  0.04, 0.15),         # taller box so the hemispherical
     bulk_cell_size=0.008,                  # cap fits with margin
-    bulk_cells="hybrid",                   # default for hemispherical lamps; see
-                                           # the 4-way comparison below. Alts:
-                                           # "structured" (cheap pure-poly bulk),
-                                           # "structured_full" (research-grade
-                                           # full-disc NCC match), "tet"
+    bulk_cells="hybrid",                   # balanced default for hemispherical
+                                           # lamps; see the 5-way comparison
+                                           # below. Alts: "structured" (cheap
+                                           # pure-poly bulk), "structured_full"
+                                           # (research-grade full-disc NCC
+                                           # match), "structured_matryoshka"
+                                           # (UV-reactor-grade: uniform spherical
+                                           # cells near the lamp wall + corner
+                                           # defects pushed to 2x radius), "tet"
                                            # (skip polyDualMesh entirely).
 )
 build(case_dir=".", lamps=lamps, body=body)
@@ -894,14 +898,45 @@ at the annulus's polar cap top, aligning the two surfaces for NCC
 and removing the lip artifact -- a regression invariant in
 `tests/uvMesh/tests/test_bulk.py::test_cap_ext_side_has_no_extra_pad`.
 
-#### 4-way comparison (smoke-test resolutions)
+`tests/uvMeshSmokeHemisphereStructuredMatryoshka` exercises
+`bulk_cells="structured_matryoshka"`. The annulus uses TWO concentric
+structured cap layers: an INNER cap (`hemisphere.py`, true sphere-to-
+sphere annular shell wrapping the lamp tip) between `sleeve_radius`
+and `annulus_outer_radius`, and an OUTER cap (`cap_extension.py`
+with full disc coverage) between `annulus_outer_radius` and
+`outer_cap_radius = outer_cap_radius_factor * annulus_outer_radius`
+(default factor 2.0). The two layers share the middle Sphere
+geometry, the cube-corner P vertices, and the body cylinder's
+middle ring. The body cylinder itself gains a SECOND radial layer
+between `annulus_outer_radius` and the outer cap radius, with its
+radial cell count auto-balanced to keep cell size uniform across
+the inner / outer body layers. The NCC seam moves OUTWARD to the
+outer cap's cylinder + disc envelope, and the 4 butterfly cube-
+corner topological defects move with it -- now at twice the
+distance from the lamp wall as in `structured_full`, in the
+low-G zone where dose accuracy is much less sensitive. The
+cells immediately against the lamp wall (inner cap, inner body
+layer) are uniform spherical hex with **no flat disc, no
+cylinder/disc transition** -- the right cell shapes for the
+high-G near-wall layer where κ·r ≫ 1. Observed at the shipped
+resolution: ~39000 hex (annulus, twice the structured_full count
+due to the extra layer) + ~3300 polyhedra (bulk) = ~42000 total
+cells; NCC coverage 0.9999/0.9999 (essentially conformal); max
+non-orth 68° (similar to `structured`); max skew 3.62 (at a far
+outer-cap-corner cell, well below OF's 4.0 failure threshold);
+0 bad face pyramids (checkMesh `Mesh OK`). Recommended for UV
+reactor cases where dose accuracy near the lamp tip is the
+binding constraint.
 
-| `bulk_cells`        | Annulus cells | Bulk cells | NCC coverage (src / tgt) | Max non-orth | Bad face pyramids | When to pick |
-|---------------------|---------------|------------|--------------------------|--------------|-------------------|--------------|
-| `"polyhedral"`      | n/a            | n/a (fails for hemispherical lamps) | n/a | n/a | ~40 (broken) | flat-flat lamps only |
-| `"hybrid"`          | ~12000 hex     | ~3000 tet + ~3300 poly | 1.00 / 1.00 | 89° | ~2 | balanced default for hemispherical lamps |
-| `"structured"`      | ~13000 hex     | ~4600 poly | 0.91 / 0.95 | 68° | 0 | cheaper annulus topology than structured_full; NCC mismatch on disc segments tolerable |
-| `"structured_full"` | ~13000 hex     | ~4600 poly | 0.99984 / 0.99992 | 60° | 0 | research-grade conformal NCC; recommended for fine-resolution dose work |
+#### 5-way comparison (smoke-test resolutions)
+
+| `bulk_cells`            | Annulus cells | Bulk cells | NCC coverage (src / tgt) | Max non-orth | Max skew | Bad face pyramids | When to pick |
+|-------------------------|---------------|------------|--------------------------|--------------|----------|-------------------|--------------|
+| `"polyhedral"`          | n/a            | n/a (fails for hemispherical lamps) | n/a | n/a | n/a | ~40 (broken) | flat-flat lamps only |
+| `"hybrid"`              | ~12000 hex     | ~3000 tet + ~3300 poly | 1.00 / 1.00 | 89° | 1.78 | ~2 | balanced default for hemispherical lamps |
+| `"structured"`          | ~13000 hex     | ~4600 poly | 0.91 / 0.95 | 68° | 1.54 | 0 | cheaper annulus topology than structured_full; NCC mismatch on disc segments tolerable |
+| `"structured_full"`     | ~13000 hex     | ~4600 poly | 0.99984 / 0.99992 | 60° | 1.54 | 0 | research-grade conformal NCC; corner defects at the seam-disc edge |
+| `"structured_matryoshka"` | ~39000 hex   | ~3300 poly | 0.99990 / 0.99994 | 68° | 3.62 | 0 | **UV reactor dose accuracy**: uniform spherical cells near the lamp wall; corner defects pushed out to 2× radius (low-G zone) |
 
 `tools/uvMesh/tests/` contains a **pytest unit-test suite** (~80
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.
@@ -1623,7 +1658,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Twenty-nine cases.
+  Thirty cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -2025,6 +2060,40 @@ mesh tooling:
   (checkMesh `Mesh OK`). Designed for cases where mesh quality
   near the lamp tip is critical (research-paper-grade
   comparisons, fine-resolution dose work).
+- **`uvMeshSmokeHemisphereStructuredMatryoshka`** — sibling of
+  `uvMeshSmokeHemisphereStructuredFull` with
+  `bulk_cells="structured_matryoshka"` and a larger box
+  (`box_max=(0.06, 0.06, 0.22)`) to accommodate the doubled
+  outer cap radius. The annulus mesh now uses TWO concentric
+  structured cap layers per hemispherical end -- inner cap
+  via `hemisphere.py` (sphere-to-sphere annular shell wrapping
+  the lamp tip), outer cap via `cap_extension.py` with
+  `full_disc_coverage` (morphed cubed-sphere with the NCC seam
+  on its outer cylinder + flat disc envelope at
+  `outer_cap_radius_factor * annulus_outer_radius`). The body
+  cylinder gains a SECOND radial layer between
+  `annulus_outer_radius` and `outer_cap_radius` with
+  auto-balanced radial cell count (the outer layer's
+  `n_radial` is scaled by the ratio of layer widths so the
+  cell size stays uniform). The cells against the lamp wall
+  are now uniform spherical hex with no flat/cylinder
+  transitions; the 4 butterfly cube-corner topological defects
+  are pushed out to the outer cap envelope -- twice as far
+  from the lamp wall as in `structured_full`, in the low-G
+  zone where κ·r ≪ 1. Validates: same quality / patch checks
+  as the other structured cases. Observed at the shipped
+  resolution: ~39000 hex (annulus -- twice the structured_full
+  count because of the extra body + cap layers) + ~3300
+  polyhedra (bulk) = ~42000 total cells; NCC fuse ~10500 face
+  couplings at **0.99990 / 0.99994 average coverage** (on par
+  with structured_full); max non-orth 68° (matches
+  `structured`'s); max skew **3.62** -- the highest of any
+  uvMesh smoke test, at a far outer-cap-corner cell, but well
+  below OF's 4.0 failure threshold. 0 bad face pyramids
+  (checkMesh `Mesh OK`). Designed for UV reactor cases where
+  the high-G near-wall layer is the binding accuracy
+  constraint and the topology cost (~3× cells vs
+  structured_full's annulus) is justified.
 
 ### `tutorials/`
 

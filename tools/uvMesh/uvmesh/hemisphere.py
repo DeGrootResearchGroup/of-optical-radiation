@@ -47,7 +47,7 @@ NCC fuse on the bulk side targets one combined seam per lamp.
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 from blockmeshbuilder import BoundaryTag, Sphere, ZoneTag
@@ -145,10 +145,16 @@ def write_hemisphere_cap(
     n_radial: int,
     n_polar: int,
     tip_tag: BoundaryTag,
-    seam_tag: BoundaryTag,
+    seam_tag: Optional[BoundaryTag],
     end_label: str,
     zone_tag_name: str,
-) -> None:
+    sphere_inner_geom: Optional[Sphere] = None,
+    sphere_outer_geom: Optional[Sphere] = None,
+    p_inner_existing: Optional[List[Vertex]] = None,
+    p_outer_existing: Optional[List[Vertex]] = None,
+    outer_is_seam: bool = True,
+    add_outer_edges: bool = True,
+) -> Tuple[Sphere, Sphere, List[Vertex], List[Vertex]]:
     """Append a 5-block cubed-sphere annular hemisphere to `bmd`.
 
     Parameters
@@ -192,38 +198,97 @@ def write_hemisphere_cap(
     zone_tag_name
         Cell zone for the hemispherical cells, e.g. the cylinder's
         zone with an "_hemi_A/B" suffix.
+    sphere_inner_geom, sphere_outer_geom
+        Optional pre-existing `Sphere` geometries. When provided, the
+        caller's geometries are reused instead of creating new ones --
+        used by `structured_matryoshka` mode to share the middle
+        sphere (at r=annulus_outer_radius) between the inner and outer
+        cap layers.
+    p_inner_existing, p_outer_existing
+        Optional pre-existing 4-vertex lists at the cube positions on
+        the inner and outer spheres. When provided, the caller's
+        vertices are reused -- gives matryoshka's outer cap a way to
+        share the middle-sphere cube corners with the inner cap.
+    outer_is_seam
+        When True (default), the outer-sphere block faces are tagged
+        with `seam_tag` and a `seam_tag` BoundaryTag must be supplied.
+        When False, the outer-sphere faces are still geometrically
+        projected onto `sphere_outer` (so cells curve correctly) but
+        are NOT added to a boundary patch -- they become internal
+        faces of the dict, expected to be shared with another block
+        layer (matryoshka's outer cap).
+
+    Returns
+    -------
+    (sphere_inner, sphere_outer, P_inner, P_outer)
+        The Sphere geometries and the 4-vertex lists at the cube
+        positions on each sphere. Callers can reuse these (e.g.
+        `structured_matryoshka` passes them on to the outer cap as
+        its own sphere_inner_geom / p_inner_existing).
     """
     if axis_dir not in (-1, +1):
         raise ValueError(f"axis_dir must be -1 or +1, got {axis_dir}")
     if len(equator_inner) != 4 or len(equator_outer) != 4:
         raise ValueError("equator_{inner,outer} must each have 4 vertices")
+    if outer_is_seam and seam_tag is None:
+        raise ValueError(
+            "seam_tag is required when outer_is_seam=True; pass "
+            "outer_is_seam=False if the outer-sphere faces are interior "
+            "(e.g. for structured_matryoshka where the outer cap takes "
+            "over the seam)."
+        )
 
     # Two sphere geometries -- inner (lamp tip) and outer (seam) -- used to
     # project the curved edges. Edge midpoints are not computed here; the
     # ProjectionEdge tells blockMesh to use a searchableSphere at mesh time.
-    sphere_inner = Sphere(
-        Point(centre), r_inner, name=f"sphere_{end_label}_inner"
-    )
-    sphere_outer = Sphere(
-        Point(centre), r_outer, name=f"sphere_{end_label}_outer"
-    )
-    bmd.add_geometries([sphere_inner, sphere_outer])
+    new_geoms = []
+    if sphere_inner_geom is None:
+        sphere_inner = Sphere(
+            Point(centre), r_inner, name=f"sphere_{end_label}_inner"
+        )
+        new_geoms.append(sphere_inner)
+    else:
+        sphere_inner = sphere_inner_geom
+    if sphere_outer_geom is None:
+        sphere_outer = Sphere(
+            Point(centre), r_outer, name=f"sphere_{end_label}_outer"
+        )
+        new_geoms.append(sphere_outer)
+    else:
+        sphere_outer = sphere_outer_geom
+    if new_geoms:
+        bmd.add_geometries(new_geoms)
 
     # Polar-cap corners in CCW order viewed from +axis_dir.
     # cap_signs[k] is the (sx, sy) of cube corner k.
     cap_signs = [(1, 1), (-1, 1), (-1, -1), (1, -1)]  # NE, NW, SW, SE
-    P_inner = [
-        _cap_vertex(centre, sx, sy, axis_dir, r_inner)
-        for sx, sy in cap_signs
-    ]
-    P_outer = [
-        _cap_vertex(centre, sx, sy, axis_dir, r_outer)
-        for sx, sy in cap_signs
-    ]
+    if p_inner_existing is None:
+        P_inner = [
+            _cap_vertex(centre, sx, sy, axis_dir, r_inner)
+            for sx, sy in cap_signs
+        ]
+    else:
+        if len(p_inner_existing) != 4:
+            raise ValueError("p_inner_existing must have 4 vertices")
+        P_inner = list(p_inner_existing)
+    if p_outer_existing is None:
+        P_outer = [
+            _cap_vertex(centre, sx, sy, axis_dir, r_outer)
+            for sx, sy in cap_signs
+        ]
+    else:
+        if len(p_outer_existing) != 4:
+            raise ValueError("p_outer_existing must have 4 vertices")
+        P_outer = list(p_outer_existing)
 
     # Polar-cap edges projected onto each sphere -- 4 per sphere -- and
     # meridian edges (one per quadrant corner, from polar-cap corner to
     # equator corner) projected onto each sphere -- 4 per sphere.
+    #
+    # When `add_outer_edges` is False (matryoshka inner cap), skip the
+    # outer-sphere edges -- they'll be added by the outer cap, which
+    # shares the same P_outer vertices via p_inner_existing. Adding them
+    # twice would emit duplicate ProjectionEdge entries in the dict.
     for k in range(4):
         j = (k + 1) % 4
         bmd.add_edge(ProjectionEdge(
@@ -231,17 +296,18 @@ def write_hemisphere_cap(
             geometries=[sphere_inner],
         ))
         bmd.add_edge(ProjectionEdge(
-            np.array([P_outer[k], P_outer[j]], dtype=object),
-            geometries=[sphere_outer],
-        ))
-        bmd.add_edge(ProjectionEdge(
             np.array([P_inner[k], equator_inner[k]], dtype=object),
             geometries=[sphere_inner],
         ))
-        bmd.add_edge(ProjectionEdge(
-            np.array([P_outer[k], equator_outer[k]], dtype=object),
-            geometries=[sphere_outer],
-        ))
+        if add_outer_edges:
+            bmd.add_edge(ProjectionEdge(
+                np.array([P_outer[k], P_outer[j]], dtype=object),
+                geometries=[sphere_outer],
+            ))
+            bmd.add_edge(ProjectionEdge(
+                np.array([P_outer[k], equator_outer[k]], dtype=object),
+                geometries=[sphere_outer],
+            ))
 
     zone = ZoneTag(zone_tag_name)
 
@@ -289,9 +355,15 @@ def write_hemisphere_cap(
         (n_polar, n_polar, n_radial),
         zone_tag=zone,
     ))
-    # Cap's outer-sphere face (k_min, v0,v1,v2,v3) -- seam.
-    _add_projected_face(bmd, cap_v[0], cap_v[1], cap_v[3], cap_v[2],
-                        sphere_outer, seam_tag)
+    # Cap's outer-sphere face (k_min, v0,v1,v2,v3) -- seam, or interior
+    # if the outer surface is shared with another block layer
+    # (matryoshka). The interior case adds NO face entry at all -- the
+    # outer cap layer owns the projection for the shared face, and
+    # blockMesh's curved-face section rejects duplicate entries on the
+    # same vertex set.
+    if outer_is_seam:
+        _add_projected_face(bmd, cap_v[0], cap_v[1], cap_v[3], cap_v[2],
+                            sphere_outer, seam_tag)
     # Cap's inner-sphere face (k_max, v4,v5,v6,v7) -- tip.
     _add_projected_face(bmd, cap_v[4], cap_v[5], cap_v[7], cap_v[6],
                         sphere_inner, tip_tag)
@@ -340,9 +412,16 @@ def write_hemisphere_cap(
             (n_polar, n_polar, n_radial),
             zone_tag=zone,
         ))
-        # k_min face (outer sphere, v0..v3) -- seam.
-        _add_projected_face(bmd, side_v[0], side_v[1], side_v[3], side_v[2],
-                            sphere_outer, seam_tag)
+        # k_min face (outer sphere, v0..v3) -- seam, or interior if the
+        # outer surface is shared with another block layer (matryoshka).
+        # The interior case adds NO face entry -- outer cap owns the
+        # shared-face projection (blockMesh rejects duplicate curved-face
+        # entries on the same vertex set).
+        if outer_is_seam:
+            _add_projected_face(bmd, side_v[0], side_v[1], side_v[3], side_v[2],
+                                sphere_outer, seam_tag)
         # k_max face (inner sphere, v4..v7) -- tip.
         _add_projected_face(bmd, side_v[4], side_v[5], side_v[7], side_v[6],
                             sphere_inner, tip_tag)
+
+    return sphere_inner, sphere_outer, P_inner, P_outer

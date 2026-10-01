@@ -36,7 +36,7 @@ Two modes via the `full_disc_coverage` flag:
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 from blockmeshbuilder import BoundaryTag, Cylinder, Sphere, ZoneTag
@@ -64,11 +64,15 @@ def write_morphed_cap(
     L_ext: float,
     n_radial: int,
     n_polar: int,
-    tip_tag: BoundaryTag,
+    tip_tag: Optional[BoundaryTag],
     seam_tag: BoundaryTag,
     end_label: str,
     zone_tag_name: str,
     full_disc_coverage: bool = False,
+    sphere_inner_geom: Optional[Sphere] = None,
+    p_inner_existing: Optional[List[Vertex]] = None,
+    inner_is_tip: bool = True,
+    add_inner_edges: bool = True,
 ) -> None:
     """Append a 5-block morphed cubed-sphere cap to `bmd`.
 
@@ -101,7 +105,30 @@ def write_morphed_cap(
         BoundaryTag instances for the inner sphere (lamp tip) and outer
         cylinder/disc surfaces. The caller is expected to share `seam_tag`
         with the cylinder's seam so the structured cap's outer faces
-        accumulate into the same patch as the lamp annulus's seam.
+        accumulate into the same patch as the lamp annulus's seam. When
+        `inner_is_tip=False` (matryoshka outer cap), the inner surface
+        is interior (shared with the inner cap) and `tip_tag` is unused;
+        callers can pass `None`.
+    sphere_inner_geom
+        Optional pre-existing `Sphere` geometry. When provided, the
+        caller's geometry is reused -- used by `structured_matryoshka`
+        mode to share the middle sphere with the inner cap.
+    p_inner_existing
+        Optional pre-existing 4-vertex list at the cube positions on
+        the inner sphere. When provided, the caller's vertices are
+        reused -- gives matryoshka's outer cap a way to share the
+        middle-sphere cube corners with the inner cap.
+    inner_is_tip
+        When True (default), inner-sphere block faces are tagged with
+        `tip_tag`. When False (matryoshka outer cap), the inner faces
+        are still geometrically projected (so cells curve) but are NOT
+        added to a boundary patch -- they become interior faces shared
+        with the inner cap's outer faces.
+    add_inner_edges
+        When True (default), the inner-sphere projection edges are
+        added. When False (matryoshka outer cap), they're skipped to
+        avoid duplicating the inner cap's outer-sphere edge entries
+        between the shared cube-corner vertices.
     """
     if axis_dir not in (-1, +1):
         raise ValueError(f"axis_dir must be -1 or +1, got {axis_dir}")
@@ -109,20 +136,29 @@ def write_morphed_cap(
         raise ValueError("equator_{inner,outer} must each have 4 vertices")
     if L_ext <= 0:
         raise ValueError(f"L_ext must be positive, got {L_ext}")
+    if inner_is_tip and tip_tag is None:
+        raise ValueError(
+            "tip_tag is required when inner_is_tip=True; pass "
+            "inner_is_tip=False if the inner-sphere faces are interior "
+            "(e.g. for structured_matryoshka where the inner cap owns "
+            "the lamp-tip patch)."
+        )
 
     inv_sqrt3 = 1.0 / math.sqrt(3.0)
     z_top = centre[2] + axis_dir * L_ext
 
-    # Inner sphere geometry for projecting the inner faces (always
-    # needed). Outer cylinder geometry (only needed for full disc
-    # coverage) projects the side blocks' outer faces and the polar
-    # cap's outer edges onto the r=r_outer cylinder -- this turns the
-    # cap's outer envelope from a flat-quad approximation into the
-    # exact cylinder + disc shape.
-    sphere_inner = Sphere(
-        Point(centre), r_inner, name=f"sphere_{end_label}_inner_morphed"
-    )
-    bmd.add_geometries([sphere_inner])
+    # Inner sphere geometry for projecting the inner faces. Outer cylinder
+    # geometry (only needed for full disc coverage) projects the side
+    # blocks' outer faces and the polar cap's outer edges onto the
+    # r=r_outer cylinder -- this turns the cap's outer envelope from a
+    # flat-quad approximation into the exact cylinder + disc shape.
+    if sphere_inner_geom is None:
+        sphere_inner = Sphere(
+            Point(centre), r_inner, name=f"sphere_{end_label}_inner_morphed"
+        )
+        bmd.add_geometries([sphere_inner])
+    else:
+        sphere_inner = sphere_inner_geom
 
     cyl_outer = None
     if full_disc_coverage:
@@ -155,12 +191,17 @@ def write_morphed_cap(
     # 4 cube corners (NE, NW, SW, SE) projected to the inner sphere of
     # radius r_inner at z = centre[2] + axis_dir * r_inner / sqrt(3).
     cap_signs = [(1, 1), (-1, 1), (-1, -1), (1, -1)]
-    P_inner = []
-    for sx, sy in cap_signs:
-        x = centre[0] + sx * r_inner * inv_sqrt3
-        y = centre[1] + sy * r_inner * inv_sqrt3
-        z = centre[2] + axis_dir * r_inner * inv_sqrt3
-        P_inner.append(Vertex((x, y, z), cart_conv_pair))
+    if p_inner_existing is None:
+        P_inner = []
+        for sx, sy in cap_signs:
+            x = centre[0] + sx * r_inner * inv_sqrt3
+            y = centre[1] + sy * r_inner * inv_sqrt3
+            z = centre[2] + axis_dir * r_inner * inv_sqrt3
+            P_inner.append(Vertex((x, y, z), cart_conv_pair))
+    else:
+        if len(p_inner_existing) != 4:
+            raise ValueError("p_inner_existing must have 4 vertices")
+        P_inner = list(p_inner_existing)
 
     # ---- Outer disc-cylinder edge corners ----
     # 4 corners at z = z_top, r = r_outer, theta = cube angles
@@ -177,16 +218,21 @@ def write_morphed_cap(
     # Polar cap edges (4 great-circle arcs joining adjacent inner pole
     # corners) and meridian edges (4 arcs from each inner pole corner
     # to the equator corner at the same azimuth).
-    for k in range(4):
-        j = (k + 1) % 4
-        bmd.add_edge(ProjectionEdge(
-            np.array([P_inner[k], P_inner[j]], dtype=object),
-            geometries=[sphere_inner],
-        ))
-        bmd.add_edge(ProjectionEdge(
-            np.array([P_inner[k], equator_inner[k]], dtype=object),
-            geometries=[sphere_inner],
-        ))
+    #
+    # When `add_inner_edges` is False (matryoshka outer cap), skip these
+    # -- the inner cap already added them between the SAME vertices
+    # (since p_inner is shared with the inner cap's P_outer).
+    if add_inner_edges:
+        for k in range(4):
+            j = (k + 1) % 4
+            bmd.add_edge(ProjectionEdge(
+                np.array([P_inner[k], P_inner[j]], dtype=object),
+                geometries=[sphere_inner],
+            ))
+            bmd.add_edge(ProjectionEdge(
+                np.array([P_inner[k], equator_inner[k]], dtype=object),
+                geometries=[sphere_inner],
+            ))
 
     # ---- Outer cylinder edges (full_disc_coverage only) ----
     # Project the 4 polar-cap outer edges (between adjacent D_top
@@ -251,11 +297,17 @@ def write_morphed_cap(
     bmd.add_boundary_face(
         seam_tag, _face(cap_v[0], cap_v[1], cap_v[3], cap_v[2])
     )
-    # Polar cap's inner face (k_max, v4..v7) -- on the inner sphere,
-    # projected.
-    _add_projected_face(
-        bmd, cap_v[4], cap_v[5], cap_v[7], cap_v[6], sphere_inner, tip_tag,
-    )
+    # Polar cap's inner face (k_max, v4..v7) -- on the inner sphere.
+    # When inner_is_tip, tagged with the tip patch; otherwise interior
+    # face (geometric projection only).
+    if inner_is_tip:
+        _add_projected_face(
+            bmd, cap_v[4], cap_v[5], cap_v[7], cap_v[6], sphere_inner, tip_tag,
+        )
+    else:
+        face = _face(cap_v[4], cap_v[5], cap_v[7], cap_v[6])
+        face.proj_geom(sphere_inner)
+        bmd.add_face(face)
 
     # ---- 4 side blocks ----
     # Same topology pattern as hemisphere.py: i = equator-to-pole,
@@ -298,9 +350,15 @@ def write_morphed_cap(
             bmd.add_boundary_face(
                 seam_tag, _face(side_v[0], side_v[1], side_v[3], side_v[2])
             )
-        # Side block's inner face (k_max) -- on the inner sphere,
-        # projected.
-        _add_projected_face(
-            bmd, side_v[4], side_v[5], side_v[7], side_v[6],
-            sphere_inner, tip_tag,
-        )
+        # Side block's inner face (k_max) -- on the inner sphere.
+        # When inner_is_tip, tagged with the tip patch; otherwise
+        # interior face (geometric projection only).
+        if inner_is_tip:
+            _add_projected_face(
+                bmd, side_v[4], side_v[5], side_v[7], side_v[6],
+                sphere_inner, tip_tag,
+            )
+        else:
+            face = _face(side_v[4], side_v[5], side_v[7], side_v[6])
+            face.proj_geom(sphere_inner)
+            bmd.add_face(face)

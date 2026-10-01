@@ -289,6 +289,58 @@ def test_structured_full_bulk_cuts_cylinder_no_sphere_fuse(
     assert "BULK_CELLS = 'structured_full'" in src
 
 
+def test_structured_matryoshka_uses_outer_cap_radius_for_cutout(
+    hemisphere_lamp, tmp_path,
+):
+    """For matryoshka mode the bulk's lamp cutout uses
+    outer_cap_radius_factor * annulus_outer_radius as its cylinder
+    radius (twice the seam radius of structured / structured_full)
+    -- the structured cap region now extends out to the larger
+    radius. cap_ext is also anchored to the larger radius."""
+    body = ReactorBody(
+        box_min=(-0.06, -0.06, 0.0),
+        box_max=( 0.06,  0.06, 0.22),
+        bulk_cell_size=0.012,
+        bulk_cells="structured_matryoshka",
+        outer_cap_radius_factor=2.0,
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    write_bulk_script(body, [hemisphere_lamp], str(tmp_path))
+    cuts = _get_lamp_cuts(tmp_path)
+    # Cylinder cutout radius = 2.0 * 0.02 = 0.04 m
+    assert cuts[0]["radius"] == pytest.approx(2.0 * 0.02)
+    # cap_ext = 1.5 * outer_cap_radius = 1.5 * 0.04 = 0.06
+    assert cuts[0]["cap_ext_a"] == pytest.approx(0.0)  # flat A
+    assert cuts[0]["cap_ext_b"] == pytest.approx(1.5 * 0.04)
+    # And the BULK_CELLS literal in the emitted script.
+    src = (tmp_path / "bulk_body.py").read_text()
+    assert "BULK_CELLS = 'structured_matryoshka'" in src
+
+
+def test_structured_matryoshka_seam_size_uses_outer_radius(
+    hemisphere_lamp, tmp_path,
+):
+    """Auto-default seam_size for matryoshka is 2*pi*outer_cap_radius
+    / (4 * n_az_per_quad) -- the azimuthal cell pitch at the LARGER
+    seam radius, which is what the annulus's outer body / outer cap
+    azimuthal cell-edge length actually is."""
+    body = ReactorBody(
+        box_min=(-0.06, -0.06, 0.0),
+        box_max=( 0.06,  0.06, 0.22),
+        bulk_cell_size=0.012,
+        bulk_cells="structured_matryoshka",
+        outer_cap_radius_factor=2.0,
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    write_bulk_script(body, [hemisphere_lamp], str(tmp_path))
+    src = (tmp_path / "bulk_body.py").read_text()
+    m = re.search(r"^SEAM_SIZE\s*=\s*([\d.eE+-]+)", src, re.MULTILINE)
+    assert m is not None
+    seam_size = float(m.group(1))
+    expected = 2 * math.pi * (2.0 * 0.02) / (4 * 10)
+    assert seam_size == pytest.approx(expected, rel=1e-9)
+
+
 def test_seam_size_user_override(basic_lamp, tmp_path):
     body = ReactorBody(
         box_min=(-0.04, -0.04, 0),

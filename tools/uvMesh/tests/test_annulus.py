@@ -320,6 +320,106 @@ def test_structured_full_body_adds_outer_cylinder_geometry(hemisphere_lamp, tmp_
     assert "searchableCylinder" in text
 
 
+def test_structured_matryoshka_body_emits_two_radial_layers(
+    hemisphere_lamp, tmp_path,
+):
+    """For matryoshka mode the body cylinder has a SECOND radial layer
+    between annulus_outer_radius and outer_cap_radius. blockmeshbuilder
+    emits 8 body blocks (4 quadrants * 2 radial layers) instead of 4.
+    Plus the 10 cap blocks (5 inner + 5 outer) gives 18 total."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.06, -0.06, 0.0),
+        box_max=( 0.06,  0.06, 0.22),
+        bulk_cell_size=0.012,
+        bulk_cells="structured_matryoshka",
+        outer_cap_radius_factor=2.0,
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    hemisphere_lamp.seam_patch_name = "lamp0_seam"
+    hemisphere_lamp.endcap_a_patch_name = "lamp0_endcap_A"
+    hemisphere_lamp.tip_patch_name_b = "lamp0_tip_B"
+    from uvmesh.annulus import write_annulus_dict
+    write_annulus_dict(hemisphere_lamp, str(tmp_path), body=body)
+    text = (tmp_path / "system" / "blockMeshDict").read_text()
+    # Body (8) + inner cap (5) + outer cap (5) = 18 hex blocks.
+    assert text.count("hex (") == 18, (
+        f"Expected 18 blocks (8 body + 5 inner cap + 5 outer cap), "
+        f"got {text.count('hex (')}"
+    )
+
+
+def test_structured_matryoshka_emits_two_sphere_geometries(
+    hemisphere_lamp, tmp_path,
+):
+    """The matryoshka has TWO Sphere geometries per cap end: the
+    INNER sphere (lamp tip at r=sleeve_radius) and the SHARED MIDDLE
+    sphere (at r=annulus_outer_radius) reused between inner cap's
+    outer surface and outer cap's inner surface. The third sphere
+    that a naively chained pair would create -- a separate sphere for
+    the outer cap's r=annulus_outer_radius inner -- is suppressed by
+    the geometry-sharing parameter; checking against duplicate
+    geometries is the regression guard."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.06, -0.06, 0.0),
+        box_max=( 0.06,  0.06, 0.22),
+        bulk_cell_size=0.012,
+        bulk_cells="structured_matryoshka",
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    hemisphere_lamp.seam_patch_name = "lamp0_seam"
+    hemisphere_lamp.endcap_a_patch_name = "lamp0_endcap_A"
+    hemisphere_lamp.tip_patch_name_b = "lamp0_tip_B"
+    from uvmesh.annulus import write_annulus_dict
+    write_annulus_dict(hemisphere_lamp, str(tmp_path), body=body)
+    text = (tmp_path / "system" / "blockMeshDict").read_text()
+    # Inner sphere (lamp tip) + outer (middle / shared) sphere = 2 spheres
+    # per cap end. Only endcap_b is hemisphere here, so 2 spheres total.
+    n_spheres = text.count("searchableSphere")
+    assert n_spheres == 2, (
+        f"Expected 2 searchableSphere geometries (inner tip + shared "
+        f"middle), got {n_spheres}"
+    )
+    # And one outer Cylinder geometry for the outer cap's outer envelope.
+    assert text.count("searchableCylinder") >= 3, (
+        "Expected at least 3 searchableCylinder geometries (2 body + "
+        "1 outer cap envelope)"
+    )
+
+
+def test_structured_matryoshka_no_intermediate_seam_tagging(
+    hemisphere_lamp, tmp_path,
+):
+    """The middle sphere (at r=annulus_outer_radius) is INTERIOR in
+    matryoshka mode -- it's the shared interface between inner cap's
+    outer faces and outer cap's inner faces. The NCC seam patch only
+    receives faces on the OUTER cap's envelope (cylinder + disc at
+    r=outer_cap_radius). The dict's boundary section must list exactly
+    one `lamp0_seam` declaration, not two."""
+    from uvmesh import ReactorBody
+    body = ReactorBody(
+        box_min=(-0.06, -0.06, 0.0),
+        box_max=( 0.06,  0.06, 0.22),
+        bulk_cell_size=0.012,
+        bulk_cells="structured_matryoshka",
+    )
+    hemisphere_lamp.sleeve_patch_name = "lamp0_wall"
+    hemisphere_lamp.seam_patch_name = "lamp0_seam"
+    hemisphere_lamp.endcap_a_patch_name = "lamp0_endcap_A"
+    hemisphere_lamp.tip_patch_name_b = "lamp0_tip_B"
+    from uvmesh.annulus import write_annulus_dict
+    write_annulus_dict(hemisphere_lamp, str(tmp_path), body=body)
+    text = (tmp_path / "system" / "blockMeshDict").read_text()
+    import re
+    decls = re.findall(r"^\s*lamp0_seam\s*\n\s*\{", text, re.MULTILINE)
+    assert len(decls) == 1
+    # And lamp0_tip_B (lamp tip on the inner sphere) should be present
+    # exactly once -- the inner cap owns the tip surface.
+    decls_tip = re.findall(r"^\s*lamp0_tip_B\s*\n\s*\{", text, re.MULTILINE)
+    assert len(decls_tip) == 1
+
+
 def test_hemisphere_seam_combines_with_cylinder_seam(hemisphere_lamp, tmp_path):
     """`lamp{i}_seam` must occur exactly ONCE in the dict's boundary
     list -- the cylinder's seam BoundaryTag is shared with the
