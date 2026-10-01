@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""The discrete random walk keeps a uniform distribution of particles uniform.
+
+A closed box (40 x 100 x 20 mm, 2 mm cells) with no mean flow, walls all
+round, and turbulence that varies in y only: k rises from zero on the wall
+y = 0 and the eddy lifetime with it, so the walk's diffusivity
+K = k tau_e / 3 falls as y^4 towards that wall, as in a viscous sublayer
+(makeFields). 5000 particles are seeded uniformly and walked for 10 s, twice
+from the same seed: `wellMixed` (the corrected walk) and `uncorrected`
+(wellMixed false), and once with the random displacement model with the
+same K (`randomDisplacement`). The well-mixed condition says the corrected
+walk and the random displacement model must stay uniform; the uncorrected
+walk has no drift and collects particles where K is small.
+
+The distribution is read from the trajectories' recorded vertices, every
+100th step (0.5 s), over the second half of the walk. Not from the end
+points: a track that times out stops at the end of the segment in which
+maxTime falls, which is a face or wall crossing, so end points sit on cell
+faces. The step is never shortened by the CFL bound here (dtMax 5 ms,
+cflMax 2), so the vertices are snapshots at common times, not samples
+weighted towards wherever steps are short.
+
+This checks:
+
+  1. every track was walked to maxTime;
+  2. the corrected walk and the random displacement model moved the
+     particles (a walk that did nothing would stay uniform too);
+  3. both are uniform in y -- ten 10 mm bands, and the 4 mm
+     next to the low-k wall -- and in x and z, where the walls bound
+     eddies that outlast many steps;
+  4. the uncorrected walk is not: its low-k quarter holds well over its
+     share. This is the control: it shows check 3 can fail.
+"""
+
+import os
+import sys
+
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+L, H, W = 0.04, 0.1, 0.02
+T_FROM = 5.0          # use vertices from the second half of the walk [s]
+TOL_BAND = 0.12       # |occupancy / uniform - 1| allowed per 10 mm band
+TOL_WALL = 0.25       # ... in the 4 mm next to the low-k wall
+MIN_TRAVEL = 0.01     # mean |y_end - y_seed| the walk must reach [m]
+
+
+def tracks(func):
+    """Seed point, end point and the vertices recorded from T_FROM on."""
+    path = os.path.join(HERE, "postProcessing", func, "0", "trajectories.vtk")
+    with open(path) as f:
+        lines = f.read().split("\n")
+    n = int(lines[4].split()[1])
+    pts = np.array(" ".join(lines[5:5 + n]).split(), float).reshape(n, 3)
+    i = 5 + n
+    n_lines = int(lines[i].split()[1])
+    polys = [list(map(int, ln.split()[1:])) for ln in lines[i + 1:i + 1 + n_lines]]
+    k = i + 1 + n_lines
+    while not lines[k].startswith("SCALARS time_s"):
+        k += 1
+    t = np.array(" ".join(lines[k + 2:k + 2 + n]).split(), float)
+    seeds = pts[[p[0] for p in polys]]
+    ends = pts[[p[-1] for p in polys]]
+    inner = np.array([v for p in polys for v in p[1:-1]], int)
+    inner = inner[t[inner] >= T_FROM]
+    return seeds, ends, t[[p[-1] for p in polys]], pts[inner]
+
+
+def occupancy(x, length, nbins):
+    """Fraction of samples per bin over the uniform fraction."""
+    h, _ = np.histogram(x, bins=nbins, range=(0.0, length))
+    return h / len(x) * nbins
+
+
+fails = []
+results = {}
+for func in ("wellMixed", "randomDisplacement", "uncorrected"):
+    try:
+        seeds, ends, t_end, snap = tracks(func)
+    except (OSError, ValueError, IndexError) as e:
+        print(f"FAIL: cannot read {func}'s trajectories: {e}")
+        sys.exit(1)
+    if len(seeds) < 4900 or np.any(np.abs(t_end - 10.0) > 1e-6):
+        fails.append(f"{func}: {len(seeds)} tracks, not every one walked to 10 s")
+    bands = occupancy(snap[:, 1], H, 10)
+    wall = np.mean(snap[:, 1] < 0.004) / (0.004 / H)
+    low_quarter = np.mean(snap[:, 1] < H / 4) * 4
+    travel = np.mean(np.abs(ends[:, 1] - seeds[:, 1]))
+    results[func] = (bands, wall, low_quarter)
+    print(f"  {func}: {len(snap)} samples; y bands {np.round(bands, 3).tolist()}")
+    print(f"  {func}: 4 mm at the low-k wall {wall:.3f}, low-k quarter {low_quarter:.3f},"
+          f" mean |dy| {travel * 1e3:.1f} mm")
+
+    if func != "uncorrected":
+        if travel < MIN_TRAVEL:
+            fails.append(f"{func}: mean |dy| {travel:.4f} m: the walk did not move the particles")
+        worst = np.max(np.abs(bands - 1))
+        if worst > TOL_BAND:
+            fails.append(f"{func}: a 10 mm band is {worst:.3f} off uniform (allowed {TOL_BAND})")
+        if abs(wall - 1) > TOL_WALL:
+            fails.append(f"{func}: the 4 mm at the low-k wall holds {wall:.3f} of uniform"
+                         f" (allowed 1 +- {TOL_WALL})")
+        for axis, length, name in ((0, L, "x"), (2, W, "z")):
+            b = occupancy(snap[:, axis], length, 10)
+            print(f"  {func}: {name} bands {np.round(b, 3).tolist()}")
+            if np.max(np.abs(b - 1)) > TOL_BAND:
+                fails.append(f"{func}: a {name} band is {np.max(np.abs(b - 1)):.3f} off uniform"
+                             f" (allowed {TOL_BAND})")
+    else:
+        if low_quarter < 1.5:
+            fails.append(f"uncorrected: the low-k quarter holds {low_quarter:.3f} of uniform;"
+                         " the control should collect particles there (> 1.5)")
+
+if fails:
+    for f in fails:
+        print("FAIL:", f)
+    sys.exit(1)
+print("PASS: the corrected walk and the random displacement model stay well mixed;"
+      " the uncorrected walk does not")

@@ -14,6 +14,24 @@ Description
     Returns a velocity fluctuation u' to add to the mean velocity at
     a given particle position.
 
+    One outer step talks to the model in three calls, because the
+    step's duration is not known until the fluctuation is: the CFL
+    bound depends on U + u'.
+
+    - beginStep(): sample the local turbulence at the step's start and
+      draw every random number the step may need, given the longest
+      duration it can have (dtMax).
+    - fluctuation(): the mean u' over a step of a given duration. Pure;
+      the tracker calls it once for dtMax and again for the CFL-reduced
+      duration, and both see the same random draws. The CFL bound
+      itself uses cflFluctuation() and maxStep() (see below).
+    - endStep(): advance the per-track state by the duration actually
+      taken.
+
+    correct() rebuilds whatever the model caches from the registry's
+    turbulence fields; the function object calls it before each run,
+    so a host solver that updates the fields between calls is seen.
+
     Per-track state (e.g. DRW eddy memory) lives on the track object
     rather than inside the model. The model defines a State subclass
     plus a newState() factory; the track owns one State pointer.
@@ -27,11 +45,13 @@ Description
 
 #include "HashTable.H"
 #include "autoPtr.H"
+#include "barycentric.H"
 #include "dictionary.H"
 #include "fvMesh.H"
 #include "perTrackState.H"
 #include "randomGenerator.H"
 #include "runTimeSelectionTables.H"
+#include "tetIndices.H"
 #include "vector.H"
 #include "wordList.H"
 
@@ -150,20 +170,65 @@ public:
             return autoPtr<State>(new State());
         }
 
-        //- Velocity fluctuation u' [m/s] at position x in cell celli
-        //  over a step of size dt [s]. The State reference is the
-        //  track's own per-particle state (not shared across tracks),
-        //  so concurrent calls from different threads are race-free.
-        //  Concrete models look up their own turbulence fields
-        //  (k, epsilon, ...) from the registry as needed.
-        virtual vector fluctuation
+        //- Rebuild anything cached from the registry's fields (e.g.
+        //  interpolators). Called by the function object before each
+        //  run, after the fields it reads are current. Default: none.
+        virtual void correct()
+        {}
+
+        //- Start an outer step at the particle's position: sample the
+        //  turbulence there and draw the random numbers a step of up
+        //  to dtMax [s] needs. Default: nothing to do.
+        virtual void beginStep
         (
             State& state,
-            const vector& x,
-            label celli,
-            scalar dt,
+            const barycentric& coordinates,
+            const tetIndices& tetIs,
+            scalar dtMax,
             randomGenerator& rng
-        ) const = 0;
+        ) const
+        {}
+
+        //- Mean velocity fluctuation u' [m/s] over a step of duration
+        //  dt <= dtMax [s] begun by beginStep(). Reads the state only,
+        //  so it may be called for several candidate durations. The
+        //  State is the track's own (never shared across tracks), so
+        //  concurrent calls from different threads are race-free.
+        virtual vector fluctuation(const State& state, scalar dt) const = 0;
+
+        //- The fluctuation the tracker's CFL bound sees for a step of
+        //  duration dt. Default: fluctuation() itself. A model whose
+        //  step displacement is a fresh random draw (randomDisplacement)
+        //  returns its deterministic part instead: bounding the step
+        //  by the draw it takes would make large draws take short
+        //  steps, and the walk would spread too little.
+        virtual vector cflFluctuation(const State& state, scalar dt) const
+        {
+            return fluctuation(state, dt);
+        }
+
+        //- The longest step [s] the model allows, given the largest
+        //  displacement maxDisplacement [m] a step may make (cflMax
+        //  times the cell size). Default: no limit.
+        virtual scalar maxStep
+        (
+            const State& state,
+            scalar maxDisplacement
+        ) const
+        {
+            return great;
+        }
+
+        //- Finish the step: advance the state by the duration dt [s]
+        //  actually taken. Default: nothing to do.
+        virtual void endStep(State& state, scalar dt) const
+        {}
+
+        //- The particle reflected off a boundary face with unit normal
+        //  n: reflect whatever velocity the state carries into the
+        //  rest of the step and the next one. Default: nothing to do.
+        virtual void reflect(State& state, const vector& n) const
+        {}
 };
 
 

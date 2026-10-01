@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Write 0/k and 0/omega for the well-mixed box.
+
+With s = y/H and the profile f(s) = (1 - (1 - s)^2)^2, which rises as
+4 s^2 from zero on the wall y = 0 and is flat (f' = 0) at the wall y = H:
+k = k0 f(s), and an eddy lifetime tau_e = tauTop f(s) + tauMin, given to
+the walk as omega = Cl / (Cmu tau_e) (Cl 0.15, Cmu 0.09, as in
+system/controlDict). The diffusivity K = k tau_e / 3 then falls as y^4
+towards y = 0, as in a viscous sublayer, and has no gradient at y = H.
+Cell centres follow the blockMesh ordering of system/blockMeshDict.
+"""
+
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NX, NY, NZ, H = 20, 50, 10, 0.1
+K0, TAU_TOP, TAU_MIN, CL, CMU = 0.03, 0.05, 1.0e-4, 0.15, 0.09
+
+HEADER = """FoamFile
+{{
+    format      ascii;
+    class       volScalarField;
+    object      {name};
+}}
+
+dimensions      {dims};
+
+"""
+
+
+def f(y):
+    return (1.0 - (1.0 - y / H) ** 2) ** 2
+
+
+def k_of(y):
+    return K0 * f(y)
+
+
+def omega_of(y):
+    return CL / (CMU * (TAU_TOP * f(y) + TAU_MIN))
+
+
+def write(name, dims, profile, wall_value):
+    ys = [(j + 0.5) * H / NY for j in range(NY)]
+    vals = [profile(ys[j]) for _ in range(NZ) for j in range(NY) for _ in range(NX)]
+    with open(os.path.join(HERE, "0", name), "w") as out:
+        out.write(HEADER.format(name=name, dims=dims))
+        out.write(f"internalField   nonuniform List<scalar>\n{len(vals)}\n(\n")
+        out.write("\n".join(f"{v:.10g}" for v in vals))
+        out.write("\n);\n\nboundaryField\n{\n")
+        out.write(f"    lowWall\n    {{\n        type fixedValue;\n        value uniform {wall_value:.10g};\n    }}\n")
+        out.write("    walls\n    {\n        type zeroGradient;\n    }\n}\n")
+
+
+write("k", "[0 2 -2 0 0 0 0]", k_of, 0.0)
+write("omega", "[0 0 -1 0 0 0 0]", omega_of, omega_of(0.0))

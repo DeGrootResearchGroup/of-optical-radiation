@@ -1,0 +1,64 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: well-mixed random walk
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// A closed box, 40 x 100 x 20 mm, of 2 mm cubes. k varies in y only and
+// vanishes on the wall y = 0 (patch lowWall). makeFields assumes this
+// block's cell ordering (x fastest, then y, then z) and its 50 cells in y.
+
+scale   1;
+
+vertices
+(
+    (0     0    0)
+    (0.04  0    0)
+    (0.04  0.1  0)
+    (0     0.1  0)
+    (0     0    0.02)
+    (0.04  0    0.02)
+    (0.04  0.1  0.02)
+    (0     0.1  0.02)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (20 50 10) simpleGrading (1 1 1)
+);
+
+edges ();
+
+boundary
+(
+    lowWall
+    {
+        type wall;
+        faces ((0 1 5 4));
+    }
+    walls
+    {
+        type wall;
+        faces
+        (
+            (3 7 6 2)
+            (0 4 7 3)
+            (1 2 6 5)
+            (0 3 2 1)
+            (4 5 6 7)
+        );
+    }
+);
+
+mergePatchPairs ();
+
+// ************************************************************************* //

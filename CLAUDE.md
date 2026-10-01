@@ -248,7 +248,10 @@ Foam::dose::
 
   dispersionModel                  (RTS family — turbulent fluctuation u')
     ├── noDispersion               (deterministic streamlines)
-    └── discreteRandomWalk         (Gosman-Ioannides DRW; needs k and epsilon or omega)
+    ├── discreteRandomWalk         (Gosman-Ioannides DRW, well mixed by default;
+    │                               needs k and epsilon or omega)
+    └── randomDisplacement         (diffusion walk with the DRW's K, no eddy memory)
+        both own an eddyDiffusivity (k, tau_e, K = k tau_e / 3, grad K at a particle)
 
   motionModel                      (RTS family — particle equation of motion)
     ├── tracer                     (V = U + u'; algebraic, fluid-following)
@@ -297,7 +300,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/dosePathCloud/dosePathCloud.{H,C}` | Foam::lagrangian::Cloud<dosePathParticle> subclass; case config + runToCompletion driver |
 | `src/radiationDose/track/track.{H,C}` | Per-particle trajectory storage (vertices + endReason) |
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
-| `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
+| `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk, randomDisplacement) + eddyDiffusivity, the turbulence sampling both walks share |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
 | `tests/` | Thirty-one regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
@@ -1564,13 +1567,26 @@ dispersionModel
                            (epsilon = Cmu k omega, so tau_e = Cl / (Cmu omega);
                            naming both is an error) -- for kOmegaSST flows.
                            Per-particle eddy state (DRWState) lives on the
-                           track object. Config:
-                              type     discreteRandomWalk;
-                              k        k;          // optional, default "k"
-                              epsilon  epsilon;    // optional, default "epsilon"
-                              omega    omega;      // instead of epsilon
-                              Cmu      0.09;       // with omega; default 0.09
-                              Cl       0.15;       // optional, default 0.15
+                           track object. Well mixed by default: drift
+                           grad(K), exact eddy accounting, eddy reflection
+                           (see "Well-mixed discrete random walk" below).
+                           Config:
+                              type      discreteRandomWalk;
+                              k         k;          // optional, default "k"
+                              epsilon   epsilon;    // optional, default "epsilon"
+                              omega     omega;      // instead of epsilon
+                              Cmu       0.09;       // with omega; default 0.09
+                              Cl        0.15;       // optional, default 0.15
+                              wellMixed true;       // optional, default true
+└── randomDisplacement     Diffusion form with the same K = k tau_e / 3 and
+                           the same entries (k, epsilon/omega, Cmu, Cl,
+                           tauEMax): dx = (U + grad K) dt + sqrt(2K dt) xi,
+                           a fresh draw every step, no eddy memory. Well
+                           mixed by construction, including next to a
+                           resolved wall where the DRW's eddies are too
+                           long (see below). Config:
+                              type     randomDisplacement;
+                              omega    omega;      // or epsilon
 
 motionModel
 ├── tracer                 V = U + u' (algebraic, fluid-following). Default
@@ -1607,6 +1623,184 @@ If a future case needs `terminationByDoseRate`, `terminationByCellZone`,
 etc., it's straightforward to promote this block to an RTS family
 later.
 
+### Well-mixed discrete random walk
+
+**Why.** A random walk whose diffusivity K varies in space must satisfy the
+well-mixed condition (Thomson 1987): particles spread uniformly in an
+incompressible flow stay uniform. A walk that only adds u' to U does not --
+it is the Ito walk with the drift dK/dy missing, and particles collect where
+K is small. On a mesh resolved to the wall (k-omega SST, y+ ~ 0.3) that is
+the viscous sublayer: K = k tau_e / 3 ~ 1e-14 m^2/s in the sleeve's first
+cell, so a particle that gets there stays for hours. Measured 2026-10-01 on
+the Sozzi uvmesh case (below): mean dose 682 mJ/cm^2 against 62 on the
+snappy mesh. The DRW realises K = sigma^2 H / 2 for a velocity held for H
+(K = k tau_e / 3 with H = tau_e), and three pieces make it well mixed
+(`wellMixed true`, the default since this change):
+
+1. **Drift** `grad(K)`, added to u' every step. It is the Ito drift of a
+   walk of diffusivity K (flux `u_d c - d(Kc)/dy` vanishes for uniform c
+   iff `u_d = dK/dy`, from the jump-moment expansion of the eddy walk).
+   The Legg & Raupach (1982) / MacInnes & Bracco (1992) form
+   `tau grad(sigma^2)` is the first half of it; the
+   `sigma^2 grad(tau)` half matters wherever tau_e varies, which is
+   everywhere near a wall (dropping it fails `doseWellMixed`, 1.74x in
+   one band). k and the dissipation are interpolated cell-point (linear in
+   the particle's tet), sigma and tau_e formed pointwise, and the drift is
+   the EXACT gradient of that interpolated K (tet gradient
+   `(dv1 e2xe3 + dv2 e3xe1 + dv3 e1xe2)/(e1.e2xe3)` of k and of the
+   dissipation, chain rule through tau_e, zero where tau_e is capped).
+   Cell values for sigma/tau_e with an interpolated drift would make K
+   jump at every face and c jump inversely.
+2. **Exact eddy accounting.** The step's displacement is the exact integral
+   of the piecewise-constant eddy velocity: rest of the current eddy, then
+   m whole eddies (one Gaussian, sd `sigma tau sqrt(m)`), then the first
+   `frac` of the eddy that carries over. K is then k tau_e / 3 whatever dt
+   is. The uncorrected walk resamples once per step when tau_e < dt and
+   holds u' for the whole step, so its K is sigma^2 dt / 2: set by dtMax.
+   On the Sozzi uvmesh SST field tau_e < dtMax (5 ms) in 57 % of cells,
+   and ~2 us next to the walls. It also aged eddies by dtMax even when CFL
+   shortened the step. (`doseRandomWalkDiffusivity` measures the
+   uncorrected short-eddy walk at 50.8x the eddies' diffusivity with CFL
+   off, the predicted dt/tau = 50.)
+3. **Reflection** of the carried eddy velocity at walls (see Integration
+   kernel).
+
+**Interface.** The tracker cannot know a step's duration before the
+fluctuation (CFL depends on U + u'), so `dispersionModel` is three calls:
+`beginStep(state, coordinates, tetIs, dtMax, rng)` samples the turbulence
+and draws what a step of up to dtMax needs; `fluctuation(state, dt)` is pure
+(called for dtMax and again for the CFL-shortened dt); `endStep(state, dt)`
+ages the state. Plus `reflect(state, n)` and `correct()`, which rebuilds the
+k / dissipation interpolators from the registry (called by the function
+object before every run -- unsteady mode included -- and only read inside
+the OpenMP loop). ⚠️ **The draws persist until used** (`DRWState::drawn`).
+Redrawing them every step looked harmless and was a 24 % error: a step CFL
+shortens can end before the current eddy, leaving the draws unused, and
+redrawing kept only those giving a short enough step -- the ones pointing
+against the current eddy. Consecutive eddies came out anti-correlated
+(-0.11) and the CFL-bound long-eddy walk spread at 0.756 of 2KT. Only
+`doseRandomWalkDiffusivity` sees it: a uniform loss of K keeps a uniform
+distribution uniform, so the well-mixed test is blind to it by construction.
+
+**`wellMixed false` is the old walk, bit for bit** (cell values, resample
+when expired, age by dtMax, no drift, no reflection). Verified 2026-10-01:
+the uvmesh `uv_arc` run below reproduces OOR 659ec4a's
+`doseDistribution.csv` and `summary.dat` byte for byte.
+
+**What OpenFOAM itself does** (read from the OpenFOAM 13 source, 2026-10-01):
+`lagrangian/parcel` `StochasticDispersionRAS` is the uncorrected DRW (and
+switches turbulence OFF when the eddy is shorter than the step);
+`GradientDispersionRAS` points the fluctuation DOWN grad(k) -- it pushes
+particles towards low k, the opposite of a well-mixed drift, not a version
+of it; the newer `Lagrangian` `turbulentDispersion` does exact eddy
+accounting much like ours (continue, whole eddies, a Gaussian beyond
+`maxDiscreteEddies` 32) and zeroes the fluctuation of particles on a wall,
+but has no drift either. All three use cell values of k and epsilon, and a
+fluctuation of total magnitude sqrt(2k/3) (1/2 |u'|^2 = k/3), a third of the
+energy of Gosman-Ioannides' per-component sigma = sqrt(2k/3) used here.
+
+**`randomDisplacement`, the diffusion form** (added 2026-10-01 after the eddy-memory finding
+below, by the project owner's choice over keeping only the DRW or building a Langevin model).
+`dx = (U + grad K) dt + sqrt(2K dt) xi` with the DRW's K, read through the shared
+`eddyDiffusivity` (k, dissipation, tau_e, K, the tet gradient -- one home for both models).
+⚠️ **The CFL bound must not see its draw.** The tracker bounds the step by
+`cflFluctuation()` (the drift alone here; the fluctuation itself for the DRW, so the DRW path is
+unchanged) plus `maxStep()` (`(cflMax h)^2 / 2K`, so `sqrt(2K dt)` stays within the CFL
+displacement). Bounding by the realised `sqrt(2K/dt) xi` gives large draws short steps: with the
+draw in the CFL, `doseRandomWalkDiffusivity`'s long instance spread at 0.799 of 2KT. Removing
+`maxStep` is caught by neither test (both fields are gentle on the step scale): it is an accuracy
+guard, not a correctness condition there.
+
+**What is done in practice** (surveyed 2026-10-01; codes read from source or official docs,
+literature from abstracts/full text where accessible):
+no production RANS particle-dispersion model found corrects the DRW for the well-mixed
+condition -- not OpenFOAM (either: ESI `GradientDispersionRAS` also points `-gradk`), not Fluent
+(its theory guide states the DRW "will show a tendency for such particles to concentrate in
+low-turbulence regions"; its beta continuous random walk is a plain Ornstein-Uhlenbeck process
+without drift), not CFX. Code_Saturne alone carries drift terms (a Langevin model for the
+velocity seen, with a Reynolds-stress-divergence term) and a separate near-wall model. UV-reactor
+papers found use Fluent's default DRW on k-epsilon with wall functions, calibrated against
+biodosimetry; none found resolves the sublayer for tracking or reports near-sleeve accumulation,
+so they say nothing about y+ ~ 0.3. Literature on the residual: Wilson, Legg & Thomson (1983,
+BLM 27) -- drift-corrected chains are well mixed only when the eddy is short on the scale of the
+variance gradient; Mofakham & Ahmadi (2020, J. Fluids Eng. 142, 101401; the figures here are
+the survey's reading of the full text, only the abstract was checked) -- the DRW in an
+OpenFOAM channel puts tracers at 244x uniform at the wall, a velocity-gradient drift alone
+leaves it non-uniform, and they add a time-scale-gradient drift term (its sign relative to the
+`sigma^2 grad tau` half of grad K was NOT checked; dropping that half fails `doseWellMixed`).
+Wilson & Sawford (1996) give the random displacement model as the diffusion limit of the
+well-mixed Langevin model. ⚠️ DNS puts the near-wall Lagrangian time scale at tau_L+ ~ 10 for
+y+ <= 5 (the Kallio-Reeks fit as quoted from Bocksell & Loth 2006 and Dehbi 2008; NOT checked
+against those papers) -- ~25 ms in the Sozzi reactor at an assumed u_tau ~ 0.02 m/s (not measured) -- where
+SST's Cl/(Cmu omega) gives ~2 us at the sleeve: the sublayer K either model uses is set by
+SST's omega wall behaviour, not by near-wall physics.
+
+**Measured on the Sozzi reactor** (2026-10-01, SST flows of both meshes, 10,000 particles
+requested, seed 42, dtMax 5 ms, cflMax 0.5, maxTime 300 s, Cl 0.15, Cmu 0.09 reading omega;
+uvmesh = wall-resolved, 1,232,629 cells, 1 thread; snappy = the tutorial's wall-function mesh,
+3 threads; mean dose / log reduction at kInact 0.1 over escaped tracks; full table, stuck and
+occupancy breakdowns, and every run's code in `results.md` of the run directory
+`~/aquaflux-runs/sozzi_sst_dose_2026-10-01`, outside the repository):
+
+| | uvmesh line source | snappy line source | uvmesh DOM | snappy DOM |
+|---|---|---|---|---|
+| DRW uncorrected (659ec4a) | 682 / 2.00 | 61.8 / 1.56 | 1214 / 1.94 | 76.0 / 1.54 |
+| DRW wellMixed | 67.6 / 1.52 | 47.1 / 1.45 | 87.6 / 1.48 | 51.7 / 1.44 |
+| randomDisplacement | 45.5 / 1.49 | 46.3 / 1.46 | 49.4 / 1.47 | 50.4 / 1.46 |
+| randomDisplacement, dtMax 0.5 ms | 46.4 / 1.47 | | | |
+
+With `randomDisplacement` the two meshes agree (mean within 2 %, log reduction within 0.04);
+with the corrected DRW the wall-resolved mesh is still 44 % high in mean dose (eddy memory, below).
+Escaped tracks' time within 20 um of the sleeve (0.1 < x < 0.7 m; the shell is 0.021 % of the
+annulus): uncorrected 46.5 %, wellMixed 4.76 %, randomDisplacement 0.00 %. Residence p50 / p90:
+8.5 / 57 s uncorrected, 3.4 / 7.1 wellMixed, 3.3 / 5.9 randomDisplacement (snappy uncorrected
+3.1 / 8.7). ⚠️ **The correction moves the snappy baseline too** (line source 61.8 -> 47.1, log
+reduction 1.56 -> 1.45): the uncorrected walk over-occupied the lamp's neighbourhood on the
+wall-function mesh as well, just less. ⚠️ At dtMax 5 ms `randomDisplacement` still over-fills the
+20-200 um next to the uvmesh CHAMBER wall (4-17x uniform), where K rises ~200x within the first
+two cells: step-size bias -- at 0.5 ms it is 0.1-1.2x, and the log reduction moves 0.02. The
+step is bounded only by the cell size today; a step limit on K's own gradient length
+(dt <= c^2 K / 2|grad K|^2) was tried in the 1-D harness and NOT validated (the variable-step
+occupancy estimator used was itself biased), so it is not built. On a mesh resolved to the wall,
+use a dtMax of ~0.5 ms with this model, or check the result against one. (The tracks' near-wall
+analysis also showed the recorded "38 % within 20 um of the sleeve" excluded the particles on the
+faceted sleeve, r < 10 mm; with them it is 61 %.)
+
+**Known limits of the corrected walk** (all measured 2026-10-01):
+
+- ⚠️ **Eddy memory near a resolved wall.** The drift is the right Ito drift
+  for K, but it corrects the walk only to first order in the eddy length
+  over the length on which K varies, and near a wall that ratio is not
+  small: on the Sozzi uvmesh SST field (cells 0.3 < x < 0.5 m, profile
+  along the distance d from the sleeve) the eddy length sigma tau_e is
+  0.09 d at d = 0.3 mm, 0.29 d at 1.1 mm, 0.45 d at 3.6 mm. A held eddy
+  carries a particle through the buffer layer into the sublayer and can
+  expire there. A 1-D run of the same algorithm on that profile (sleeve
+  wall at d = 0 with k = 0 as kLowReWallFunction gives, reflecting wall
+  at 20 mm, uniform start, 10,000 particles, snapshots every 10 ms over
+  the second half of 6 s; `drw_wall_profile_1d.py` and
+  `case/sleeve_profile_x0.3-0.5.txt` in the run directory
+  `~/aquaflux-runs/sozzi_sst_dose_2026-10-01`, OUTSIDE the repository)
+  gives occupancy within 20 um of the sleeve of 21.0x uniform at
+  dt = 5 ms, 15.6x at 0.5 ms and 16.4x at 0.05 ms (2.9, 2.7, 2.6x within
+  1 mm): it does not go away with dt. The uncorrected walk: 831x (18x
+  within 1 mm). The pure Ito walk with the SAME K
+  (`dx = K' dt + sqrt(2K dt) xi`, no eddy memory): 1.41x / 1.30x within
+  20 um at dt = 0.5 / 0.05 ms, 1.02 / 1.01x within 1 mm. So the remaining
+  excess is the eddy memory, not the drift or K. The test cases cannot
+  see it: their near-wall eddies are microns long against millimetres of
+  K gradient. `randomDisplacement` is that Ito walk; prefer it on a mesh
+  resolved to the wall (Sozzi table above).
+- **Drift into a wall where K is largest at the wall.** The drift points
+  up the K gradient; where K peaks at a wall, slow eddies (|u'| < u_d)
+  are pinned against it for their lifetime -- a closed box with k largest
+  on one wall put 1.22x in that wall's cell (40,000 particles, which is why
+  `doseWellMixed` uses a profile flat at that wall). Real no-slip walls
+  have K -> 0, but a wall function need not: on the Sozzi uvmesh the
+  end walls (`bodyWall`) have k on the face above the cell value (median
+  1.5x, omegaWallFunction keeps omega face = cell), so K grows into the
+  wall there; the sleeve (`lamp0_wall`, k face ~ 0) does not.
+
 ### Integration kernel — barycentric tet tracking
 
 Particles are subclasses of `Foam::particle` (`dosePathParticle`,
@@ -1624,8 +1818,11 @@ duration `dtMax` (CFL-bounded against the local cell size), with the
 inner loop driven by `trackToAndHitFace`:
 
 ```
-V = U(coordinates, tetIs) + dispersion.fluctuation(state, x, celli, dt, rng)
+dispersion.beginStep(state, coordinates, tetIs, dtMax, rng)   # draws for a step <= dtMax
+V = U(coordinates, tetIs) + dispersion.fluctuation(state, dtMax)
 dt = min(dtMax, cflMax * cbrt(V_cell) / |V|)
+if dt < dtMax: V = U + dispersion.fluctuation(state, dt)      # same draws, shorter step
+dispersion.endStep(state, dt)                                  # age the eddy by dt
 reset(0)                              # stepFraction tracks 0->1 over this dt
 
 while stepFraction < 1 and active:
@@ -1640,7 +1837,13 @@ while stepFraction < 1 and active:
 Patch interactions are dispatched by OF's `hitFace`. We override:
 - `hitWallPatch`: specular reflection `V -= 2*(V·n)*n`. The particle
   stays on the boundary face and the inner loop continues with the
-  reflected V_ for the remaining time budget.
+  reflected V_ for the remaining time budget. It also calls
+  `dispersion.reflect(state, n)`, so the eddy velocity the walk
+  carries into the next step is mirrored too (the well-mixed DRW does
+  this; without it an eddy aimed at the wall keeps pressing the
+  particle against it until it expires: with the reflection removed,
+  `tests/doseWellMixed` measures a 2 mm band next to a wall at 1.60
+  of uniform). Empty patches (`hitBasicPatch`) do the same.
 - `hitBasicPatch`: marks `endReason::escaped` if the patch is in
   `escapePatchIDs_`, else `stuck`. We deliberately do NOT call the
   base-class `hitBasicPatch`, which would set `keepParticle=false`
@@ -2283,10 +2486,66 @@ radiationDose:
   epsilon = Cmu k omega and both lifetimes, 0.15 s, are exact in
   floating point). The validate script asserts every track escapes
   in both, the two `doseDistribution.csv` files agree track for
-  track (measured: identical, worst relative difference 0), and the
-  doses spread (6.7 % relative), so the agreement is not two
-  deterministic runs agreeing. Hard-coding Cmu = 0.09 or putting
-  Cl k / omega on the omega branch each fails it.
+  track (measured: identical, worst relative difference 0, with the
+  well-mixed walk, the default since 2026-10-01; and with the
+  uncorrected one before it), and the doses spread (8.0 % relative
+  with the well-mixed walk, 6.7 % uncorrected), so the agreement is
+  not two deterministic runs agreeing. Hard-coding Cmu = 0.09 or
+  putting Cl k / omega on the omega branch each fails it (checked on
+  the uncorrected walk). The fields are uniform, so the drift is zero
+  and the two walks differ only in eddy accounting.
+- **`doseRandomWalkDiffusivity`** — the DRW's diffusivity against the
+  closed form. In homogeneous turbulence eddies held for tau_e give a
+  mean-square displacement per component of exactly
+  `sigma^2 tau_e T = 2 K T` after a whole number of eddies, whatever the
+  step. 2000 particles from the centre of a closed 200 mm cube (5 mm
+  cells, U = 0, k = 0.03, sigma^2 = 0.02), T = 1 s, dtMax 5 ms,
+  cflMax 0.1, four instances from one seed: tau_e = 0.1 ms (50 eddies a
+  step) and 50 ms (CFL shortens most steps), each corrected and
+  uncorrected. Validate: corrected within 8 % of 2KT (standard error
+  1.8 %) with no mean drift; uncorrected short > 5x, uncorrected long
+  < 0.6x (controls). Measured 2026-10-01: corrected 1.010 and 1.015;
+  uncorrected 15.6 (CFL-shortened steps) and 0.314 (eddies aged by
+  dtMax). With CFL off (cflMax 10, not the shipped setting): corrected
+  1.010 / 0.991, uncorrected 50.8 / 0.993. ~1 s. Mutation-checked: no
+  exact eddy accounting fails it (15.7x), redrawing unused draws fails
+  it (0.756); the drift, the drift's grad(tau) half, the reflection and
+  the tet gradient do not (uniform fields), which is what
+  `doseWellMixed` is for. Two more instances run `randomDisplacement`
+  with the same K (short, and long with cflMax 0.4 so its step limit
+  binds at 4 ms): measured 1.017 and 1.018. A CFL bound that sees its
+  random draw fails it (0.799), as does half the noise (0.51).
+- **`doseWellMixed`** — the well-mixed condition. A closed box,
+  40 x 100 x 20 mm of 2 mm cubes, U = 0, walls all round. With
+  s = y/H and f = (1 - (1 - s)^2)^2: k = 0.03 f (zero on the wall
+  y = 0, flat at y = H) and tau_e = 0.05 f + 1e-4 s, given as omega,
+  so K falls as y^4 towards y = 0 like a viscous sublayer and tau_e
+  crosses the 5 ms step near y = 17 mm (`makeFields`). 5000 particles
+  seeded uniformly, walked 10 s, corrected and uncorrected from one
+  seed. dtMax 5 ms with cflMax 2, so CFL never shortens a step and the
+  vertices recorded every 100 steps are snapshots at common times
+  (with CFL binding they are not: steps are shorter where sigma is
+  large, and a per-step sample over-weights those regions -- it read
+  1.59x at the top of this box for a walk that is uniform). Not end
+  points either: a timed-out track stops at the end of the segment in
+  which maxTime falls, a face or wall crossing, so end points sit on
+  faces (16-37 % of them, measured). Validate (vertices from 5 s on):
+  the corrected walk moved the particles (mean |dy| > 10 mm), and is
+  uniform to 12 % in ten 10 mm bands of y and in x and z, and to 25 %
+  in the 4 mm next to the low-k wall; the uncorrected walk's low-k
+  quarter holds > 1.5x its share (control). Measured 2026-10-01: bands
+  0.973-1.057, wall 1.034, x 0.976-1.026, z 0.966-1.040, |dy| 21.8 mm;
+  uncorrected low-k quarter 2.13x, band up to 2.70x. With 40,000
+  particles the corrected walk's 2 mm cells are all within 0.952-1.037.
+  ~4 s. Mutation-checked: no drift (2.66x in a band), the
+  `tau grad(sigma^2)` drift without its grad(tau) half (1.74x), no eddy
+  reflection (z wall band 1.60x), a wrong tet gradient (1.44x) each
+  fail it; no exact accounting (wall 1.24) and the redraw bias pass it,
+  which is what `doseRandomWalkDiffusivity` is for. A third instance
+  runs `randomDisplacement` with the same K and is held to the same
+  checks: measured bands 0.970-1.024, wall 1.031, x 0.963-1.041,
+  z 0.960-1.035, |dy| 21.7 mm. Without its drift it fails (1.58x in a
+  band), as does half its noise (0.72 off). ~6 s with all three.
 - **`doseSmokeBox`** — 1 m × 0.1 m × 0.1 m box with uniform
   `U = (0.5, 0, 0)` m/s, slip walls, uniform `G = 10` W/m². Slip
   walls keep the cell-vertex-interpolated velocity equal to the
@@ -2568,7 +2827,16 @@ mesh tooling:
   over its last 500 iterations. The doses below are on the flow at
   iteration 2400 (the last written), 9,998 particles seeded on this
   mesh's inlet, all escaped, the tracker on 3 OpenMP threads (its
-  random walk depends on the count). With realizable k-ε the tutorials
+  random walk depends on the count). ⚠️ They were measured with the
+  UNCORRECTED discrete random walk (OOR 659ec4a, before `wellMixed`
+  existed; `wellMixed false` reproduces it). With the well-mixed walk,
+  now the default, the same flow and seeds give line source 47.1 /
+  1.447 and DOM 51.7 / 1.442; with `randomDisplacement` 46.3 / 1.457
+  and 50.4 / 1.462 (2026-10-01, the run directory
+  `~/aquaflux-runs/sozzi_sst_dose_2026-10-01`, outside the repository,
+  `results.md`). **The DOM tutorial's validate band below (mean
+  [55, 85]) does not hold for either**; the tutorials still name
+  `discreteRandomWalk`, so they now run the corrected walk. With realizable k-ε the tutorials
   instead stopped on `residualControl` at iteration ~1290, and moved to
   SST because, on a mesh resolved to the lamp wall, realizable k-ε
   would not settle near the lamp and SST did.
@@ -2724,7 +2992,31 @@ real driver case ever calls for it.
    summary statistics over a rolling cohort vs. cumulative
    CSV growth); pick them up against a real driver case.
 
-5. **Restart for unsteady mode.** The persistent cloud lives
+5. **Particles stranded at non-conformal couplings.** On the uvmesh Sozzi mesh particles get
+   `stuck` on the lamp-layer and chamber-layer seams (r ~ 22 and 36.5 mm), in proportion to the
+   number of seam crossings: 423 of 9,987 with `randomDisplacement` at dtMax 5 ms, 870 at 0.5 ms
+   (~9 %, median 1.7 s into the track), 299 with the corrected DRW, ~0 on a conformal mesh. They
+   drop out of the dose statistics mid-flight, so they bias the escaped population. A tracker
+   issue (hitBasicPatch on a coupling's original or error faces), independent of the dispersion
+   model; measured 2026-10-01 (run directory `results.md`).
+
+6. **Back-diffusion through the inlet.** A particle seeded on the inflow patch whose first
+   `randomDisplacement` step points out through it is marked `stuck` (the inlet is neither a wall
+   nor an escape patch): 115 of 9,998 on the snappy Sozzi mesh, 58 on the uvmesh, all at t = 0.
+   They are a random subset of the seeds, so the escaped doses are not biased, but the count is
+   lost. Reflecting at non-escape inflow patches (or seeding a small distance inside) would fix it.
+
+7. **Near-wall eddy time scale.** SST's Cl/(Cmu omega) gives tau_e ~ 2 us at the Sozzi sleeve,
+   where DNS fits put the Lagrangian time scale at tau_L+ ~ 10 (~25 ms at an assumed
+   u_tau ~ 0.02 m/s; the fit is quoted second-hand, see "Well-mixed discrete random walk"). Both
+   walks therefore take their sublayer K from SST's omega wall behaviour. A DNS-fitted near-wall
+   tau_L would change the sublayer diffusivity, not the well-mixedness.
+
+8. **Which walk the tutorials use.** `uvReactorSozzi2006*` and `uvChannelChiu1999*` name
+   `discreteRandomWalk`, so they now run the corrected walk; the Sozzi DOM tutorial's validate band
+   (mean [55, 85]) does not hold for it (51.7 measured). Choose the model and re-measure the bands.
+
+9. **Restart for unsteady mode.** The persistent cloud lives
    only in memory today. A run that hits its endTime, writes
    the CSV/VTK, then is restarted with a later endTime would
    re-seed from scratch (the FatalError in

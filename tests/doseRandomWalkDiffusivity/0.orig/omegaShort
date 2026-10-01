@@ -1,0 +1,20 @@
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    object      omegaShort;
+}
+
+dimensions      [0 0 -1 0 0 0 0];
+
+// Homogeneous, giving the eddy lifetime Cl / (Cmu omega) = 0.1 ms
+// (Cl 0.15, Cmu 0.09).
+internalField   uniform 16666.666666666667;
+
+boundaryField
+{
+    ".*"
+    {
+        type            zeroGradient;
+    }
+}

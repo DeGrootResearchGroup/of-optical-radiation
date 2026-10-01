@@ -12,7 +12,9 @@ seedingModels/pointInjection/pointInjection.C
 dispersionModels/dispersionModel/dispersionModel.C
 dispersionModels/dispersionModel/newDispersionModel.C
 dispersionModels/noDispersion/noDispersion.C
+dispersionModels/eddyDiffusivity/eddyDiffusivity.C
 dispersionModels/discreteRandomWalk/discreteRandomWalk.C
+dispersionModels/randomDisplacement/randomDisplacement.C
 
 motionModels/motionModel/motionModel.C
 motionModels/motionModel/newMotionModel.C

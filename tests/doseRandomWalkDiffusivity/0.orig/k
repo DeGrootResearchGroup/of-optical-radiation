@@ -1,0 +1,19 @@
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    object      k;
+}
+
+dimensions      [0 2 -2 0 0 0 0];
+
+// Homogeneous: sigma^2 = 2k/3 = 0.02 m^2/s^2 per component.
+internalField   uniform 0.03;
+
+boundaryField
+{
+    ".*"
+    {
+        type            zeroGradient;
+    }
+}
