@@ -1,0 +1,76 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: threaded tracking across a
+   \\    /   O peration     | nonConformalCyclic coupling
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     postProcess;
+
+startTime       0;
+endTime         0;
+deltaT          1;
+
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+
+writeFormat     ascii;
+writePrecision  8;
+
+functions
+{
+    radiationDose
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+
+        U               U;
+        fluenceRate     G;
+        seed            42;
+
+        // Every particle starts on the inlet and moves at the same
+        // speed, so all of them reach the coupling in the same outer
+        // step -- every thread makes its first crossing at once.
+        seeding
+        {
+            type        patchInjection;
+            patches     (inlet);
+            nParticles  2000;
+        }
+
+        dispersion
+        {
+            type        none;
+        }
+
+        termination
+        {
+            escapePatches   (outlet);
+            maxTime         10;
+            maxDose         0;
+        }
+
+        integration
+        {
+            dtMax           0.05;
+            cflMax          0.5;
+        }
+
+        output
+        {
+            kInact          (0.1);
+            writeVtk        false;
+        }
+    }
+}
+
+// ************************************************************************* //

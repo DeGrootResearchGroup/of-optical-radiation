@@ -1,0 +1,96 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: threaded tracking across a
+   \\    /   O peration     | nonConformalCyclic coupling
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// The doseSmokeBox channel (1 m x 0.1 m x 0.1 m) split into two blocks
+// at x = 0.5. The blocks have DIFFERENT y-z discretisations (16x16 on
+// the left, 21x21 on the right), so the AMI_L / AMI_R interface cannot
+// be matched face to face. Allrun fuses the pair into a
+// nonConformalCyclic coupling with createNonConformalCouples, which is
+// the coupling every particle has to cross on its way to the outlet.
+
+convertToMeters 1;
+
+vertices
+(
+    // Left block, x in [0, 0.5]
+    (0    0   0)        // 0
+    (0.5  0   0)        // 1
+    (0.5  0.1 0)        // 2
+    (0    0.1 0)        // 3
+    (0    0   0.1)      // 4
+    (0.5  0   0.1)      // 5
+    (0.5  0.1 0.1)      // 6
+    (0    0.1 0.1)      // 7
+    // Right block, x in [0.5, 1]
+    (0.5  0   0)        // 8
+    (1    0   0)        // 9
+    (1    0.1 0)        // 10
+    (0.5  0.1 0)        // 11
+    (0.5  0   0.1)      // 12
+    (1    0   0.1)      // 13
+    (1    0.1 0.1)      // 14
+    (0.5  0.1 0.1)      // 15
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7)       (10 16 16) simpleGrading (1 1 1)
+    hex (8 9 10 11 12 13 14 15) (10 21 21) simpleGrading (1 1 1)
+);
+
+edges ();
+
+boundary
+(
+    inlet
+    {
+        type patch;
+        faces ((0 4 7 3));
+    }
+    outlet
+    {
+        type patch;
+        faces ((9 10 14 13));
+    }
+    walls
+    {
+        type wall;
+        faces
+        (
+            (0 1 5 4)
+            (3 7 6 2)
+            (0 3 2 1)
+            (4 5 6 7)
+            (8 9 13 12)
+            (11 15 14 10)
+            (8 11 10 9)
+            (12 13 14 15)
+        );
+    }
+    AMI_L
+    {
+        type patch;
+        faces ((1 2 6 5));
+    }
+    AMI_R
+    {
+        type patch;
+        faces ((8 12 15 11));
+    }
+);
+
+mergePatchPairs ();
+
+// ************************************************************************* //

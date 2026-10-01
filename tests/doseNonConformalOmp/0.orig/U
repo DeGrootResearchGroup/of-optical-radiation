@@ -1,0 +1,50 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: threaded tracking across a
+   \\    /   O peration     | nonConformalCyclic coupling
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volVectorField;
+    object      U;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 1 -1 0 0 0 0];
+
+// Uniform plug flow inlet -> outlet; slip walls keep the cell-point
+// interpolated velocity equal to the bulk value everywhere.
+internalField   uniform (0.5 0 0);
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        value           uniform (0.5 0 0);
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    walls
+    {
+        type            slip;
+    }
+    // AMI_L and AMI_R start as ordinary patches from blockMesh.
+    // createNonConformalCouples -fields rewrites them in place to
+    // nonConformalCyclic.
+    AMI_L
+    {
+        type            zeroGradient;
+    }
+    AMI_R
+    {
+        type            zeroGradient;
+    }
+}
+
+// ************************************************************************* //
