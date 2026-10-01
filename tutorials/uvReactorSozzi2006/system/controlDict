@@ -24,9 +24,9 @@ startFrom       latestTime;
 startTime       0;
 
 // residualControl in fvSolution stops the run once its thresholds are
-// met (iteration ~1290 on the level-3 mesh); this endTime is only the
-// safety cap, set well past that so a finer mesh whose residuals level
-// off more slowly is not cut short.
+// met. With realizable k-epsilon that was iteration ~1290 on the level-3
+// mesh; with k-omega SST the residuals level off above the thresholds
+// and the run stops here, at endTime (see fvSolution).
 stopAt          endTime;
 endTime         2500;
 

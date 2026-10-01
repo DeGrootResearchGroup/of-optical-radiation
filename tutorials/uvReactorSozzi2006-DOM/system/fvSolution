@@ -83,15 +83,17 @@ PIMPLE
     // set by the pipe and annulus losses and settles (to ~0.3%) long
     // before the recirculation and turbulence near the lamp do, and the
     // dose tracker's random walk reads k and omega directly. Measured
-    // with realizable k-epsilon (before the move to SST)
-    // on this mesh (1.64M cells, 8 ranks), the mean dose rose 9% between
-    // iterations 514 and 750 while the pressure drop moved 0.35%, and
-    // settled to within 0.5% by ~1250. So the thresholds are set where
-    // the dose has settled: they are first met at iteration ~1290, with
-    // k the last to cross. The residuals level off there (U near 3.5e-4,
-    // p near 8.5e-4, epsilon near 6e-5, k still falling slowly through
-    // 1e-4), so much tighter values would never be met and the run
-    // would stop on endTime instead.
+    // with realizable k-epsilon (before the move to SST) on this mesh
+    // (1.64M cells, 8 ranks), the mean dose rose 9% between iterations
+    // 514 and 750 while the pressure drop moved 0.35%, and settled to
+    // within 0.5% by ~1250; these thresholds were first met at ~1290,
+    // with k the last to cross.
+    //
+    // With k-omega SST on the same mesh (8 ranks) they are NOT met: the
+    // first-solve residuals level off from about iteration 2000 (Uy near
+    // 1.3e-3, p near 2.8e-3, k near 2.3e-4, omega near 1e-4) and the run
+    // stops on endTime. Over its last 500 iterations the inlet pressure
+    // stayed within 0.5% (44.72-44.93 m^2/s^2).
     residualControl
     {
         U               5e-4;
