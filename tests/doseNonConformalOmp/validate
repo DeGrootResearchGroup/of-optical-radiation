@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Threaded dose tracking across a nonConformalCyclic coupling.
+
+The doseSmokeBox channel is split at x = 0.5 into two blocks whose
+y-z grids do not match, joined by a nonConformalCyclic coupling.
+Uniform U = (0.5, 0, 0) m/s with slip walls and uniform G = 10 W/m^2
+means every particle crosses the coupling, escapes after L/U = 2 s
+and carries dose G * t * 0.1 = 2.0 mJ/cm^2. Tracking runs with
+OMP_NUM_THREADS = 4.
+
+The coupling's ray-casting engine is built on first use. All particles
+reach the coupling in the same outer step, so if it is still unbuilt
+when the threaded loop starts, every thread builds it at once: the run
+then either crashes (heap corruption, or an abort in autoPtr::set) or
+logs one "couplings calculated" line per thread. This script checks:
+
+  1. log.foamPostProcess reports more than one OpenMP thread, so the
+     threaded path is the one under test.
+  2. The coupling's rays were built exactly once during tracking.
+  3. summary.dat: every particle escaped (none stuck on the coupling)
+     with dose 2.0 mJ/cm^2.
+"""
+
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "lib"))
+from foam_field import find_latest_time, parse_summary
+
+
+def main():
+    failures = []
+
+    log_path = os.path.join(HERE, "log.foamPostProcess")
+    with open(log_path) as f:
+        log = f.read()
+
+    m = re.search(r"radiationDose: tracking on (\d+) OpenMP thread", log)
+    n_threads = int(m.group(1)) if m else None
+    print(f"validate: OpenMP threads = {n_threads}")
+    if n_threads is None or n_threads < 2:
+        failures.append(
+            f"tracking ran on {n_threads} thread(s); the case needs > 1"
+        )
+
+    # Everything logged from "integrating..." on belongs to tracking;
+    # the couplings computed earlier are the mesh stitcher's.
+    marker = "radiationDose: integrating..."
+    tracking_log = log[log.find(marker):] if marker in log else ""
+    n_builds = tracking_log.count("couplings calculated")
+    print(f"validate: ray builds during tracking = {n_builds} (expected 1)")
+    if n_builds != 1:
+        failures.append(
+            f"coupling rays built {n_builds} times during tracking"
+            f" (expected exactly 1, before the threaded loop)"
+        )
+
+    base = os.path.join(HERE, "postProcessing", "radiationDose")
+    latest = find_latest_time(base)
+    summary = os.path.join(latest, "summary.dat") if latest else None
+    if summary is None or not os.path.isfile(summary):
+        failures.append("summary.dat not found")
+    else:
+        data = parse_summary(summary)
+        n_seeded = int(data.get("totalSeeded", 0))
+        n_escaped = int(data.get("escaped", 0))
+        mean = data.get("meanDose_mJcm2")
+        stdev = data.get("stdevDose_mJcm2")
+        print(f"validate: seeded    = {n_seeded}")
+        print(f"validate: escaped   = {n_escaped}")
+        print(f"validate: meanDose  = {mean} mJ/cm^2 (analytical = 2.0)")
+        print(f"validate: stdevDose = {stdev} mJ/cm^2")
+        if n_seeded < 1 or n_escaped != n_seeded:
+            failures.append(
+                f"escaped {n_escaped} != seeded {n_seeded}"
+                f" (plug flow should carry every particle across"
+                f" the coupling to the outlet)"
+            )
+        if mean is None or abs(mean - 2.0) > 1e-3:
+            failures.append(f"meanDose {mean} != 2.0 +/- 1e-3")
+        if stdev is None or stdev > 1e-6:
+            failures.append(f"stdevDose {stdev} > 1e-6")
+
+    if failures:
+        print("\nFAIL:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+
+    print("\nPASS: threaded tracking crosses the nonConformalCyclic coupling")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

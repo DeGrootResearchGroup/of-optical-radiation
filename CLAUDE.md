@@ -299,7 +299,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Thirty-one regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Thirty-three regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -1757,6 +1757,56 @@ For each `execute()` call, `write()` emits:
    OMP-only (single-rank). OMP-within-MPI is a future
    optimisation gated on a real driver case.
 
+   **The threaded loop may only READ mesh data, so everything
+   OpenFOAM builds on first use is built before it.** OpenFOAM's
+   demand-driven mesh data (`autoPtr`/`PtrList` members filled on
+   first access, lazily resolved patch names) has no locking: two
+   threads that reach an unbuilt item together both construct it.
+   `dosePathCloud::buildDemandDrivenMeshData()` builds, single-
+   threaded, everything the tracking path reads, and
+   `buildOmpState` calls it at the start of every
+   `runToCompletion` / `runForDuration` (each item is cached, so
+   repeat calls cost nothing; after a mesh motion the rays are
+   rebuilt there, not in the loop). It covers `tetBasePtIs`,
+   `cells`, cell/face centres, volumes and areas; `nbrPatchIndex()`
+   on every `cyclicPolyPatch` (it writes the `nbrPatchName_`
+   `word` on first use, so plain conformal cyclics were exposed
+   too); and, per `nonConformalCyclicPolyPatch`, `origPatchIndex()`
+   plus `rays()` on the owner side -- which also registers the
+   mesh's `nonConformalBoundary` object (a registry insert, racing
+   the DRW model's `lookupObject`) and builds its point normals.
+   Once built, `nonConformalCyclicPolyPatch::ray()` /
+   `patchToPatches::rays::ray()` only read (each call copies the
+   patch into a thread-local `primitiveOldTimePatch`).
+   Before this, a uvmesh mesh (whose matryoshka layers are joined by
+   `nonConformalCyclic` couplings) aborted under threading. Observed
+   2026-10-01: Sozzi uvmesh mesh, 1,232,629 cells, case
+   `~/aquaflux-runs/sozzi_sst_dose_2026-10-01/case/uv_arc`, flow
+   time 2059, `oor:gmsh48` image, `foamPostProcess -dict
+   system/postProcess.dict -time 2059`, `OMP_NUM_THREADS=3`:
+   `FOAM FATAL ERROR: object of type ...Field<Vector<double>>
+   already allocated` from `autoPtr::set`, under
+   `nonConformalBoundary::ownerOrigBoundaryPointNormals0()` <-
+   `nonConformalCyclicPolyPatch::rays()` <- `particle::hitFace` <-
+   `dosePathCloud::moveOmpStep`. Reproduced on
+   `tests/doseNonConformalOmp` (OF 13, `oor:gmsh48`, aarch64,
+   `OMP_NUM_THREADS=4`, 2003 particles): without the fix 2 of 12
+   runs crashed (one `SIGSEGV`, one `malloc(): unaligned tcache
+   chunk detected`) and all 12 built the coupling's rays 3-4 times
+   concurrently -- the build count, not the crash, is what makes
+   the test fail reliably (5/5 with the call disabled); with the
+   fix 12/12 runs built them once and passed. On a copy of the
+   Sozzi case above (same dict: DRW with `omega`, 9987 particles,
+   `OMP_NUM_THREADS=3`; library = this fix on the commit that taught
+   DRW to read omega): with the `buildDemandDrivenMeshData()` call
+   disabled 3/3 runs aborted with the trace above; with it 2/2
+   completed identically (9763 escaped, 223 stuck, 1 timed out, mean
+   escaped dose 694.93 mJ/cm^2; the serial run on the same case gave
+   9748 / 239 / 0 -- the per-particle draws depend on thread count).
+   **Any new code on
+   the tracking path that touches a demand-driven OpenFOAM
+   structure must add it to `buildDemandDrivenMeshData()`.**
+
 2. **Termination model is not an RTS family.** The three soft
    stops (escapePatches, maxTime, maxDose) live as plain data on
    the cloud. Promote to a full RTS family if a real case needs
@@ -2080,7 +2130,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Thirty-one cases.
+  Thirty-three cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -2402,6 +2452,20 @@ radiationDose:
   exercises the collective batch loop in `execute()` (every rank
   must enter every batch in lockstep so the Cloud constructor's
   `MPI_Alltoall` doesn't deadlock when the local seed count is 0).
+- **`doseNonConformalOmp`** — `doseSmokeBox` channel split at
+  x = 0.5 into two blocks with mismatched y-z grids (16x16 vs
+  21x21), fused by `createNonConformalCouples` into a
+  `nonConformalCyclic` coupling, tracked with `OMP_NUM_THREADS=4`.
+  2003 plug-flow particles all reach the coupling in the same outer
+  step, so each thread makes its first crossing at once. Validate
+  asserts > 1 thread was used (the `tracking on N OpenMP thread(s)`
+  log line), that the coupling's rays were built exactly once during
+  tracking (one `couplings calculated` line after
+  `radiationDose: integrating...`), 100 % escape (none stuck on the
+  coupling) and dose = 2.0 mJ/cm². Regression guard for
+  `dosePathCloud::buildDemandDrivenMeshData()`: with that call
+  removed the rays are built once per thread, and the run sometimes
+  crashes.
 
 mesh tooling:
 
