@@ -1,0 +1,86 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: well-mixed random walk
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+
+application     postProcess;
+startTime       0;
+endTime         0;
+deltaT          1;
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  8;
+
+// The well-mixed condition: particles spread uniformly through a closed box
+// with no mean flow must stay uniform, however the turbulence varies. k rises
+// from zero on the wall y = 0 and the eddy lifetime with it (makeFields), so
+// the walk's diffusivity K = k tau_e / 3 falls as y^4 towards that wall, as it
+// does in a viscous sublayer, and is flat at y = H. The lifetime crosses the
+// 5 ms step near y = 17 mm: several eddies per step below it, eddies spanning
+// many steps above. cflMax 2 keeps the CFL bound from shortening any step, so
+// the vertices recorded every 100 steps are snapshots at common times. The
+// same walk runs twice from the same seed: once corrected (wellMixed, the
+// default) and once uncorrected, and the random displacement model with the
+// same K once. `validate` checks the corrected walk and the random
+// displacement model stay uniform and the uncorrected walk piles particles up
+// on the low-k side.
+
+drw
+{
+    type        discreteRandomWalk;
+    k           k;
+    omega       omega;
+    Cmu         0.09;
+    Cl          0.15;
+}
+
+wellMixedDrw
+{
+    type            radiationDose;
+    libs            ("libradiationDose.so");
+    U               U;
+    fluenceRate     G;
+    seed            11;
+    seeding
+    {
+        type        pointInjection;
+        nParticles  5000;
+        region      { type box; centre (0.02 0.05 0.01); size (0.04 0.1 0.02); }
+    }
+    termination     { escapePatches (); maxTime 10; maxDose 0; wallReflection true; }
+    integration     { dtMax 0.005; cflMax 2; }
+    // Only the seed and the end of each track: validate reads both.
+    output          { kInact (0.1); writeVtk true; trajectoryStride 100; }
+}
+
+functions
+{
+    wellMixed
+    {
+        $wellMixedDrw;
+        dispersion  { $drw; wellMixed true; }
+    }
+    uncorrected
+    {
+        $wellMixedDrw;
+        dispersion  { $drw; wellMixed false; }
+    }
+    randomDisplacement
+    {
+        $wellMixedDrw;
+        dispersion  { $drw; type randomDisplacement; }
+    }
+}
+
+// ************************************************************************* //

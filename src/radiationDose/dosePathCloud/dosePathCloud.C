@@ -8,6 +8,8 @@
 
 #include "dosePathCloud.H"
 #include "Pstream.H"
+#include "cyclicPolyPatch.H"
+#include "nonConformalCyclicPolyPatch.H"
 
 #include <vector>
 
@@ -110,6 +112,8 @@ void Foam::dose::dosePathCloud::buildOmpState
     std::vector<randomGenerator>& threadRngs
 )
 {
+    buildDemandDrivenMeshData();
+
     particles.clear();
     particles.reserve(this->size());
     forAllIter
@@ -136,6 +140,47 @@ void Foam::dose::dosePathCloud::buildOmpState
     {
         const label seed = label(parentRng.scalar01()*1.0e9);
         threadRngs.emplace_back(randomGenerator::seed(seed));
+    }
+}
+
+
+void Foam::dose::dosePathCloud::buildDemandDrivenMeshData() const
+{
+    // Read on every step: tetIndices and the tracking kernel use the
+    // tet base points, the cell centres and the cell-face addressing;
+    // move() uses the cell volumes for its CFL bound. The face
+    // geometry is built together with the cell geometry.
+    mesh_.tetBasePtIs();
+    mesh_.cells();
+    mesh_.cellCentres();
+    mesh_.cellVolumes();
+    mesh_.faceCentres();
+    mesh_.faceAreas();
+
+    const polyBoundaryMesh& pbm = mesh_.boundaryMesh();
+    forAll(pbm, patchi)
+    {
+        // A cyclic (conformal or not) resolves its neighbour's name
+        // and index on first use; crossing it looks both up.
+        if (isA<cyclicPolyPatch>(pbm[patchi]))
+        {
+            refCast<const cyclicPolyPatch>(pbm[patchi]).nbrPatchIndex();
+        }
+
+        if (isA<nonConformalCyclicPolyPatch>(pbm[patchi]))
+        {
+            const nonConformalCyclicPolyPatch& nccpp =
+                refCast<const nonConformalCyclicPolyPatch>(pbm[patchi]);
+
+            nccpp.origPatchIndex();
+
+            // Only the owner side holds the rays; ray() on the
+            // neighbour side delegates to them.
+            if (nccpp.owner())
+            {
+                nccpp.rays();
+            }
+        }
     }
 }
 
@@ -180,6 +225,9 @@ Foam::label Foam::dose::dosePathCloud::runToCompletion
 
     if (useOmp)
     {
+        Info<< "radiationDose: tracking on " << nThreads
+            << " OpenMP thread(s)" << endl;
+
         buildOmpState(nThreads, parentRng, particles, threadRngs);
 
         // trackingData has reference members; reserve+emplace_back

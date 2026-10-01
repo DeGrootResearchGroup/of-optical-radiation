@@ -262,11 +262,13 @@ public:
             );
 
             //- Build the per-thread RNGs and the particle pointer
-            //  snapshot used by moveOmpStep, given a parent RNG.
-            //  Hoisted out so runToCompletion and runForDuration
-            //  share identical setup. Drawing per-thread seeds from
-            //  parentRng leaves the same sequence of parentRng
-            //  draws as the v0.4 baseline -- bit-for-bit reproducible.
+            //  snapshot used by moveOmpStep, given a parent RNG, and
+            //  build the mesh's demand-driven data first (see
+            //  buildDemandDrivenMeshData). Hoisted out so
+            //  runToCompletion and runForDuration share identical
+            //  setup. Drawing per-thread seeds from parentRng leaves
+            //  the same sequence of parentRng draws as the v0.4
+            //  baseline -- bit-for-bit reproducible.
             void buildOmpState
             (
                 const int nThreads,
@@ -274,6 +276,24 @@ public:
                 std::vector<dosePathParticle*>& particles,
                 std::vector<randomGenerator>& threadRngs
             );
+
+            //- Construct, single-threaded, every piece of demand-
+            //  driven mesh data that particle tracking reads, so the
+            //  threaded loop in moveOmpStep only ever reads it.
+            //  OpenFOAM builds these on first use with no locking;
+            //  two threads arriving at the same unbuilt item both
+            //  construct it, which corrupts the heap or aborts in
+            //  autoPtr::set. Covers the cell/tet geometry and
+            //  addressing every step uses, the lazily resolved
+            //  neighbour/original patch names of every cyclic patch,
+            //  and, for each nonConformalCyclic coupling, the
+            //  owner's ray-casting engine -- whose construction also
+            //  registers the mesh's nonConformalBoundary object and
+            //  builds its point normals. Each item is cached, so
+            //  calling this before every run costs nothing once
+            //  built; after a mesh motion invalidates the rays, the
+            //  next call rebuilds them here rather than in the loop.
+            void buildDemandDrivenMeshData() const;
 
 
     public:

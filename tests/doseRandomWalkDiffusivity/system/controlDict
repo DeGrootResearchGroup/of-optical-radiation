@@ -1,0 +1,108 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: random-walk diffusivity
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+
+application     postProcess;
+startTime       0;
+endTime         0;
+deltaT          1;
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  10;
+
+// In homogeneous turbulence a walk of eddies held for tau_e spreads
+// particles with the diffusivity K = sigma^2 tau_e / 2: after a time T that
+// is a whole number of eddies, the mean-square displacement per component is
+// exactly sigma^2 tau_e T = 2 K T, whatever the outer step. Two lifetimes,
+// each walked corrected (wellMixed) and uncorrected from the same seed:
+//
+//   short: tau_e = 0.1 ms, far below the 5 ms step, so a step holds 50
+//          eddies;
+//   long:  tau_e = 50 ms, spanning many steps, with cflMax 0.1 so the CFL
+//          bound shortens most steps below dtMax.
+//
+// `validate` checks the corrected walk realises 2 K T in both, and that the
+// uncorrected one does not; and the same of the random displacement model
+// (randomDisplacement), whose increments are Gaussian, so it realises 2 K T
+// at any T.
+
+drw
+{
+    type        discreteRandomWalk;
+    k           k;
+    Cmu         0.09;
+    Cl          0.15;
+}
+
+diffusivity
+{
+    type            radiationDose;
+    libs            ("libradiationDose.so");
+    U               U;
+    fluenceRate     G;
+    seed            5;
+    seeding
+    {
+        type        pointInjection;
+        nParticles  2000;
+        // A cell centre; the radius is negligible beside the spread.
+        region      { type sphere; centre (0.1025 0.1025 0.1025); radius 1e-5; }
+    }
+    termination     { escapePatches (); maxTime 1; maxDose 0; wallReflection true; }
+    integration     { dtMax 0.005; cflMax 0.1; }
+    output          { kInact (0.1); writeVtk false; }
+}
+
+functions
+{
+    shortWellMixed
+    {
+        $diffusivity;
+        dispersion  { $drw; omega omegaShort; wellMixed true; }
+    }
+    shortUncorrected
+    {
+        $diffusivity;
+        dispersion  { $drw; omega omegaShort; wellMixed false; }
+    }
+    longWellMixed
+    {
+        $diffusivity;
+        dispersion  { $drw; omega omegaLong; wellMixed true; }
+    }
+    longUncorrected
+    {
+        $diffusivity;
+        dispersion  { $drw; omega omegaLong; wellMixed false; }
+    }
+
+    // The random displacement model with the same K. In the long case
+    // cflMax 0.4 makes its own step limit, sqrt(2 K dt) <= cflMax x cell,
+    // bind (4 ms < dtMax); a CFL bound that saw the random draw would bind
+    // too, on the large draws, and under-spread.
+    shortRandomDisplacement
+    {
+        $diffusivity;
+        dispersion  { $drw; type randomDisplacement; omega omegaShort; }
+    }
+    longRandomDisplacement
+    {
+        $diffusivity;
+        integration { dtMax 0.005; cflMax 0.4; }
+        dispersion  { $drw; type randomDisplacement; omega omegaLong; }
+    }
+}
+
+// ************************************************************************* //

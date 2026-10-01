@@ -9,7 +9,6 @@
 #include "discreteRandomWalk.H"
 #include "addToRunTimeSelectionTable.H"
 #include "constants.H"
-#include "volFields.H"
 #include "gaussianSample.H"
 
 // * * * * * * * * * * * * * * * * Static Data * * * * * * * * * * * * * * * //
@@ -36,25 +35,6 @@ namespace dose
 }
 
 
-// * * * * * * * * * * * * * Static Member Functions * * * * * * * * * * * * //
-
-Foam::word Foam::dose::discreteRandomWalk::dissipationName
-(
-    const dictionary& dict
-)
-{
-    if (dict.found("omega") && dict.found("epsilon"))
-    {
-        FatalIOErrorInFunction(dict)
-            << "discreteRandomWalk: name either epsilon or omega, not both"
-            << exit(FatalIOError);
-    }
-    return dict.found("omega")
-        ? dict.lookup<word>("omega")
-        : dict.lookupOrDefault<word>("epsilon", "epsilon");
-}
-
-
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
 Foam::dose::discreteRandomWalk::discreteRandomWalk
@@ -64,49 +44,23 @@ Foam::dose::discreteRandomWalk::discreteRandomWalk
 )
 :
     dispersionModel(dict, mesh),
-    kName_(dict.lookupOrDefault<word>("k", "k")),
-    omega_(dict.found("omega")),
-    dissipationName_(dissipationName(dict)),
-    Cmu_(dict.lookupOrDefault<scalar>("Cmu", 0.09)),
-    Cl_(dict.lookupOrDefault<scalar>("Cl", 0.15)),
-    tauEMax_(dict.lookupOrDefault<scalar>("tauEMax", 100.0))
-{
-    if (Cmu_ <= 0)
-    {
-        FatalIOErrorInFunction(dict)
-            << "discreteRandomWalk: Cmu must be > 0, got " << Cmu_
-            << exit(FatalIOError);
-    }
-}
+    turbulence_(dict, mesh),
+    wellMixed_(dict.lookupOrDefault<Switch>("wellMixed", true))
+{}
 
 
-// * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
+// * * * * * * * * * * * * * Private Member Functions  * * * * * * * * * * * //
 
-Foam::vector Foam::dose::discreteRandomWalk::fluctuation
+void Foam::dose::discreteRandomWalk::beginStepUncorrected
 (
-    dispersionModel::State& state,
-    const vector& x,
+    DRWState& s,
     label celli,
-    scalar dt,
+    scalar dtMax,
     randomGenerator& rng
 ) const
 {
-    if (celli < 0)
-    {
-        return vector::zero;
-    }
-
-    const volScalarField& kField =
-        mesh_.lookupObject<volScalarField>(kName_);
-    const volScalarField& dissField =
-        mesh_.lookupObject<volScalarField>(dissipationName_);
-
-    const scalar kVal = max(kField[celli], scalar(0));
-    const scalar dissVal = max(dissField[celli], small);
-
-    // The track owns its own DRWState. No locking needed because each
-    // track is integrated by exactly one thread at a time.
-    DRWState& s = dynamic_cast<DRWState&>(state);
+    scalar kVal, tauE;
+    turbulence_.cell(celli, kVal, tauE);
 
     if (s.remaining <= 0 || kVal <= small)
     {
@@ -115,13 +69,167 @@ Foam::vector Foam::dose::discreteRandomWalk::fluctuation
         // isotropic-turbulence variance (Gosman-Ioannides 1981).
         const scalar sigma = sqrt(2.0/3.0*kVal);
         s.uPrime = sigma*gaussianTriple(rng);
-        // Cl k / epsilon, which with epsilon = Cmu k omega is Cl / (Cmu omega).
-        const scalar tauE = omega_ ? Cl_/(Cmu_*dissVal) : Cl_*kVal/dissVal;
-        s.remaining = min(tauE, tauEMax_);
+        s.remaining = tauE;
     }
 
-    s.remaining -= dt;
-    return s.uPrime;
+    s.remaining -= dtMax;
+}
+
+
+bool Foam::dose::discreteRandomWalk::newEddies
+(
+    const DRWState& s,
+    scalar dt,
+    scalar& m,
+    scalar& frac
+) const
+{
+    if (s.sigma <= 0 || s.tau <= vSmall)
+    {
+        return false;
+    }
+
+    const scalar tLeft = dt - max(s.remaining, scalar(0));
+    m = floor(tLeft/s.tau);
+    frac = max(tLeft - m*s.tau, scalar(0));
+    return true;
+}
+
+
+// * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
+
+void Foam::dose::discreteRandomWalk::correct()
+{
+    if (wellMixed_)
+    {
+        turbulence_.correct();
+    }
+}
+
+
+void Foam::dose::discreteRandomWalk::beginStep
+(
+    dispersionModel::State& state,
+    const barycentric& coordinates,
+    const tetIndices& tetIs,
+    scalar dtMax,
+    randomGenerator& rng
+) const
+{
+    // The track owns its own DRWState. No locking needed because each
+    // track is integrated by exactly one thread at a time.
+    DRWState& s = dynamic_cast<DRWState&>(state);
+
+    if (!wellMixed_)
+    {
+        beginStepUncorrected(s, tetIs.cell(), dtMax, rng);
+        return;
+    }
+
+    const eddyDiffusivity::sample t = turbulence_.at(coordinates, tetIs);
+    s.sigma = t.sigma;
+    s.tau = t.tau;
+    s.drift = t.gradK;
+
+    // A step of up to dtMax may outlast the current eddy: draw the sum
+    // of the whole eddies that fit and the eddy that carries over, unless
+    // an earlier step drew them and did not use them. Isotropic N(0, 1)
+    // triples, scaled in fluctuation().
+    if (s.remaining < dtMax && !s.drawn)
+    {
+        s.xiSum = gaussianTriple(rng);
+        s.xiNew = gaussianTriple(rng);
+        s.drawn = true;
+    }
+}
+
+
+Foam::vector Foam::dose::discreteRandomWalk::fluctuation
+(
+    const dispersionModel::State& state,
+    scalar dt
+) const
+{
+    const DRWState& s = dynamic_cast<const DRWState&>(state);
+
+    if (!wellMixed_)
+    {
+        return s.uPrime;
+    }
+
+    if (s.remaining >= dt)
+    {
+        return s.uPrime + s.drift;
+    }
+
+    // The step outlasts the current eddy. Its displacement is the rest
+    // of that eddy, then m whole eddies of duration tau (independent
+    // N(0, sigma^2) velocities, so their summed displacement is one
+    // Gaussian of standard deviation sigma tau sqrt(m)), then the first
+    // `frac` of the eddy that carries into the next step.
+    vector disp = max(s.remaining, scalar(0))*s.uPrime;
+
+    scalar m = 0, frac = 0;
+    if (newEddies(s, dt, m, frac))
+    {
+        disp += s.sigma*(s.tau*sqrt(m)*s.xiSum + frac*s.xiNew);
+    }
+
+    return disp/dt + s.drift;
+}
+
+
+void Foam::dose::discreteRandomWalk::endStep
+(
+    dispersionModel::State& state,
+    scalar dt
+) const
+{
+    if (!wellMixed_)
+    {
+        return;
+    }
+
+    DRWState& s = dynamic_cast<DRWState&>(state);
+
+    if (s.remaining >= dt)
+    {
+        s.remaining -= dt;
+        return;
+    }
+
+    // The step used the draws: the eddy that carries over begins
+    scalar m = 0, frac = 0;
+    if (newEddies(s, dt, m, frac))
+    {
+        s.uPrime = s.sigma*s.xiNew;
+        s.remaining = s.tau - frac;
+    }
+    else
+    {
+        s.uPrime = vector::zero;
+        s.remaining = 0;
+    }
+    s.drawn = false;
+}
+
+
+void Foam::dose::discreteRandomWalk::reflect
+(
+    dispersionModel::State& state,
+    const vector& n
+) const
+{
+    if (!wellMixed_)
+    {
+        return;
+    }
+
+    // The eddy the particle carries, and the one that would carry over
+    // from this step, are mirrored with the particle's own velocity.
+    DRWState& s = dynamic_cast<DRWState&>(state);
+    s.uPrime -= 2.0*(s.uPrime & n)*n;
+    s.xiNew -= 2.0*(s.xiNew & n)*n;
 }
 
 

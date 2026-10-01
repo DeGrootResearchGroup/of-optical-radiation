@@ -1,0 +1,19 @@
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    object      G;
+}
+
+dimensions      [1 0 -3 0 0 0 0];
+
+// Uniform; the dose is not what this case tests.
+internalField   uniform 10;
+
+boundaryField
+{
+    ".*"
+    {
+        type            zeroGradient;
+    }
+}

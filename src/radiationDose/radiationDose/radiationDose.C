@@ -548,6 +548,7 @@ void Foam::functionObjects::radiationDose::runBatch
 
     interpolationCellPoint<vector> UInterp(U);
     interpolationCellPoint<scalar> GInterp(G);
+    cloud_->dispersion().correct();
 
     Info<< type() << ": integrating..." << endl;
     const label nSteps =
@@ -748,10 +749,12 @@ bool Foam::functionObjects::radiationDose::executeUnsteady
         seeded_ = true;
     }
 
-    // Build interpolators fresh each call: U and G may have been
-    // updated by the host solver since the last execute().
+    // Build interpolators fresh each call: U and G (and the turbulence
+    // fields the dispersion model reads) may have been updated by the
+    // host solver since the last execute().
     interpolationCellPoint<vector> UInterp(U);
     interpolationCellPoint<scalar> GInterp(G);
+    cloud_->dispersion().correct();
 
     const scalar dt = time_.deltaT().value();
     if (dt > 0)

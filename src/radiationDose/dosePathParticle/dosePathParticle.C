@@ -147,18 +147,22 @@ bool Foam::dose::dosePathParticle::move
     // The dispersion model owns its per-particle state (DRW eddy
     // lifetime + last fluctuation), which lives on this particle —
     // keeping each particle's stochastic trajectory independent of
-    // every other particle's.
+    // every other particle's. beginStep() draws everything a step of
+    // up to dtMax needs; fluctuation() is then a pure function of the
+    // step's duration, evaluated again below if CFL shortens it, and
+    // endStep() ages the state by the duration actually taken.
     const tetIndices tetIs = currentTetIndices(td.mesh);
     const vector Umean = td.UInterp().interpolate(coordinates(), tetIs);
-    const vector uPrime =
-        cloud.dispersion().fluctuation
-        (
-            *dispState_,
-            position(td.mesh),
-            cell(),
-            cloud.dtMax(),
-            td.rng()
-        );
+    const dispersionModel& dispersion = cloud.dispersion();
+    dispersion.beginStep
+    (
+        *dispState_,
+        coordinates(),
+        tetIs,
+        cloud.dtMax(),
+        td.rng()
+    );
+    vector uPrime = dispersion.fluctuation(*dispState_, cloud.dtMax());
 
     // Pre-draw a unit-Gaussian Brownian sample if the motion model
     // wants one. The single draw is reused across the (potentially
@@ -203,6 +207,7 @@ bool Foam::dose::dosePathParticle::move
             max(scalar(0), td.GInterp().interpolate(coordinates(), tetIs));
         const scalar dosePerSec = G_now*Wm2_s_to_mJcm2;
         const scalar dtStatic = cloud.dtMax();
+        dispersion.endStep(*dispState_, dtStatic);
 
         const scalar dtToMaxTime =
             (cloud.maxTime() > 0) ? cloud.maxTime() - t_ : great;
@@ -248,8 +253,38 @@ bool Foam::dose::dosePathParticle::move
         return true;
     }
 
+    // The CFL bound sees the dispersion model's cflFluctuation(): the
+    // fluctuation itself for the discrete random walk, only the drift
+    // for a model whose displacement is a fresh draw each step (bounding
+    // the step by that draw would bias the spreading). The model may
+    // also cap the step itself (maxStep).
+    const vector uCfl = dispersion.cflFluctuation(*dispState_, cloud.dtMax());
+    const scalar cflSpeed =
+        (uCfl == uPrime)
+      ? VdispMag
+      : mag
+        (
+            cloud.motion().advance
+            (
+                *motionState_,
+                V_,
+                Umean,
+                uCfl,
+                cloud.dtMax(),
+                xi
+            ).Vdisp
+        );
+    const scalar maxDisplacement = cloud.cflMax()*cellSize;
     const scalar dt =
-        min(cloud.dtMax(), cloud.cflMax()*cellSize/VdispMag);
+        min
+        (
+            min
+            (
+                cloud.dtMax(),
+                cflSpeed > small ? maxDisplacement/cflSpeed : great
+            ),
+            dispersion.maxStep(*dispState_, maxDisplacement)
+        );
 
     // If CFL tightened the step, redo with the smaller dt so V (for
     // the next step) and V_disp (used right below) reflect the
@@ -257,9 +292,11 @@ bool Foam::dose::dosePathParticle::move
     // Brownian draw maps to a single physical kick per outer step.
     if (dt < cloud.dtMax() - small)
     {
+        uPrime = dispersion.fluctuation(*dispState_, dt);
         r = cloud.motion().advance
             (*motionState_, V_, Umean, uPrime, dt, xi);
     }
+    dispersion.endStep(*dispState_, dt);
 
     V_      = r.V;
     V_disp_ = r.Vdisp;
@@ -472,9 +509,15 @@ void Foam::dose::dosePathParticle::hitWallPatch
     // is between V_old and V_; reflecting V_ is the tractable
     // approximation — within the same O(dt) family as the rest of
     // the inner-step truncation.
+    // The dispersion model reflects the eddy velocity it carries, so
+    // the next step does not drive the particle back into the wall.
     const vector nw = normal(td.mesh);
     V_      -= 2.0*(V_      & nw)*nw;
     V_disp_ -= 2.0*(V_disp_ & nw)*nw;
+    if (dispState_.valid())
+    {
+        cloud.dispersion().reflect(*dispState_, nw);
+    }
 }
 
 
@@ -516,6 +559,10 @@ void Foam::dose::dosePathParticle::hitBasicPatch
         const vector nf = normal(td.mesh);
         V_      -= 2.0*(V_      & nf)*nf;
         V_disp_ -= 2.0*(V_disp_ & nf)*nf;
+        if (dispState_.valid())
+        {
+            cloud.dispersion().reflect(*dispState_, nf);
+        }
         return;
     }
 

@@ -61,11 +61,8 @@ public:
 
         virtual vector fluctuation
         (
-            dispersionModel::State& state,
-            const vector& x,
-            label celli,
-            scalar dt,
-            randomGenerator& rng
+            const dispersionModel::State& state,
+            scalar dt
         ) const
         {
             return vector::zero;

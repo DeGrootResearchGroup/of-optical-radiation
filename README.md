@@ -89,7 +89,25 @@ in absorbing/scattering participating media:
   axis-aligned box centred at an interior point).
 - Configurable turbulent dispersion (RTS-selectable `dispersionModel`:
   `none` for deterministic streamlines, `discreteRandomWalk` for
-  Gosman-Ioannides DRW).
+  Gosman-Ioannides DRW, reading `k` and `epsilon` or a k-omega
+  model's `omega`). The walk satisfies the well-mixed condition by
+  default (`wellMixed true`): particles spread uniformly stay
+  uniform however the turbulence varies, instead of collecting
+  where it is weak — in the viscous sublayer of a mesh resolved to
+  the wall, an uncorrected walk traps them in the first cells. Three
+  pieces do it: the drift velocity grad(K) of the walk's diffusivity
+  K = k tau_e / 3, taken as the exact gradient of `k` and the
+  dissipation interpolated in the particle's tetrahedron; an exact
+  integral of the eddy velocity over each step, so that K does not
+  depend on the step (with eddies shorter than the step, the
+  uncorrected walk's diffusivity is set by `dtMax`); and reflection
+  of the eddy velocity at walls. `wellMixed false` restores the
+  uncorrected walk. `randomDisplacement` is the diffusion form of
+  the same model, `dx = (U + grad K) dt + sqrt(2 K dt) xi`, with no
+  eddy memory: well mixed by construction, and the better choice
+  next to a resolved wall, where an eddy can be a third of the
+  distance to the wall long and still carry particles into the
+  sublayer.
 - Configurable equation of motion (RTS-selectable `motionModel`:
   `tracer` for fluid-following particles, `inertial` for finite-Stokes
   point particles with Stokes or Schiller-Naumann drag, optional
@@ -170,7 +188,7 @@ Build products:
 
 The case suite is split into two trees:
 
-- **`tests/`** -- 28 regression cases run by CI on every PR. Synthetic
+- **`tests/`** -- 33 regression cases run by CI on every PR. Synthetic
   geometries (slabs, boxes) chosen for closed-form analytical
   references (E_2 integrals, Schwarzschild-Milne, Beer-Lambert, etc.)
   plus three bit-for-bit cross-case identity checks. What you re-run
@@ -191,7 +209,7 @@ The case suite is split into two trees:
 
 ```sh
 cd tests
-./Alltest    # all 28 cases + 3 cross-case diffs; what CI runs
+./Alltest    # all 33 cases + 3 cross-case diffs; what CI runs
 ```
 
 ### Run an individual test or tutorial
@@ -247,7 +265,8 @@ opticalRadiation: `diffuseSlab2D`, `absorbingScatteringBox3D`,
 
 radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 `pointInjectionBox`, `doseUnsteadyBox`, `doseParallelHandoff`,
-`doseDispersionOmega`, `doseNonConformalSeam`, `doseInletReturn`.
+`doseDispersionOmega`, `doseRandomWalkDiffusivity`, `doseWellMixed`,
+`doseNonConformalOmp`, `doseNonConformalSeam`, `doseInletReturn`.
 
 mesh tooling: `uvMeshSmoke`, `uvMeshSmokeHemisphere`,
 `uvMeshSmokeHemisphereStructured`, `uvMeshSmokeHemisphereStructuredFull`,
@@ -358,7 +377,9 @@ src/radiationDose/                           (radiationDose library)
     dispersionModels/        dispersionModel RTS family
         dispersionModel/     abstract base + factory
         noDispersion/        deterministic streamlines
-        discreteRandomWalk/  Gosman-Ioannides DRW (needs k and epsilon or omega)
+        eddyDiffusivity/     k, tau_e, K = k tau_e / 3 and grad(K) at a particle (shared)
+        discreteRandomWalk/  Gosman-Ioannides DRW, well mixed (needs k and epsilon or omega)
+        randomDisplacement/  diffusion random walk with the same K (needs k and epsilon or omega)
     motionModels/            motionModel RTS family
         motionModel/         abstract base + factory
         tracer/              V = U + u' (fluid tracer)
@@ -384,7 +405,7 @@ tools/uvMesh/            Python helper (pip-installable as `uvmesh`):
                          polyDualMesh -> mergeMeshes ->
                          createNonConformalCouples).
 
-tests/                   28 regression cases + Alltest harness (CI runs this)
+tests/                   33 regression cases + Alltest harness (CI runs this)
 tutorials/               4 pedagogical cases (run on demand by users)
 Dockerfile               OpenFOAM 13 build environment
 Allwmake                 build everything (both libs + solver + module + utility)
@@ -453,6 +474,20 @@ radiationDose:
 - Gosman, A. D. & Ioannides, E. (1981). *Aspects of computer
   simulation of liquid-fuelled combustors.* AIAA-81-0323. — DRW
   dispersion model.
+- Thomson, D. J. (1987). *Criteria for the selection of stochastic
+  models of particle trajectories in turbulent flows.* J. Fluid
+  Mech. **180**, 529–556. — The well-mixed condition.
+- Legg, B. J. & Raupach, M. R. (1982). *Markov-chain simulation of
+  particle dispersion in inhomogeneous flows: the mean drift velocity
+  induced by a gradient in Eulerian velocity variance.*
+  Boundary-Layer Meteorol. **24**, 3–13; MacInnes, J. M. & Bracco,
+  F. V. (1992). *Stochastic particle dispersion modeling and the
+  tracer-particle limit.* Phys. Fluids A **4**(12), 2809–2824. — The
+  drift correction for inhomogeneous turbulence.
+- Wilson, J. D. & Sawford, B. L. (1996). *Review of Lagrangian
+  stochastic models for trajectories in the turbulent atmosphere.*
+  Boundary-Layer Meteorol. **78**, 191–210. — The random displacement
+  model as the diffusion limit of the well-mixed Langevin model.
 - Schiller, L. & Naumann, A. (1933). *Über die grundlegenden
   Berechnungen bei der Schwerkraftaufbereitung.* Z. Ver. Deutsch.
   Ing. **77**, 318–320. — Re_p-corrected drag.
