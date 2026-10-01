@@ -83,7 +83,7 @@ passed(f"bad face pyramids {n_bad} / {total_faces} ({100*bad_frac:.4f}%)")
 boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
 
 expected_patches = {
-    "bulkWall":           "patch",
+    "bulkWall":           "wall",
     "endcap_lo":          "patch",
     "endcap_hi":          "patch",
     "reactor_seam_lamp0": "patch",

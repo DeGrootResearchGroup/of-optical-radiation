@@ -40,6 +40,9 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from blockmeshbuilder import BoundaryTag, Cylinder, Sphere, ZoneTag
+from blockmeshbuilder.grading import (
+    SimpleGrading, SimpleGradingElement, uniformGrading, uniformGradingElement,
+)
 from blockmeshbuilder.blockelements import (
     Face,
     HexBlock,
@@ -73,6 +76,7 @@ def write_morphed_cap(
     p_inner_existing: Optional[List[Vertex]] = None,
     inner_is_tip: bool = True,
     add_inner_edges: bool = True,
+    radial_expansion: float = 1.0,
 ) -> None:
     """Append a 5-block morphed cubed-sphere cap to `bmd`.
 
@@ -129,6 +133,13 @@ def write_morphed_cap(
         added. When False (matryoshka outer cap), they're skipped to
         avoid duplicating the inner cap's outer-sphere edge entries
         between the shared cube-corner vertices.
+    radial_expansion
+        blockMesh expansion ratio along the radial direction, inner surface
+        to outer (last cell size / first cell size); 1 is uniform. Pass the
+        lamp's `radial_grading` wherever the cap's radial edges meet the
+        graded annulus layer, so the shared edges are divided identically.
+        The blocks run their radial index outer-to-inner, so each block's
+        own grading is the reciprocal.
     """
     if axis_dir not in (-1, +1):
         raise ValueError(f"axis_dir must be -1 or +1, got {axis_dir}")
@@ -254,6 +265,14 @@ def write_morphed_cap(
             ))
 
     zone = ZoneTag(zone_tag_name)
+    if radial_expansion <= 0:
+        raise ValueError(f"radial_expansion must be > 0, got {radial_expansion}")
+    # k runs outer-to-inner, so the block's k grading is the reciprocal.
+    # A uniform cap keeps blockMesh's plain uniform grading.
+    grading = uniformGrading if radial_expansion == 1.0 else SimpleGrading(
+        [uniformGradingElement, uniformGradingElement,
+         SimpleGradingElement(1.0 / radial_expansion)]
+    )
 
     # ---- Polar cap block ----
     # Same handedness logic as `hemisphere.write_hemisphere_cap`: local
@@ -286,6 +305,7 @@ def write_morphed_cap(
         _block_array(cap_v),
         (n_polar, n_polar, n_radial),
         zone_tag=zone,
+        grading=grading,
     ))
     # Polar cap's outer face (k_min, v0..v3). For the basic structured
     # mode this is a FLAT QUADRILATERAL inscribed in the disc circle.
@@ -334,6 +354,7 @@ def write_morphed_cap(
             _block_array(side_v),
             (n_polar, n_polar, n_radial),
             zone_tag=zone,
+            grading=grading,
         ))
         # Side block's outer face (k_min) -- on the cylinder strip from
         # equator (z = centre[2]) to disc edge (z = z_top), at the East

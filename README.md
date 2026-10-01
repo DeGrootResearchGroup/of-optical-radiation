@@ -246,7 +246,7 @@ radiationDose: `doseSmokeBox`, `inertialSettlingBox`,
 
 mesh tooling: `uvMeshSmoke`, `uvMeshSmokeHemisphere`,
 `uvMeshSmokeHemisphereStructured`, `uvMeshSmokeHemisphereStructuredFull`,
-`uvMeshSmokeHemisphereStructuredMatryoshka`.
+`uvMeshSmokeHemisphereStructuredMatryoshka`, `uvMeshSmokeSozziStep`.
 
 ### What's in `tutorials/`
 
@@ -371,7 +371,8 @@ applications/
 tools/uvMesh/            Python helper (pip-installable as `uvmesh`):
                          hybrid O-grid-annulus + polyhedral-bulk mesh
                          generator for UV reactor cases. Each case
-                         declares lamps + body and calls `build()` to
+                         declares lamps + body (a box, or a STEP file)
+                         and calls `build()` to
                          emit blockMesh + gmsh scripts and an
                          Allrun.mesh that runs the full pipeline
                          (blockMesh per lamp -> gmsh tet bulk ->

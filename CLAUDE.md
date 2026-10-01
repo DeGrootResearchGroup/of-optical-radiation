@@ -299,7 +299,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk) |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Thirty regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Thirty-one regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -650,8 +650,8 @@ The motivation is mesh quality near the lamp wall, which is exactly
 where dose accuracy matters most (κ·r ≫ 1 attenuation layer, near-
 wall particles dominate `maxDose`). snappyHexMesh produces faceted
 boundary layers against curved walls; the O-grid annulus gives
-cells whose faces are radially aligned, with arbitrary grading
-toward the sleeve wall. Polyhedral bulk replaces snappy's
+cells whose faces are radially aligned, graded toward the sleeve
+wall by `Lamp.radial_grading`. Polyhedral bulk replaces snappy's
 hex-with-prismatic-transitions with isotropic ~14-faces/cell
 polyhedra throughout — the same cell topology that makes STAR-CCM+'s
 polyhedral mesher popular, available here without the licence.
@@ -678,19 +678,278 @@ body = ReactorBody(
     box_min=(-0.04, -0.04, 0.0),
     box_max=( 0.04,  0.04, 0.15),         # taller box so the hemispherical
     bulk_cell_size=0.008,                  # cap fits with margin
-    bulk_cells="hybrid",                   # balanced default for hemispherical
-                                           # lamps; see the 5-way comparison
-                                           # below. Alts: "structured" (cheap
-                                           # pure-poly bulk), "structured_full"
-                                           # (research-grade full-disc NCC
-                                           # match), "structured_matryoshka"
-                                           # (UV-reactor-grade: uniform spherical
-                                           # cells near the lamp wall + corner
-                                           # defects pushed to 2x radius), "tet"
-                                           # (skip polyDualMesh entirely).
+    bulk_cells="polyhedral",               # spherical-shell cap + capsule
+                                           # seam: no rim, every lamp-region
+                                           # cell a hex on concentric spheres
+                                           # or cylinders. See the comparison
+                                           # below for "hybrid", "structured",
+                                           # "structured_full",
+                                           # "structured_matryoshka" (their
+                                           # flat-disc envelopes put 180-degree
+                                           # corners on the rim) and "tet".
 )
 build(case_dir=".", lamps=lamps, body=body)
 ```
+
+A real reactor comes from its CAD drawing instead of a box. The
+Sozzi & Taghipour reactor (`tests/uvMeshSmokeSozziStep`):
+
+```python
+body = ReactorBody(
+    step_path="SozziTaghipour.step",      # its solids fused into one body
+    step_scale=1e-3,                       # drawn in mm
+    step_rotate=((0, 1, 0), (1, 0, 0)),    # drawing's +y onto the case's +x
+    wall_patch_name="bodyWall",            # every other face; type wall
+    bulk_cell_size=0.008,
+    bulk_cells="polyhedral",               # spherical-shell cap, capsule seam
+)
+pipes = [                                  # each pipe's own solid, an O-grid
+    Pipe(axis_start=(0.889, 0, 0), axis_end=(1.739, 0, 0), radius=0.00955,
+         open_patch_name="inlet", n_azimuth_per_quadrant=6, n_radial=4,
+         radial_grading=2.0, n_axial=100,         # uniform, ~8 mm
+         junction_length=0.04, junction_cell_size=0.0025),  # graded to the chamber
+    Pipe(axis_start=(0.04765, 0, 0.0445), axis_end=(0.04765, 0, 0.8945),
+         radius=0.00955, open_patch_name="outlet", ...),  # same cells
+]
+wall_layers = [                            # the chamber's cylindrical wall
+    WallLayer(axis_start=(0, 0, 0), axis_end=(0.889, 0, 0), radius=0.0445,
+              thickness=0.004, n_layers=5, wall_grading=3.0,
+              n_azimuth_per_quadrant=12, axial_cell_size=0.006),
+]
+build(case_dir=".", lamps=lamps, body=body, pipes=pipes, wall_layers=wall_layers)
+```
+(with `dual_feature_angle=100` on the body: the layer's window has
+re-entrant edges, below)
+
+Without `pipes`, the pipes stay in the bulk: name their open ends with
+`open_patches` (a point on each face) and resolve them with
+`wall_cells_per_circle` and `dual_feature_angle=100` (below).
+
+- **Placement**: scale about the origin, then `step_rotate` (the
+  shortest rotation taking the first vector onto the second, as
+  `transformPoints "rotate=(a b)"`), then `step_translate`. Proper
+  rotations only -- the tutorial's own STL export swaps x and y (a
+  reflection); rotating +y onto +x differs from it by y -> -y, which
+  the Sozzi reactor is symmetric under.
+- **The lamp solid can stay in the file.** Every lamp's cut is at
+  least as large as the lamp (`annulus_outer_radius`, or twice it for
+  matryoshka, and the cap extension past the tip), so the lamp's
+  volume leaves with the cut; the result equals the tutorial's
+  `(body U pipes) - lamp`.
+- **Open patches** name the face nearest each point (within 1e-6 of
+  the body's diagonal); a point on no face, or on two, stops the bulk
+  script with a message naming the patch. Everything else is the wall.
+- **The wall is typed `wall`** (`foamDictionary` right after
+  `gmshToFoam`, before any split or dual), so wall functions apply --
+  for box bodies too (`bulkWall`); open patches and box end caps stay
+  `patch`.
+- **Sizing**: `wall_cells_per_circle` turns on gmsh's curvature-based
+  sizing (that many cells around a full circle of the local radius);
+  `min_cell_size` floors every size and defaults to the seam spacing,
+  so lower it for curvature sizing to reach below that. Without them
+  the Sozzi pipes (radius 9.55 mm) are two 8 mm cells across and the
+  faceted mesh loses 17 % of their volume; with 24 per circle, 1.8 %
+  (snappyHexMesh's tutorial mesh: 2.5 %).
+- **Pipe junctions: `dual_feature_angle`** (polyDualMesh's feature
+  angle, default 90). Where a pipe meets a wall at a right angle -- the
+  Sozzi inlet on the chamber's flat end wall, the riser on its side --
+  the edge is RE-ENTRANT (the fluid turns 270 degrees around it) and its
+  tessellated normals scatter either side of 90, so at 90 some of its
+  edges are features and some are not; the dual cells along it get
+  wrongly oriented faces. Measured on the production Sozzi bulk
+  (uvmesh_level `production`: 4 mm bulk, 48 cells per circle, 1 mm
+  floor, 289422 polyhedra), wrongly oriented faces: 24 at 90 (16 around
+  the inlet mouth, 8 at the two points of the riser's saddle where it
+  meets the chamber at exactly 90), 42 at 60 (the whole saddle becomes
+  a feature and goes bad), **0 at 100 and 120**, same volume to 6
+  figures. Other fixes tried and dropped: `-concaveMultiCells` (24 -> 1
+  but max skew 22.6, non-orth 89), and refining the tets to 0.5 mm at
+  both mouths (riser 8 -> 0, inlet 16 -> 34). The price of 100 is that
+  exactly-planar right-angle edges are no longer kept: the five box
+  smoke cases lose 0.22-0.24 % of their volume to cut corners at 100, so
+  the default stays 90; the Sozzi case, with no such edges, sets 100
+  (smoke mesh: 2 -> 0 bad pyramids, max skew 2.89 -> 1.80, volume
+  unchanged). Meshing the pipes as O-grids (`Pipe`, below) takes the
+  re-entrant edge out of the dual entirely: with O-gridded pipes and no
+  wall layer the Sozzi smoke case is Mesh OK at the default 90. A wall
+  layer's window brings re-entrant edges back (below), so with one the
+  case sets 100 again.
+- **Pipes: `build(..., pipes=[Pipe(...)])`** (uvmesh 0.10). Each pipe
+  is a structured O-grid (blockmeshbuilder `CylBlockStructContainer`:
+  a square core, bowed sides, and a ring graded toward the wall), built
+  in pipe-local coordinates from its junction to its open end, which is
+  the patch `open_patch_name`. It needs the pipe as its OWN solid in the
+  STEP file, meeting the body on the body's surface -- as the Sozzi
+  file draws both pipes: the inlet pipe starts on the chamber's end-wall
+  plane, and the riser's bottom face is already the saddle on the
+  chamber's r = 44.5 mm wall. The bulk script finds each pipe's solid
+  (centre of mass on the axis, within its length, volume within 5 % of
+  pi R^2 L; exactly one must match), leaves it out of the fused body,
+  and prints its footprint on the body with an OCC fragment before
+  dropping it; the footprint is recognized as `reactor_seam_pipe{i}` by
+  its edges lying on or inside the pipe's cylinder (a signed-distance
+  test, as a lamp's seam is recognized; see Wall layers below for why
+  "inside" matters), sized to the pipe's
+  wall spacing, and written after meshing as
+  `pipe{i}/constant/geometry/footprint_world.stl` -- the bulk's own
+  triangles, which the dual keeps. `Allrun.mesh` then, per pipe:
+  `surfaceTransformPoints` takes the STL into pipe-local coordinates
+  (the inverse of the pipe's own placement: translate back, then rotate
+  the axis back onto +z), blockMesh projects the junction end onto it --
+  the rim onto it and the pipe's cylinder both, i.e. their intersection
+  -- and transformPoints places the pipe; mergeMeshes and one
+  createNonConformalCouples per pipe follow the lamps'. OpenFOAM 13
+  reads a triSurfaceMesh from `constant/geometry`, not
+  `constant/triSurface`; blockmeshbuilder has no triSurfaceMesh
+  geometry, so `pipe.TriSurface` adds one (allowed per dict, not in
+  blockmeshbuilder's shared list); and the ring's periodic last row of
+  edges had to lose its projection, or blockMesh refuses the duplicate
+  curved edge. Measured on the Sozzi smoke case (pipes 6 per quadrant,
+  4 radial graded 2, 100 axial graded 4 -- the whole-pipe axial grading
+  of uvmesh 0.10-0.11, replaced in 0.12 by uniform cells and a junction
+  segment, below; dual angle 90): each pipe
+  13200 hex, max non-orth 15.0 / 15.8 deg, skew 0.51 / 0.48; the whole
+  mesh Mesh OK, 54.6 deg, skew 1.65, volume -0.60 % (-0.80 % with the
+  pipes in the bulk); both open ends 2.8326e-4 m^2, the 24-gon's share
+  of the exact disc. Coupling coverage is 0.9959-0.9974 at the pipes
+  against 0.99989 at the lamp: a pipe's junction and its footprint are
+  two 24-gons on one circle with their corners at different angles, and
+  the slivers between them at the rim stay uncovered (the smoke
+  validate allows 0.995). Not done: matching the footprint's rim nodes
+  to the pipe's.
+- **Wall layers: `build(..., wall_layers=[WallLayer(...)])`** (uvmesh
+  0.11). A structured layer of cells against a cylindrical wall of the
+  body -- the Sozzi chamber's r = 44.5 mm wall between its end walls --
+  graded toward the wall (`wall_grading` = inner cell / wall cell),
+  built in the layer's local frame (axis +z, azimuth from +x) as a
+  blockmeshbuilder `TubeBlockStruct` and placed like a lamp. Its inner
+  surface couples to the bulk as `reactor_seam_layer{i}` /
+  `layer{i}_seam`; the wall and its two end rings (lying on the end
+  walls) are `layer{i}_wall`. Every pipe whose junction is on the wall
+  gets a WINDOW (`WallLayer.windows`, one definition used by both the
+  block and the bulk): the pipe's radius plus `window_margin` (default
+  its radius) either way, around and along the wall; the window's
+  blocks are masked out and their neighbours' faces toward it join the
+  seam, and the bulk fills the window down to the wall around the pipe's
+  footprint. The turn of azimuthal anchors starts opposite the first
+  window, so a quadrant anchor falls on its centre and it spans two
+  blocks. The bulk cuts the sleeve (inner radius out to 1.05 R, a
+  thickness past each end, less each window as a partial cylinder) and
+  recognizes the layer's seam with an analytic distance to the sleeve's
+  own surfaces in the local frame -- inner cylinder, each window's two
+  radial sides and two ends. Two traps met building it: (a) a surface's
+  edges can all lie on the sleeve while it does not -- an end wall whose
+  only edge is the inner circle -- so points INSIDE the surface are
+  tested too, taken from a parametric grid kept where gmsh's `isInside`
+  finds them in the trimmed face (the domain's centre falls off a
+  trimmed plane; the centre of mass of a cylinder's face is on its axis,
+  where closest-point queries degenerate); (b) the chamber cylinder's
+  own seam line can split a pipe footprint, whose halves then have an
+  edge inside the pipe's circle, so a pipe's footprint is recognized by
+  its edges lying on OR INSIDE the pipe's cylinder (signed distance;
+  equivalent for a lamp, whose cut no body surface can lie inside). The
+  window's edges are re-entrant for the bulk (it turns 270 degrees into
+  the pocket): at dual angle 90 they left 13 wrongly oriented faces in
+  the Sozzi smoke case, at 100 none. Measured, Sozzi smoke (layer 4 mm,
+  5 cells graded 3, 48 around, 6 mm long; pipes as above; dual 100):
+  116068 cells, Mesh OK, 48.8 deg, skew 1.58, volume -0.39 %; layer
+  coupling 0.99997 / 0.99998. Sozzi production (lamp and bulk as the
+  grid study's `production`, pipes 12 per quadrant 8 radial graded 4,
+  layer 4 mm, 6 cells graded 2, 96 around, 4 mm long; dual 100): 661992
+  cells, Mesh OK, 53.5 deg, skew 1.65, volume -0.08 %; layer block
+  127608 hex, 0.2 deg; coupling 0.99991 at the lamp and the layer,
+  0.9986-0.9995 at the pipes. Not done: layers under the window (the
+  riser's junction), and on the end walls.
+- **Pipe axial cells: uniform, plus a junction segment** (uvmesh 0.12;
+  `Pipe.axial_grading` is gone). `n_axial` uniform cells fill the pipe
+  less `junction_length`, over which the cells shrink geometrically to
+  `junction_cell_size` at the junction, to meet the body's finer cells.
+  `axial_blocks()` rounds the segment's cell count from the progression
+  and then bisects its grading so its last cell equals the uniform cell
+  exactly: keeping the ratio and rounding the count left a 5 % jump at
+  the block boundary (caught by `test_pipe.py`). Why: grading the whole
+  pipe toward its junction puts its LONGEST cells at the open boundary,
+  and that destabilized the tutorial's LTS PIMPLE solve. Measured on the
+  Sozzi production layout (lamp and chamber cylinder wall-resolved,
+  `kLowReWallFunction`, two non-orthogonal correctors, 100 iterations
+  from rest), pipes 12 per quadrant, 8 radial graded 4, axial cells
+  graded x4 from the junction to ~7 mm at the open ends: inlet pressure
+  swung to -128,000 and ended alternating +125 / -19, Ux residual 0.016,
+  max k 296 with 13,135 cells above 10, max |U| 38.8 m/s in an
+  inlet-pipe wall cell near the open end. Every disturbance started in
+  the segment next to the open end and spread back to the junction; the
+  pipe-body interfaces stayed calm. Same mesh with uniform ~4 mm cells
+  graded over the last 30 mm to 1.25 mm: inlet pressure 47.7 and falling
+  smoothly, Ux residual 6.2e-4, max k 4.6, max |U| 7.7 m/s where the
+  riser leaves the chamber; pipes' max aspect ratio 14, non-orth 21-22.
+- **Pipe wall layer** (`wall_layer_thickness`, `n_wall_layer`,
+  `wall_layer_grading`; uvmesh 0.12). A separate ring of cells between
+  the wall and a concentric circle inside it, which the O-grid's ring then
+  ends on. The O-grid ring's grid lines are blended between the core's
+  bowed sides and the wall, so they are not concentric with it, and wall
+  cells much thinner than that departure are sheared toward 90 deg. ⚠️ It
+  did NOT cure the 88 deg pipe cells it was built for -- the footprint
+  margin (Pipeline pitfalls) did. And wall-resolved pipes (10 um first
+  cell) diverged in the tutorial's flow solve with either
+  `kLowReWallFunction` or `kqRWallFunction`, with whole-pipe or uniform
+  axial cells (blow-up from iteration 3-4 in the pipes' wall cells
+  25-50 um from the wall, far half of each pipe), so the Sozzi meshes
+  keep their pipes in the log-law region (8 radial graded 4, y+ ~31-38)
+  with no wall layer.
+- **Refinement zones: `ReactorBody(refinements=[Refinement(...)])`**
+  (uvmesh 0.12). A cylinder of the bulk meshed at `cell_size`, grading
+  into the bulk through nested cylinders (`Refinement.cylinders`), each
+  `growth` (1.5) times coarser and two of its own cells larger in radius
+  and past each end; each is a gmsh `Cylinder` field in the bulk's Min
+  field, and the size floor follows them down. Built for the Sozzi inlet
+  jet, which crossed 4 mm bulk cells (~5 across its 19 mm) between the
+  inlet pipe and the lamp tip and lost its momentum before reaching the
+  lamp: a zone from x = 0.79 to 0.889 m, radius 12 mm, at the pipe's
+  1.25 mm spacing took the bulk from 85,015 to 96,373 polyhedra, and the
+  jet then reached the tip.
+- **Tet optimization: `ReactorBody(optimize_threshold=..., optimize_netgen=...)`**
+  (uvmesh 0.12) set gmsh's `Mesh.OptimizeThreshold` (default 0.3, gmsh's
+  own; tets below that quality are optimized) and `Mesh.OptimizeNetgen`
+  (default off; needs a gmsh built with Netgen, see Pipeline pitfalls).
+  Measured on the Sozzi bulk with a 22 mm lamp layer (1.5 mm near the
+  lamp, 4 mm bulk, dual 100; checkMesh of the dual alone): threshold 0.3,
+  85,015 cells, Failed 3 checks, non-orth 96.7, skewness 8.33 (3 faces);
+  threshold 0.5, Mesh OK, 51.9 deg, 1.62; HXT (`Mesh.Algorithm3D` 10) at
+  0.3, Mesh OK, 89,611 cells, 53.2 deg, 1.84. With the jet zone above,
+  threshold 0.5 and Netgen (gmsh 4.15.2, macOS PyPI): 96,373 cells, Mesh
+  OK, 52.8 deg, 1.63; the whole mesh 1,232,629 cells, Mesh OK, 52.8 deg.
+- `bulk_cells="hybrid"` builds its cap zone along +z only and refuses a
+  hemispherical lamp on any other axis; use `polyhedral` (Sozzi's lamp
+  is along x).
+- **Why Sozzi is `polyhedral`, not `structured_matryoshka`.** The
+  matryoshka mesh (production settings, middle-sphere edges fixed:
+  876942 cells, Mesh OK, max non-orth 73 deg on 24 faces) diverged in
+  the tutorial's flow solve with no non-orthogonal correctors: the
+  inlet pressure went from ~1e3 to -2.5e7 between iterations 10 and 21,
+  and the first cells to run away (iteration 6, x 0.838 m, r 25 mm) and
+  all 40 of the fastest were at the four cube-corner azimuths of the
+  OUTER cap, on its disc/cylinder rim. The spherical-shell cap at the
+  same lamp settings (618437 cells, Mesh OK, max non-orth 61.4 deg,
+  skew 1.65, NCC coverage 0.99996 both sides) runs stably under the
+  same settings, the inlet pressure settling from 41 to ~36.
+
+`Lamp.radial_grading` is blockMesh's expansion ratio across the inner
+annulus layer, sleeve wall outward (outermost / innermost radial cell;
+default 1, uniform). It grades the cylinder's inner radial block
+(`TubeBlockStruct.grading[0, :, :, 0]`) and every cap whose radial
+edges meet it -- the hemispherical shell, the morphed cap of
+`structured` / `structured_full`, matryoshka's inner cap -- with the
+reciprocal ratio, because the cap blocks run their radial index
+outer-to-inner; the shared edges then divide identically and blockMesh
+joins them. Matryoshka's outer layer and outer cap stay uniform, their
+cell count set so the cell matches the inner layer's LAST cell
+(`Lamp.radial_cell_sizes()`), not its mean -- with a graded inner
+layer the mean would leave a jump at the layer boundary. At a ratio of
+1 the emitted meshes are identical to the ungraded ones (checked for
+all five box smoke cases: same cells and points to 1e-12 m).
+⚠️ blockmeshbuilder's `blockMeshDict` TEXT is not reproducible run to
+run (vertex and geometry numbering vary), so compare meshes, not dict
+files.
 
 The call writes:
 
@@ -796,11 +1055,41 @@ silently. Recorded here so they don't get reintroduced.
   must have lamp-unique names so they aren't collapsed across the
   bulk + annulus pieces. The `lamp{i}_endcap_A/B` convention keeps
   them distinct.
-- **PyPI's `gmsh` wheel is x86_64-only.** Apple-Silicon containers
-  (linuxArm64) need `apt install python3-gmsh` instead. The
-  Dockerfile uses the apt path; pyproject.toml lists neither gmsh
-  nor blockmeshbuilder as a hard pip dependency to keep the
-  helper installable from either route.
+- **A pipe's footprint STL needs a margin past its rim.** The pipe's
+  junction end is projected onto the footprint STL; written as the
+  footprint alone, its rim is a polygon of chords sagging tens of um
+  inside the pipe's circle, and with 10 um wall cells the near-wall
+  vertices were pulled onto the chords, crushing the first cells and
+  carrying the shear the length of the pipe. The STL now includes every
+  body triangle sharing a node with the footprint. Sozzi, pipes with a
+  10 um wall layer: whole mesh Failed 4 checks, non-orth 94.9 (4,507 faces
+  above 70), 4 wrongly oriented faces, skewness 37.6, pipes' own non-orth
+  88 deg; with the margin Mesh OK, 56.6, none above 70, skewness 1.76,
+  pipes 21-22 deg, volume unchanged. (In the bulk script's f-string
+  template, write the node set as `set(...)`: a `{...}` comprehension is
+  evaluated when the script is generated.)
+- **The bulk script falls back to a STEP file beside it** when the
+  absolute `step_path` it was generated with does not exist -- the case
+  moved, or a host path read inside a container.
+- **`Allrun.mesh` keeps a `bulk.msh` newer than `bulk_body.py`**, so a
+  bulk meshed elsewhere (a gmsh with Netgen on the host) survives the
+  run; regenerating the case rewrites `bulk_body.py` and so re-meshes.
+- **The Dockerfile builds gmsh from source (4.15.2, with Netgen and
+  OpenCASCADE, no GUI)**, because neither packaged route has Netgen
+  on arm64: PyPI's `gmsh` Linux wheels are x86_64-only, and
+  Ubuntu 22.04's `python3-gmsh` is 4.8.4, built without Netgen,
+  which `ReactorBody(optimize_netgen=True)` needs. The build step
+  asserts gmsh reports both Netgen and OpenCASCADE; the Python API
+  lands in `/usr/local/lib` (`PYTHONPATH` set in the image). Built
+  2026-10-01 in ~5 min (4 jobs); the uvmesh suite (228) passes in
+  it, and the Sozzi bulk meshed in it with Netgen came out 96,833
+  cells, 52.1 deg, skewness 1.66, Mesh OK (on the macOS PyPI gmsh
+  4.15.2 with Netgen: 96,373 cells, 52.8 deg, 1.63 -- different
+  OpenCASCADE builds). gmsh 4.15 changed `isInside` to Cartesian
+  coordinates unless `parametric=True`; the bulk script handles
+  both. pyproject.toml lists neither gmsh nor blockmeshbuilder as
+  a hard pip dependency to keep the helper installable from any
+  route.
 
 ### Coverage
 
@@ -827,18 +1116,26 @@ Validates the same patch / NCC structure as the flat-flat case plus:
   5 cubed-sphere blocks × 10² cells).
 - `lamp0_seam` face count > 1000 (cylinder seam 800 + hemisphere
   seam 500 combined into one patch).
-- Mesh quality: max non-orth < 90° (~89° observed; the cubed-sphere
-  annular polar singularity sets this), max skew < 4 (~1.78
-  observed), bad face pyramids < 0.1 % of total faces (~2 out of
-  ~72k observed; residual at the cap-bulk stitch interface, see
-  ReactorBody docstring).
+- Mesh quality: max non-orth < 90° (64.7° observed, 20584 cells;
+  the 89° once recorded here, blamed on the cubed-sphere polar
+  singularity, went with the capsule lip), max skew < 4 (1.79
+  observed), bad face pyramids < 0.1 % of total faces (0 of 72476
+  observed; the ~2 once recorded at the cap-bulk stitch interface
+  also went with the lip).
 - The case uses `ReactorBody.bulk_cells="hybrid"`: a cylindrical
   cap-zone around each hemispherical cap stays as tets, the rest
-  of the bulk is dualised. The cap zone insulates polyDualMesh
-  from the curved capsule seam (where its obtuse-tet dualization
-  fails in the all-polyhedral path) without the ~4x cell-count
-  cost of the all-tet path. ~20k total cells (vs ~17k all-poly
-  with bad cells, vs ~30k all-tet).
+  of the bulk is dualised. The cap zone was built to keep
+  polyDualMesh off the capsule seam, where the all-polyhedral path
+  gave 40 bad face pyramids -- ⚠️ **that was a 1 mm lip, not the
+  dual**: the cut cylinder was padded 1 mm past the equator, where
+  the fused sphere narrows, so it stood out of the sphere and met it
+  in a nearly tangent crease. With the pad dropped on hemispherical
+  ends, this case's geometry in `bulk_cells="polyhedral"` gives
+  checkMesh `Mesh OK`: max non-orth 47.5° (was 89°), max skew 1.63
+  (was 8.69), 0 bad pyramids (was 40), at dual angle 90 and the same
+  at 100; the lamp block alone 23° / 0.90. The bad faces had sat at
+  z 0.101-0.102, r 19.8-19.9 mm: the lip, 1 mm past the equator at
+  z 0.100. ~20k total cells (vs ~17k all-poly, vs ~30k all-tet).
 - The bulk is therefore mixed (~3000 tetrahedra in the cap zone,
   ~3300 polyhedra in the dualised bulk zone); the validate
   explicitly asserts both element types are present and that
@@ -898,6 +1195,30 @@ at the annulus's polar cap top, aligning the two surfaces for NCC
 and removing the lip artifact -- a regression invariant in
 `tests/uvMesh/tests/test_bulk.py::test_cap_ext_side_has_no_extra_pad`.
 
+`tests/uvMeshSmokeSozziStep` meshes the Sozzi & Taghipour reactor
+from the tutorial's `SozziTaghipour.step` (the example above, coarse
+in the chamber: `n_radial=6`, `radial_grading=3`,
+`n_azimuth_per_quadrant=8`, 8 mm bulk; both pipes O-grids; a 4 mm
+chamber-wall layer; dual angle 100), in ~15 s. With the layer: 116068
+cells, max non-orth 48.8 deg, skew 1.58, volume -0.39 %, layer coupling
+0.99997; the figures below are the case before the layer.
+Validates: the mesh volume within 1 % of the drawing's exact fluid
+volume (5.7643 L, from OpenCASCADE: chamber + inlet pipe + riser -
+lamp; observed -0.60 %, the chamber wall faceted at 8 mm); the inlet
+and outlet each have a pipe disc's area (2.8326e-4 against 2.865e-4
+m^2 for the exact circle); the patch types (`bodyWall` and the pipe
+walls `wall`, every seam and its coupling); no tets; every coupling's
+coverage, in the final createNonConformalCouples report (lamp >= 0.999,
+observed 0.99989; pipes >= 0.995, observed 0.9959-0.9974); max
+non-orth 54.6 deg, max skew 1.65, and NO bad face pyramids (checkMesh
+`Mesh OK`) -- the validate requires zero, since pipe mouths dualised in
+the bulk are exactly what a looser bound let through. 59043 hex (lamp
+region and pipes) + 19302 polyhedra. Earlier forms of the case, for
+reference: pipes in the bulk at dual angle 100, -0.80 %, 53.9 deg,
+skew 1.78, 32642 hex + 62310 polyhedra; as `structured_matryoshka`,
+-0.61 %, 61.6 deg, skew 1.80, and at dual angle 90 skew 2.89 with 2
+bad pyramids.
+
 `tests/uvMeshSmokeHemisphereStructuredMatryoshka` exercises
 `bulk_cells="structured_matryoshka"`. The annulus uses TWO concentric
 structured cap layers: an INNER cap (`hemisphere.py`, true sphere-to-
@@ -922,23 +1243,40 @@ high-G near-wall layer where κ·r ≫ 1. Observed at the shipped
 resolution: ~39000 hex (annulus, twice the structured_full count
 due to the extra layer) + ~3300 polyhedra (bulk) = ~42000 total
 cells; NCC coverage 0.9999/0.9999 (essentially conformal); max
-non-orth 68° (similar to `structured`); max skew 3.62 (at a far
-outer-cap-corner cell, well below OF's 4.0 failure threshold);
-0 bad face pyramids (checkMesh `Mesh OK`). Recommended for UV
-reactor cases where dose accuracy near the lamp tip is the
-binding constraint.
+non-orth 64°, max skew 1.68, 0 bad face pyramids (checkMesh `Mesh
+OK`; polyDualMesh at 90). Recommended for UV reactor cases where
+dose accuracy near the lamp tip is the binding constraint.
+⚠️ **The middle sphere's eight edges per cap were once projected by
+neither layer** -- the inner cap deferred them to the outer, the
+outer skipped them as the inner's -- so they were straight chords,
+18 % of the radius under the sphere at an edge midpoint, and the
+inner cap pinched along the polar-cap / side-block boundaries. The
+figures this record carried before (68°, skew 3.62 "at a far
+outer-cap corner") were that defect. At the Sozzi production
+resolution (n_radial 10 graded 4, 16 per quadrant; the lamp block
+alone, 587520 hex) it was max skew 5.78 with 64 skewed faces 1-2 mm
+off the tip, and 156 faces over 70° non-orth; with the edges
+projected, skew 1.24 and 24 faces over 70° (max 73°), all at the
+outer envelope's disc/cylinder rim -- where the polar cap's outer
+face maps a square onto a disc with 180-degree corners.
+`cap_extension_factor` barely moves that (75.5° / 73.1° / 72.2° at
+1.0 / 1.5 / 2.0). `structured_full` at the same resolution: 71°,
+8 faces over 70°, skew 2.00, but min cell determinant 0.0099
+against 0.033, with its rim at 15 mm rather than 30 mm.
+`test_annulus.py::test_every_block_edge_between_two_points_of_a_sphere_is_projected_onto_it`
+guards the edges in every cap mode.
 
 #### 5-way comparison (smoke-test resolutions)
 
 | `bulk_cells`            | Annulus cells | Bulk cells | NCC coverage (src / tgt) | Max non-orth | Max skew | Bad face pyramids | When to pick |
 |-------------------------|---------------|------------|--------------------------|--------------|----------|-------------------|--------------|
-| `"polyhedral"`          | n/a            | n/a (fails for hemispherical lamps) | n/a | n/a | n/a | ~40 (broken) | flat-flat lamps only |
+| `"polyhedral"`          | (same lamp)    | ~17000 total | not recorded | 47.5° | 1.63 | 0 | **hemispherical lamps**: spherical-shell cap and capsule seam, no rim (the ~40 bad pyramids once recorded here were the 1 mm lip, see above) |
 | `"hybrid"`              | ~12000 hex     | ~3000 tet + ~3300 poly | 1.00 / 1.00 | 89° | 1.78 | ~2 | balanced default for hemispherical lamps |
 | `"structured"`          | ~13000 hex     | ~4600 poly | 0.91 / 0.95 | 68° | 1.54 | 0 | cheaper annulus topology than structured_full; NCC mismatch on disc segments tolerable |
 | `"structured_full"`     | ~13000 hex     | ~4600 poly | 0.99984 / 0.99992 | 60° | 1.54 | 0 | research-grade conformal NCC; corner defects at the seam-disc edge |
-| `"structured_matryoshka"` | ~39000 hex   | ~3300 poly | 0.99990 / 0.99994 | 68° | 3.62 | 0 | **UV reactor dose accuracy**: uniform spherical cells near the lamp wall; corner defects pushed out to 2× radius (low-G zone) |
+| `"structured_matryoshka"` | ~39000 hex   | ~3300 poly | 0.99990 / 0.99994 | 64° | 1.68 | 0 | **UV reactor dose accuracy**: uniform spherical cells near the lamp wall; corner defects pushed out to 2× radius (low-G zone) |
 
-`tools/uvMesh/tests/` contains a **pytest unit-test suite** (~80
+`tools/uvMesh/tests/` contains a **pytest unit-test suite** (204
 tests, runs in <1 s) that complements the OpenFOAM smoke cases.
 Where the smoke cases check end-to-end mesh validity, the unit tests
 isolate single behaviours of the helper modules:
@@ -959,7 +1297,9 @@ isolate single behaviours of the helper modules:
   lamp keeps the axis-aligned `theta = k·π/2` azimuth, hemisphere
   lamp shifts to `π/4 + k·π/2`, tip patches appear iff the
   corresponding end is hemispherical, single combined seam patch
-  per lamp regardless of cap shape.
+  per lamp regardless of cap shape, and -- parsed from the emitted
+  dict, in every cap mode -- no block edge runs straight between two
+  points of a cap sphere.
 - `test_bulk.py` — `bulk_body.py` is valid Python (`ast.parse`),
   `LAMP_CUTS` has the expected keys and reflects per-lamp endcap
   flags, capsule subtraction (`addSphere` + `fuse`) only emitted
@@ -971,9 +1311,77 @@ isolate single behaviours of the helper modules:
   annulus subdir per lamp, bulk emitter + scratch case, executable
   `Allrun.mesh`), `Allrun.mesh` transformPoints rotates `(0 0 1)`
   to the lamp axis vector and translates to `axis_start`,
-  polyDualMesh runs at featureAngle 90 with the cellZone cleanup,
+  polyDualMesh runs with the cellZone cleanup, at the body's
+  `dual_feature_angle` on every dualising path (hybrid included),
   one `createNonConformalCouples` per lamp pairing
   `reactor_seam_lamp{i}` with `lamp{i}_seam`.
+- `test_grading.py` — the graded cell sizes against a geometric
+  series worked by hand; the cylinder's inner blocks carry the ratio,
+  every cap that meets them its reciprocal, matryoshka's outer layer
+  and cap stay uniform with the count set by the last graded cell (12
+  cells where the mean would give 20).
+- `test_step_body.py` — `ReactorBody`'s STEP validation (one source,
+  file present, rotation pair, open-patch names), the derived rotation
+  checked with an independent Rodrigues formula, the bulk script's
+  settings, the hybrid mode's +z guard, the wall retype's place in
+  `Allrun.mesh`, and -- where gmsh is installed -- the bulk script run
+  on a STEP body made in the test: placed where scale and rotation put
+  it, its open patch on the right disc, and a point off the body
+  failing the script. All ten targeted mutations of the new code
+  (open-patch match, rotation sign, scale, cap reciprocal, morphed-cap
+  grading, outer-layer balance, cylinder grading, wall retype, the
+  series exponent, two body sources) turn at least one test red.
+- `test_wall_layer.py` — `WallLayer` validation and defaults; its
+  local frame against the placement (four axes); the window a pipe on
+  the wall gets (centre, width, margin) and none for a pipe elsewhere,
+  windows off the wall's ends or overlapping refused; the dict with the
+  window's blocks left out, its six side faces in the seam, the wall and
+  end rings walls, the grading reciprocal; `Allrun.mesh`'s layer steps;
+  and in gmsh, a cylindrical STEP chamber with a riser whose footprint
+  the chamber's seam line splits: no bulk node beyond the layer's inner
+  surface outside the window, the bulk at the wall inside it, the seam
+  on the inner surface and on the window's radial sides and ends (away
+  from their shared corners), and the end wall still wall. All ten
+  targeted mutations turn a test red; two of them first survived and
+  the test was strengthened for them (the window's ends checked away
+  from the corners the radial sides share; the end wall checked).
+- `test_pipe.py` — `Pipe` validation and its axial-cell default; the
+  junction segment's cells, laid out as blockMesh will from
+  `axial_blocks()`, meeting the uniform cells exactly and starting within
+  one progression step of `junction_cell_size`; a wall layer as four more
+  blocks between two concentric circles; the
+  pipe dict is a five-block O-grid with its wall, seam and open patches
+  once each, every junction vertex projected onto the footprint STL and
+  the rim's onto the pipe's cylinder too, no vertex of the open end on
+  the footprint, no curved edge written twice, the ring graded to the
+  wall by the reciprocal and the junction segment along the axis; the placement
+  tokens checked against an independent Rodrigues rotation (forward
+  puts local +z on the axis, inverse undoes it, for four axes);
+  `Allrun.mesh` meshes each pipe after the bulk script, footprint
+  transform before blockMesh before placement, merged and coupled;
+  duplicate or taken open-patch names and box bodies refused; and, in
+  gmsh, a STEP chamber with a separate pipe solid: the pipe left out of
+  the bulk, its footprint the seam `reactor_seam_pipe0` on the chamber's
+  face within the pipe's radius, the footprint STL written as that
+  disc plus one ring of the face's own triangles around it, and a pipe
+  of the wrong radius failing the script. The 0.12 additions (layer
+  grading and radius, junction-segment grading, the footprint margin)
+  each turn a test red when mutated. Of the 0.10 set, eleven of
+  twelve targeted mutations turn a test red; the twelfth -- keeping the
+  pipe's volume after printing its footprint -- changes nothing a test
+  can see, since that volume is in no physical group and is not
+  written; it only costs its meshing.
+- `test_refinement.py` — `Refinement` and the new `ReactorBody`
+  settings validated; the nested cylinders growing by `growth` up to the
+  bulk size, none for a zone as coarse as the bulk, a slanted zone
+  growing along its own axis; the bulk script's zone sizes, lowered
+  floor, `OptimizeThreshold` / `OptimizeNetgen` and `Cylinder` fields;
+  `Allrun.mesh`'s keep-a-newer-`bulk.msh` test before the bulk script;
+  in gmsh, a box whose tets inside a zone come out near its size,
+  coarser in the next ring and at the bulk size in the far corners; and
+  the bulk script run from a moved case finding the STEP file beside it.
+  Deleting the fields from the Min field, or the fallback, turns a test
+  red.
 
 The unit tests run before the OpenFOAM regression cases in CI; a
 unit-test failure fails the build immediately (cheap signal). Run
@@ -1658,7 +2066,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Thirty cases.
+  Thirty-one cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -2060,6 +2468,12 @@ mesh tooling:
   (checkMesh `Mesh OK`). Designed for cases where mesh quality
   near the lamp tip is critical (research-paper-grade
   comparisons, fine-resolution dose work).
+- **`uvMeshSmokeSozziStep`** — the first uvMesh case on a real
+  reactor: the Sozzi & Taghipour body from the tutorial's STEP file,
+  `structured_matryoshka` lamp with a graded annulus, curvature-sized
+  pipes. Validates the mesh volume against the drawing's exact fluid
+  volume, the inlet and outlet discs by area, patch types, NCC
+  coverage and quality; see the uvMesh section.
 - **`uvMeshSmokeHemisphereStructuredMatryoshka`** — sibling of
   `uvMeshSmokeHemisphereStructuredFull` with
   `bulk_cells="structured_matryoshka"` and a larger box
@@ -2073,9 +2487,10 @@ mesh tooling:
   `outer_cap_radius_factor * annulus_outer_radius`). The body
   cylinder gains a SECOND radial layer between
   `annulus_outer_radius` and `outer_cap_radius` with
-  auto-balanced radial cell count (the outer layer's
-  `n_radial` is scaled by the ratio of layer widths so the
-  cell size stays uniform). The cells against the lamp wall
+  auto-balanced radial cell count (uniform, sized to the inner
+  layer's last radial cell, so the cell size is continuous
+  across the layer boundary; with an ungraded inner layer this
+  is the ratio of the layer widths). The cells against the lamp wall
   are now uniform spherical hex with no flat/cylinder
   transitions; the 4 butterfly cube-corner topological defects
   are pushed out to the outer cap envelope -- twice as far
@@ -2086,11 +2501,10 @@ mesh tooling:
   count because of the extra body + cap layers) + ~3300
   polyhedra (bulk) = ~42000 total cells; NCC fuse ~10500 face
   couplings at **0.99990 / 0.99994 average coverage** (on par
-  with structured_full); max non-orth 68° (matches
-  `structured`'s); max skew **3.62** -- the highest of any
-  uvMesh smoke test, at a far outer-cap-corner cell, but well
-  below OF's 4.0 failure threshold. 0 bad face pyramids
-  (checkMesh `Mesh OK`). Designed for UV reactor cases where
+  with structured_full); max non-orth 64°, max skew 1.68, 0 bad
+  face pyramids (checkMesh `Mesh OK`). (The 68° / skew 3.62
+  recorded here before came from the middle sphere's edges being
+  left straight; see the matryoshka section above.) Designed for UV reactor cases where
   the high-G near-wall layer is the binding accuracy
   constraint and the topology cost (~3× cells vs
   structured_full's annulus) is justified.
@@ -2398,38 +2812,35 @@ passes are deferred:
 
 ## Open items — uvMesh helper
 
-The v0.2 helper covers flat or hemispherical end caps on lamps with
-arbitrary axis orientation inside a box-bounded reactor body.
-Remaining work queued behind real driver cases:
+The helper covers flat or hemispherical end caps on lamps with
+arbitrary axis orientation, inside a box or a body read from a STEP
+file, with the lamp annulus graded toward the sleeve. Remaining work:
 
-1. **STL-driven reactor body.** Today `ReactorBody` requires
-   `box_min` / `box_max`; `stl_path` raises `NotImplementedError`.
-   The bulk emitter would need to `gmsh.merge(stl_path)` and adapt
-   the surface classification (the box-walls test relies on the
-   bbox-extent shape). The Sozzi STEP file's `make_geometry.py` is
-   a working template for the boolean + classification logic.
+1. **STL-driven reactor body.** `stl_path` still raises
+   `NotImplementedError`; a STEP file is the supported route to real
+   geometry (see the public API above), and an STL has no solids for
+   the cut, so it would need its own surface-to-volume step.
 
-2. **Sozzi-poly tutorial.** Replace the snappy bulk in
-   `tutorials/uvReactorSozzi2006(-DOM)` with the uvmesh hybrid
-   pipeline. Now blocked only on item (1) — the lamp-tip story is
-   handled by v0.2's hemispherical cap (`endcap_b_shape="hemisphere"`
-   centred at `axis_end`, fluid wraps the cap, single NCC pair per
-   lamp combining cylindrical and hemispherical seam). Sozzi's
-   lamp ends at x = 0.810 inside the L-shape body; a hemispherical
-   cap of radius `sleeve_radius` at `axis_end = (0.810, 0, 0)`
-   models the tip exactly. Validation is against the existing
-   Sozzi log-reduction window and the paper.
+2. **Sozzi-poly tutorial.** The Sozzi reactor now meshes from its
+   STEP file (`tests/uvMeshSmokeSozziStep`: lamp along x from the end
+   wall, cylinder to x = 0.80, hemispherical tip to 0.81). What remains
+   is the tutorial itself: its `0/` fields name `lampWall` where the
+   uvmesh lamp is `lamp0_wall` / `lamp0_tip_B` / `lamp0_endcap_A`, and
+   a flow resolution chosen against the snappyHexMesh mesh.
 
-3. **Radial grading and per-lamp resolution overrides.**
-   `Lamp.radial_grading` is accepted but currently no-op — the
-   annulus radial cells are uniform. Wiring it through
-   blockmeshbuilder's per-block grading records would let users
-   pack cells against the sleeve wall (where κ·r >> 1 attenuation
-   layer needs finer resolution); the parameter is held for
-   forward compatibility so the Sozzi-poly tutorial doesn't have
-   to rename it later.
+3. **O-grid pipes, joined non-conformally.** The inlet pipe and the
+   outlet riser meshed like the lamps: a structured O-grid along each
+   pipe axis, cut from the bulk and coupled at its seam. Until then
+   the pipes are tets/polyhedra sized by `wall_cells_per_circle`.
 
-4. **Lamp-axis edge cases.** The pipeline emits
+4. **Boundary layers on the reactor walls.** Prism layers on the
+   body wall, the lamp's analogue for the outer wall -- the particles
+   nearest the body wall collect the lowest dose and so set the log
+   reduction. The one awkward place is where the wall meets the
+   outlet riser; a quad-dominant surface mesh on the reactor walls
+   first would make the layer extrusion there tractable.
+
+5. **Lamp-axis edge cases.** The pipeline emits
    `transformPoints "rotate=((0 0 1) (u_x u_y u_z))"` for every
    lamp regardless of axis orientation. The OF v13 implementation
    handles identity (u = +z) cleanly and arbitrary axes through
@@ -2438,7 +2849,7 @@ Remaining work queued behind real driver cases:
    rotation axis). Not exercised by any shipped case, but worth
    bench-testing before any tutorial uses a -z lamp axis.
 
-5. **Forcing cube-angle alignment of gmsh's polygonal facets on
+6. **Forcing cube-angle alignment of gmsh's polygonal facets on
    the cylinder cutout.** With the pad fix landed, `structured_full`
    already achieves ~0.9999 NCC coverage on the smoke geometry --
    the residual ~0.01 % is gmsh's polygonal cylinder approximation
@@ -2450,7 +2861,12 @@ Remaining work queued behind real driver cases:
    most production cases will refine the bulk seam mesh anyway,
    which closes the polygonal-vs-curved gap by mesh density alone.
 
-6. **Polyhedral bulk for hemispherical lamps.** v0.4 ships
+7. **Polyhedral bulk for hemispherical lamps -- RESOLVED (v0.9):**
+   the all-polyhedral path's bad cells were a 1 mm lip of the cut
+   cylinder past the equator, not the dual; with it removed
+   `bulk_cells="polyhedral"` is clean on the capsule seam (see the
+   uvMeshSmokeHemisphere entry). The rest of this item is the
+   workaround that was built meanwhile. v0.4 ships
    hemispherical-lamp cases with `bulk_cells="hybrid"`: the cells
    inside a cylindrical cap zone around each hemispherical cap stay
    as tets while the rest of the bulk is dualised. polyDualMesh

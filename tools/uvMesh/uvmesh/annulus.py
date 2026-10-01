@@ -17,7 +17,9 @@ import math
 import os
 
 import numpy as np
-from blockmeshbuilder import BlockMeshDict, BoundaryTag, TubeBlockStruct
+from blockmeshbuilder import (
+    BlockMeshDict, BoundaryTag, SimpleGradingElement, TubeBlockStruct,
+)
 
 from .cap_extension import write_morphed_cap
 from .geometry import Lamp, ReactorBody
@@ -29,7 +31,8 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
     """Write `<case_dir>/system/blockMeshDict` for one lamp's annulus.
 
     The cylindrical portion is a full 2*pi azimuth (4 quadrant blocks),
-    single radial block with uniform spacing, single axial block.
+    single radial block graded by `lamp.radial_grading` (uniform at 1),
+    single axial block.
 
     Patches emitted (lamp-local frame, +z axis):
         lamp.sleeve_patch_name        r = sleeve_radius (inner cylinder)
@@ -69,13 +72,15 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
             r_outer_cap,
         ])
         # Auto-balance the outer body layer's radial cell count so its
-        # cell size matches the inner layer's. Without this, a cell-size
-        # jump at r=annulus_outer_radius produces high skew / non-orth
-        # cells at the body's inter-layer boundary. The same balancing
-        # applies to the outer cap's n_radial below.
-        inner_width = lamp.annulus_outer_radius - lamp.sleeve_radius
+        # (uniform) cell size matches the inner layer's LAST cell. Without
+        # this, a cell-size jump at r=annulus_outer_radius produces high
+        # skew / non-orth cells at the body's inter-layer boundary. With a
+        # uniform inner layer the last cell is the mean cell, so this is
+        # the same count as balancing the two layers' average sizes. The
+        # same balancing applies to the outer cap's n_radial below.
         outer_width = r_outer_cap - lamp.annulus_outer_radius
-        n_radial_outer = max(1, round(lamp.n_radial * outer_width / inner_width))
+        _, last_inner_cell = lamp.radial_cell_sizes()
+        n_radial_outer = max(1, round(outer_width / last_inner_cell))
         nr = np.array([lamp.n_radial, n_radial_outer])
     else:
         rs = np.array([lamp.sleeve_radius, lamp.annulus_outer_radius])
@@ -105,12 +110,14 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
         endcap_b = BoundaryTag(lamp.endcap_b_patch_name, type_='wall')
         struct.boundary_tags[:, :, -1, 2] = endcap_b  # z-max
 
-    # Radial grading is not wired through to blockmeshbuilder's block records
-    # in v0.1 -- the cells are uniformly spaced radially. The Lamp.radial_grading
-    # field is accepted for forward compatibility (Sozzi-poly will need finer
-    # cells against the sleeve wall) but currently unused. Track here so it
-    # isn't silently re-introduced as a magic-number constant.
-    _ = lamp.radial_grading
+    # Radial grading of the inner annulus layer (sleeve -> annulus_outer):
+    # blockmeshbuilder takes a block's grading in each direction from the
+    # vertex row at the low end of that direction, so the inner radial row
+    # carries it. The matryoshka outer layer stays uniform. blockmeshbuilder
+    # recognizes a uniform block by the identity of its grading element, so
+    # a ratio of 1 leaves the default in place.
+    if lamp.radial_grading != 1.0:
+        struct.grading[0, :, :, 0] = SimpleGradingElement(lamp.radial_grading)
 
     bmd = BlockMeshDict(metric='m')
     struct.write(bmd)
@@ -175,8 +182,8 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
         if use_matryoshka:
             # Inner cap: r=sleeve_radius -> r=annulus_outer_radius.
             # Outer faces are interior (shared with outer cap), so
-            # outer_is_seam=False and the outer projection edges are
-            # deferred to the outer cap (add_outer_edges=False).
+            # outer_is_seam=False. The inner cap owns the projection edges
+            # on the shared middle sphere; the outer cap skips them.
             sphere_inner_i, sphere_middle, p_inner_i, p_outer_i = \
                 write_hemisphere_cap(
                     bmd=bmd,
@@ -194,8 +201,8 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
                     seam_tag=None,        # outer faces are interior
                     end_label=end_label,
                     zone_tag_name=f"{lamp.sleeve_patch_name}_matrA_{end_label}",
+                    radial_expansion=lamp.radial_grading,
                     outer_is_seam=False,
-                    add_outer_edges=False,
                 )
             # Outer cap: r=annulus_outer_radius -> r=outer_cap_radius.
             # Inner faces are interior (shared with inner cap's outer
@@ -246,6 +253,7 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
                 end_label=end_label,
                 zone_tag_name=f"{lamp.sleeve_patch_name}_capext_{end_label}",
                 full_disc_coverage=full_disc,
+                radial_expansion=lamp.radial_grading,
             )
         else:
             write_hemisphere_cap(
@@ -264,6 +272,7 @@ def write_annulus_dict(lamp: Lamp, case_dir: str,
                 seam_tag=seam,
                 end_label=end_label,
                 zone_tag_name=f"{lamp.sleeve_patch_name}_hemi_{end_label}",
+                radial_expansion=lamp.radial_grading,
             )
 
     if lamp.endcap_a_shape == "hemisphere":

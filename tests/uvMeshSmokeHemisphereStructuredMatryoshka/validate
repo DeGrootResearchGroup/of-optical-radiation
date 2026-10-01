@@ -83,7 +83,7 @@ boundary = read(os.path.join(HERE, "constant", "polyMesh", "boundary"))
 # Same patch set as structured_full -- matryoshka just moves the NCC
 # seam outward without changing patch names or types.
 expected_patches = {
-    "bulkWall":           "patch",
+    "bulkWall":           "wall",
     "endcap_lo":          "patch",
     "endcap_hi":          "patch",
     "reactor_seam_lamp0": "patch",

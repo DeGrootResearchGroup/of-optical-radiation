@@ -43,18 +43,51 @@ RUN set -eux \
 
 RUN echo ". /opt/openfoam13/etc/bashrc" >> /root/.bashrc
 
-# Mesh-tooling layer: python3-gmsh (apt; PyPI gmsh wheels are x86_64-only),
-# pip + git for installing blockmeshbuilder from upstream, and the in-tree
-# `uvmesh` helper. blockmeshbuilder ships only via git -- there is no PyPI
-# release. uvmesh is installed in non-editable mode from /code (bind-
-# mounted at runtime); the install step here would fail before the source
-# is present, so we install the *dependencies* here and `pip install
-# /code/tools/uvMesh` is left to per-case Allruns (or CI's outer wrapper).
+# Mesh-tooling layer: gmsh built from source, pip + git for installing
+# blockmeshbuilder from upstream, and the in-tree `uvmesh` helper.
+# blockmeshbuilder ships only via git -- there is no PyPI release. uvmesh
+# is installed in non-editable mode from /code (bind-mounted at runtime);
+# the install step here would fail before the source is present, so we
+# install the *dependencies* here and `pip install /code/tools/uvMesh` is
+# left to per-case Allruns (or CI's outer wrapper).
+#
+# gmsh is built from source rather than taken from apt (Ubuntu's
+# python3-gmsh is 4.8, built without Netgen) or PyPI (whose Linux wheels
+# are x86_64 only): uvmesh's `ReactorBody(optimize_netgen=True)` runs
+# gmsh's Netgen tet optimizer, which gmsh bundles in its source. Built
+# without its GUI, as a shared library with the Python API, against
+# Ubuntu's OpenCASCADE.
+ARG GMSH_VERSION=4.15.2
+ARG GMSH_BUILD_JOBS=4
 RUN apt-get update && apt-get install -y \
     python3-pip \
-    python3-gmsh \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    cmake \
+    libocct-foundation-dev \
+    libocct-modeling-data-dev \
+    libocct-modeling-algorithms-dev \
+    libocct-data-exchange-dev \
+    libocct-ocaf-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fSL -o /tmp/gmsh.tgz \
+       "https://gmsh.info/src/gmsh-${GMSH_VERSION}-source.tgz" \
+    && tar -xzf /tmp/gmsh.tgz -C /tmp \
+    && cmake -S /tmp/gmsh-${GMSH_VERSION}-source -B /tmp/gmsh-build \
+       -DCMAKE_BUILD_TYPE=Release \
+       -DCMAKE_INSTALL_PREFIX=/usr/local \
+       -DENABLE_BUILD_DYNAMIC=ON \
+       -DENABLE_FLTK=OFF \
+       -DENABLE_NETGEN=ON \
+       -DENABLE_OCC=ON \
+    && cmake --build /tmp/gmsh-build -j "${GMSH_BUILD_JOBS}" \
+    && cmake --install /tmp/gmsh-build \
+    && rm -rf /tmp/gmsh.tgz /tmp/gmsh-${GMSH_VERSION}-source /tmp/gmsh-build \
+    && ldconfig \
+    && python3 -c "import sys; sys.path.insert(0, '/usr/local/lib'); import gmsh; \
+gmsh.initialize(); opts = gmsh.option.getString('General.BuildOptions'); \
+assert 'Netgen' in opts and 'OpenCASCADE' in opts, opts; gmsh.finalize()"
+# The Python API is installed beside the library, not in site-packages.
+ENV PYTHONPATH=/usr/local/lib
 RUN pip3 install --no-cache-dir \
         numpy \
         pytest \
