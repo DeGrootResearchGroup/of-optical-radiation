@@ -248,7 +248,7 @@ Foam::dose::
 
   dispersionModel                  (RTS family — turbulent fluctuation u')
     ├── noDispersion               (deterministic streamlines)
-    └── discreteRandomWalk         (Gosman-Ioannides DRW; needs k, epsilon)
+    └── discreteRandomWalk         (Gosman-Ioannides DRW; needs k and epsilon or omega)
 
   motionModel                      (RTS family — particle equation of motion)
     ├── tracer                     (V = U + u'; algebraic, fluid-following)
@@ -1404,8 +1404,8 @@ applications (UV disinfection, in particular). Given:
 - a frozen velocity field `U` (in m/s, OpenFOAM SI),
 - a fluence-rate field `G` (in W/m², OpenFOAM SI; can come from
   opticalRadiation, from `setFluenceRate`, or any user source),
-- optional turbulence fields `k` and `epsilon` for stochastic
-  dispersion,
+- optional turbulence fields `k` and `epsilon` (or a k-omega
+  model's `omega`) for stochastic dispersion,
 
 the function object `Foam::functionObjects::radiationDose` seeds a
 configurable distribution of particles, integrates each one through
@@ -1560,12 +1560,16 @@ dispersionModel
 └── discreteRandomWalk     Gosman-Ioannides DRW; each velocity component
                            drawn from N(0, sqrt(2k/3)), held for an eddy
                            lifetime tau_e = Cl * k / epsilon, then resampled.
-                           Per-particle eddy state is kept in a Map keyed by
-                           track ID and cleared by reset() at the start of
-                           every execute(). Config:
+                           Reads a k-omega model's omega instead when named
+                           (epsilon = Cmu k omega, so tau_e = Cl / (Cmu omega);
+                           naming both is an error) -- for kOmegaSST flows.
+                           Per-particle eddy state (DRWState) lives on the
+                           track object. Config:
                               type     discreteRandomWalk;
                               k        k;          // optional, default "k"
                               epsilon  epsilon;    // optional, default "epsilon"
+                              omega    omega;      // instead of epsilon
+                              Cmu      0.09;       // with omega; default 0.09
                               Cl       0.15;       // optional, default 0.15
 
 motionModel
@@ -2272,6 +2276,17 @@ The case suite is split into two trees:
   scattering, so a strict G-profile comparison is out of scope).
 radiationDose:
 
+- **`doseDispersionOmega`** — the `doseSmokeBox` plug flow with
+  uniform turbulence, the discrete random walk run twice from one
+  seed: reading `epsilon`, and reading the equivalent `omega`
+  (k = epsilon = 2^-5, omega = 2, Cmu = 0.5, chosen so
+  epsilon = Cmu k omega and both lifetimes, 0.15 s, are exact in
+  floating point). The validate script asserts every track escapes
+  in both, the two `doseDistribution.csv` files agree track for
+  track (measured: identical, worst relative difference 0), and the
+  doses spread (6.7 % relative), so the agreement is not two
+  deterministic runs agreeing. Hard-coding Cmu = 0.09 or putting
+  Cl k / omega on the omega branch each fails it.
 - **`doseSmokeBox`** — 1 m × 0.1 m × 0.1 m box with uniform
   `U = (0.5, 0, 0)` m/s, slip walls, uniform `G = 10` W/m². Slip
   walls keep the cell-vertex-interpolated velocity equal to the
@@ -2535,8 +2550,16 @@ mesh tooling:
   Geometry comes from a STEP file processed via gmsh's OpenCASCADE
   backend (boolean `(body ∪ inlet ∪ outlet) − lamp`), meshed with
   snappyHexMesh (~365 k cells, max non-orth 49°, watertight).
-  Steady RANS solve with realizable k-ε via foamRun's
-  `incompressibleFluid` solver. radiationDose post-process with
+  Steady RANS solve with k-ω SST via foamRun's `incompressibleFluid`
+  solver (`kLowReWallFunction` / `omegaWallFunction`, k solved every
+  iteration, 2 non-orthogonal correctors), the dose tracker reading
+  `omega`. ⚠️ Until 2026-10-01 the tutorials ran realizable k-ε
+  (`kqRWallFunction`, no non-orthogonal correctors); every result
+  below in this entry -- convergence iteration, runtime, doses --
+  was measured with that model and does not describe the SST
+  tutorial. It moved to SST because, on a mesh resolved to the lamp
+  wall, realizable k-ε would not settle near the lamp and SST did.
+  radiationDose post-process with
   DRW dispersion (`Cl = 0.15`), `wallReflection = true`. Flow
   converges at iter ~516 via the fvSolution `residualControl`
   thresholds; 10008 particles are injected on that snapshot

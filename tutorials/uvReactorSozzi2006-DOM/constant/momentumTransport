@@ -1,6 +1,6 @@
 /*--------------------------------*- C++ -*----------------------------------*\
   =========                 |
-  \\      /  F ield         | uvReactorSozzi2006: realizable k-eps RANS
+  \\      /  F ield         | uvReactorSozzi2006: k-omega SST RANS
    \\    /   O peration     |
     \\  /    A nd           |
      \\/     M anipulation  |
@@ -18,8 +18,13 @@ simulationType RAS;
 
 RAS
 {
-    // Realizable k-epsilon as used by Sozzi & Taghipour 2006.
-    model           realizableKE;
+    // k-omega SST. Sozzi & Taghipour (2006) used realizable k-epsilon with
+    // wall functions. On a mesh resolved to the lamp wall (y+ ~ 1),
+    // realizable k-epsilon would not settle near the lamp, where the
+    // inlet jet runs back along the sleeve; SST converges there. Its
+    // wall conditions switch to the log law wherever y+ is above ~11,
+    // so the same model serves this tutorial's coarser near-wall cells.
+    model           kOmegaSST;
 
     turbulence      on;
 

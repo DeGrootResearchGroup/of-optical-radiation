@@ -1,47 +1,37 @@
 /*--------------------------------*- C++ -*----------------------------------*\
   =========                 |
-  \\      /  F ield         | uvReactorSozzi2006: turbulent kinetic energy
+  \\      /  F ield         | radiationDose: DRW with epsilon or omega
    \\    /   O peration     |
     \\  /    A nd           |
      \\/     M anipulation  |
 \*---------------------------------------------------------------------------*/
 FoamFile
 {
+    version     2.0;
     format      ascii;
     class       volScalarField;
-    object      k;
+    object      omega;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// k = 1.5 * (TI*U)^2 with TI = 0.10 (Sozzi & Taghipour 2006), U = 5.51 m/s
-//   = 1.5 * (0.551)^2 = 0.4555 m^2/s^2
-dimensions      [0 2 -2 0 0 0 0];
+dimensions      [0 0 -1 0 0 0 0];
 
-internalField   uniform 0.4555;
+// epsilon / (Cmu k) = 2^-5 / (0.5 * 2^-5), with Cmu = 0.5 in the omega instance.
+internalField   uniform 2;
 
 boundaryField
 {
     inlet
     {
-        type            fixedValue;
-        value           uniform 0.4555;
+        type            zeroGradient;
     }
-
     outlet
     {
         type            zeroGradient;
     }
-
-    bodyWall
+    walls
     {
-        type            kLowReWallFunction;
-        value           uniform 0.4555;
-    }
-
-    lampWall
-    {
-        type            kLowReWallFunction;
-        value           uniform 0.4555;
+        type            zeroGradient;
     }
 }
 

@@ -354,7 +354,7 @@ src/radiationDose/                           (radiationDose library)
     dispersionModels/        dispersionModel RTS family
         dispersionModel/     abstract base + factory
         noDispersion/        deterministic streamlines
-        discreteRandomWalk/  Gosman-Ioannides DRW (needs k, epsilon)
+        discreteRandomWalk/  Gosman-Ioannides DRW (needs k and epsilon or omega)
     motionModels/            motionModel RTS family
         motionModel/         abstract base + factory
         tracer/              V = U + u' (fluid tracer)

@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""The discrete random walk reads omega as well as epsilon.
+
+Two radiationDose instances run the same walk from the same seed over the
+plug flow of the dose smoke box (uniform U = 0.5 m/s, G = 10 W/m^2), one
+reading epsilon and one reading omega. The fields satisfy
+epsilon = Cmu k omega exactly (k = epsilon = 2^-5, omega = 2, Cmu = 0.5),
+so both lifetimes are Cl * 1.0 = 0.15 s and the two walks are the same
+walk: every track's end reason, time, dose and end point agree.
+
+This checks:
+
+  1. both instances seeded the same tracks and every one escaped;
+  2. the two doseDistribution.csv files agree track for track (to
+     floating-point rounding: the lifetimes are equal to the last bit,
+     so the walks are identical);
+  3. the walk did something: the doses spread (without dispersion every
+     track would see the same 2.0 mJ/cm^2 in this plug flow), so the
+     agreement is not two deterministic runs agreeing.
+"""
+
+import csv
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import find_latest_time, parse_summary
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def outputs(func):
+    latest = find_latest_time(os.path.join(HERE, "postProcessing", func))
+    if latest is None:
+        return None, None
+    return (parse_summary(os.path.join(latest, "summary.dat")),
+            os.path.join(latest, "doseDistribution.csv"))
+
+
+def tracks(path):
+    with open(path) as f:
+        rows = [r for r in csv.reader(line for line in f if not line.startswith("#"))]
+    return {int(r[0]): (r[1], *map(float, r[2:])) for r in rows}
+
+
+fails = []
+(s_eps, d_eps), (s_om, d_om) = outputs("drwEpsilon"), outputs("drwOmega")
+if s_eps is None or s_om is None:
+    print("FAIL: missing radiationDose output for drwEpsilon or drwOmega")
+    sys.exit(1)
+
+for name, s in (("drwEpsilon", s_eps), ("drwOmega", s_om)):
+    if s["totalSeeded"] < 200 or s["escaped"] != s["totalSeeded"]:
+        fails.append(f"{name}: {s['escaped']:.0f} of {s['totalSeeded']:.0f} tracks escaped")
+
+t_eps, t_om = tracks(d_eps), tracks(d_om)
+if set(t_eps) != set(t_om):
+    fails.append(f"track ids differ: {len(t_eps)} vs {len(t_om)}")
+else:
+    worst = 0.0
+    for i, a in t_eps.items():
+        b = t_om[i]
+        if a[0] != b[0]:
+            fails.append(f"track {i}: end reason {a[0]} vs {b[0]}")
+            break
+        worst = max(worst, max(abs(x - y) / max(abs(x), 1e-12) for x, y in zip(a[1:], b[1:])))
+    if worst > 1e-9:
+        fails.append(f"tracks differ between epsilon and omega: worst relative difference {worst:.3e}")
+    print(f"  epsilon vs omega: {len(t_eps)} tracks, worst relative difference {worst:.3e}")
+
+spread = s_eps["stdevDose_mJcm2"] / s_eps["meanDose_mJcm2"]
+print(f"  dose mean {s_eps['meanDose_mJcm2']:.4f} mJ/cm^2, relative spread {spread:.3e}")
+if spread < 1e-3:
+    fails.append(f"doses did not spread (relative spread {spread:.3e}): the walk is not active")
+
+if fails:
+    for f in fails:
+        print("FAIL:", f)
+    sys.exit(1)
+print("PASS: the walk is the same with epsilon and with the equivalent omega")

@@ -36,6 +36,25 @@ namespace dose
 }
 
 
+// * * * * * * * * * * * * * Static Member Functions * * * * * * * * * * * * //
+
+Foam::word Foam::dose::discreteRandomWalk::dissipationName
+(
+    const dictionary& dict
+)
+{
+    if (dict.found("omega") && dict.found("epsilon"))
+    {
+        FatalIOErrorInFunction(dict)
+            << "discreteRandomWalk: name either epsilon or omega, not both"
+            << exit(FatalIOError);
+    }
+    return dict.found("omega")
+        ? dict.lookup<word>("omega")
+        : dict.lookupOrDefault<word>("epsilon", "epsilon");
+}
+
+
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
 Foam::dose::discreteRandomWalk::discreteRandomWalk
@@ -46,10 +65,19 @@ Foam::dose::discreteRandomWalk::discreteRandomWalk
 :
     dispersionModel(dict, mesh),
     kName_(dict.lookupOrDefault<word>("k", "k")),
-    epsilonName_(dict.lookupOrDefault<word>("epsilon", "epsilon")),
+    omega_(dict.found("omega")),
+    dissipationName_(dissipationName(dict)),
+    Cmu_(dict.lookupOrDefault<scalar>("Cmu", 0.09)),
     Cl_(dict.lookupOrDefault<scalar>("Cl", 0.15)),
     tauEMax_(dict.lookupOrDefault<scalar>("tauEMax", 100.0))
-{}
+{
+    if (Cmu_ <= 0)
+    {
+        FatalIOErrorInFunction(dict)
+            << "discreteRandomWalk: Cmu must be > 0, got " << Cmu_
+            << exit(FatalIOError);
+    }
+}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
@@ -70,11 +98,11 @@ Foam::vector Foam::dose::discreteRandomWalk::fluctuation
 
     const volScalarField& kField =
         mesh_.lookupObject<volScalarField>(kName_);
-    const volScalarField& epsField =
-        mesh_.lookupObject<volScalarField>(epsilonName_);
+    const volScalarField& dissField =
+        mesh_.lookupObject<volScalarField>(dissipationName_);
 
     const scalar kVal = max(kField[celli], scalar(0));
-    const scalar epsVal = max(epsField[celli], small);
+    const scalar dissVal = max(dissField[celli], small);
 
     // The track owns its own DRWState. No locking needed because each
     // track is integrated by exactly one thread at a time.
@@ -87,7 +115,9 @@ Foam::vector Foam::dose::discreteRandomWalk::fluctuation
         // isotropic-turbulence variance (Gosman-Ioannides 1981).
         const scalar sigma = sqrt(2.0/3.0*kVal);
         s.uPrime = sigma*gaussianTriple(rng);
-        s.remaining = min(Cl_*kVal/epsVal, tauEMax_);
+        // Cl k / epsilon, which with epsilon = Cmu k omega is Cl / (Cmu omega).
+        const scalar tauE = omega_ ? Cl_/(Cmu_*dissVal) : Cl_*kVal/dissVal;
+        s.remaining = min(tauE, tauEMax_);
     }
 
     s.remaining -= dt;
