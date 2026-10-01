@@ -207,6 +207,7 @@ class radiationDose
         dictionary motionDict_;
 
         labelHashSet escapePatchIDs_;
+        labelHashSet injectionPatchIDs_;
         scalar maxTime_;
         scalar maxDose_;
         Switch wallReflection_;

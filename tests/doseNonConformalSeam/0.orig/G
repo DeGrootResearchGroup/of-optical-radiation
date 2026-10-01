@@ -1,0 +1,47 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | radiationDose: across a non-conformal seam      |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      G;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 0 -3 0 0 0 0];
+
+// Uniform fluence rate: every track's dose is G t 0.1 = t mJ/cm^2, so a
+// track that loses time or dose at the seam shows as D != t.
+internalField   uniform 10;
+
+boundaryField
+{
+    inlet
+    {
+        type            zeroGradient;
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    walls
+    {
+        type            zeroGradient;
+    }
+    seamL
+    {
+        type            zeroGradient;
+    }
+    seamR
+    {
+        type            zeroGradient;
+    }
+}
+
+// ************************************************************************* //

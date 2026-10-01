@@ -15,6 +15,10 @@ Description
     randomly within a face (fan triangulation around the face centroid),
     and the initial cell index is taken as the face's owner cell.
 
+    A particle that returns to a patch it was injected from (a random
+    step back upstream through the inlet, say) reflects off it, as off
+    a wall, unless the patch is also one of the escape patches.
+
 Usage
     seeding
     {
@@ -72,6 +76,11 @@ public:
     // Member Functions
 
         virtual List<trackPoint> seed(randomGenerator& rng) const;
+
+        virtual wordList injectionPatches() const
+        {
+            return patchNames_;
+        }
 };
 
 

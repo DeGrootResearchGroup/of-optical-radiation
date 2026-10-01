@@ -1,0 +1,81 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: tracking across a non-conformal seam
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+
+application     postProcess;
+startTime       0;
+endTime         0;
+deltaT          1;
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  8;
+
+// Two instances, both against the seam of blockMeshDict:
+//
+//  walk     plug flow and a discrete random walk from the inlet. Particles
+//           meet the seam at every angle, and the third of them injected
+//           into the strips run into the uncovered parts of seamL and must
+//           reflect off them until the walk takes them out.
+//  grazing  no dispersion; particles seeded on the plane x = 0.2 slide
+//           along the z = 0 wall into the seam's edge, where a line along
+//           their displacement often meets the other side's surface past
+//           its edge (OpenFOAM's transfer misses), and must cross anyway.
+//
+// `validate` checks every track escapes, its dose is t mJ/cm^2, and in
+// `grazing` that its residence is 1.6 s: a track turned back at the seam
+// arrives late.
+
+functions
+{
+    walk
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+        U               U;
+        fluenceRate     G;
+        seed            7;
+        seeding         { type patchInjection; patches (inlet); nParticles 1000; }
+        dispersion
+        {
+            type        discreteRandomWalk;
+            k           k;
+            epsilon     epsilon;
+            Cl          0.15;
+        }
+        termination     { escapePatches (outlet); maxTime 20; maxDose 0; }
+        integration     { dtMax 0.005; cflMax 0.5; }
+        output          { kInact (0.1); writeVtk false; }
+    }
+    grazing
+    {
+        type            radiationDose;
+        libs            ("libradiationDose.so");
+        U               Ugrazing;
+        fluenceRate     G;
+        seed            7;
+        seeding
+        {
+            type        pointInjection;
+            nParticles  500;
+            region      { type box; centre (0.2 0.05 0.05); size (1e-9 0.09 0.09); }
+        }
+        dispersion      { type none; }
+        termination     { escapePatches (outlet); maxTime 20; maxDose 0; }
+        integration     { dtMax 0.005; cflMax 0.5; }
+        output          { kInact (0.1); writeVtk false; }
+    }
+}
+
+// ************************************************************************* //

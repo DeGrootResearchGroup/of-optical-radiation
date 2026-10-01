@@ -302,7 +302,7 @@ and étendue-n² methodology fixes.
 | `src/radiationDose/seedingModels/` | seedingModel RTS family (patchInjection, pointInjection) |
 | `src/radiationDose/dispersionModels/` | dispersionModel RTS family (noDispersion, discreteRandomWalk, randomDisplacement) + eddyDiffusivity, the turbulence sampling both walks share |
 | `src/radiationDose/motionModels/` | motionModel RTS family (tracer, inertial) + nested dragModels (stokesDrag, schillerNaumann) |
-| `tests/` | Thirty-three regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
+| `tests/` | Thirty-seven regression-test cases plus `Alltest` validation harness (run by CI on every PR) |
 | `tutorials/` | Seven pedagogical cases (`uvReactorSozzi2006`, `uvReactorSozzi2006-DOM`, `uvChannelChiu1999`, `uvChannelChiu1999-3d`, `refractiveInterface2D`, `fvModelChannel2D`, `iesEmitter2D`); not run by CI, run by users |
 | `src/opticalRadiationModels/Make/files`, `Make/options` | opticalRadiation build configuration |
 | `src/radiationDose/Make/files`, `Make/options` | radiationDose build configuration |
@@ -1615,9 +1615,14 @@ termination
     escapePatches    (outlet);     // hits here -> endReason::escaped
     maxTime          300;          // s; 0 disables (default)
     maxDose          5000;         // mJ/cm^2; 0 disables (default)
-    wallReflection   true;         // default true; specular bounce off non-escape patches
+    wallReflection   true;         // default true; specular bounce off wall patches
 }
 ```
+
+A particle that returns to a `patchInjection` patch (a random step back
+upstream through the inlet) reflects off it, whatever `wallReflection`
+says, unless that patch is also listed in `escapePatches`. Any other
+non-wall, non-escape patch still ends the track as `stuck`.
 
 If a future case needs `terminationByDoseRate`, `terminationByCellZone`,
 etc., it's straightforward to promote this block to an RTS family
@@ -1845,9 +1850,47 @@ Patch interactions are dispatched by OF's `hitFace`. We override:
   `tests/doseWellMixed` measures a 2 mm band next to a wall at 1.60
   of uniform). Empty patches (`hitBasicPatch`) do the same.
 - `hitBasicPatch`: marks `endReason::escaped` if the patch is in
-  `escapePatchIDs_`, else `stuck`. We deliberately do NOT call the
+  `escapePatchIDs_`; reflects specularly off `empty` patches and off
+  the cloud's `injectionPatchIDs_` (the seeding model's patches, less
+  any escape patch); otherwise `stuck`. We deliberately do NOT call the
   base-class `hitBasicPatch`, which would set `keepParticle=false`
   and discard the dose accumulator.
+- **Non-conformal couplings** (`nonConformalCyclic`, e.g. every uvMesh
+  seam). At the polyMesh level the coupled and error patches have no
+  faces; a particle hits the coupling's ORIGINAL patch (`lamp0_seam`,
+  `reactor_seam_lamp0`, ..., type `patch`). OpenFOAM's `hitFace` first
+  tries `hitNonConformalCyclicPatch`, which casts a line along the
+  remaining displacement onto the other side's faces that overlap this
+  one; only if that misses does it fall through to `hitBasicPatch` /
+  `hitWallPatch`. The two sides facet a curved seam with different
+  chords, so a displacement meeting the seam at a grazing angle -- or
+  close to where the seam ends on a wall -- crosses the other surface
+  outside those faces and misses. Both handlers therefore start with
+  `hitNonConformalOrigPatch`: retry the transfer along the face's
+  outward normal (it lands opposite the particle); if that misses too,
+  the particle is on a part of the seam the other side does not cover
+  (a `nonConformalError` region) and reflects specularly, regardless
+  of `wallReflection`. Before this, every miss ended the track as
+  `stuck`.
+  Measured 2026-10-01 on the Sozzi uvmesh mesh (1,232,629 cells; lamp
+  coupling at r ~ 22 mm, chamber-wall-layer coupling at r ~ 36.5 mm),
+  k-omega SST flow at iteration 2059, line-source G on the lamp arc
+  (`setFluenceRate -xStart 0 -xEnd 0.80`), 9,987 particles from the
+  inlet, seed 42, maxTime 300 s, cflMax 0.5, wallReflection on, Cl 0.15,
+  Cmu 0.09 reading omega, one OpenMP thread, `oor:gmsh48` image
+  (OpenFOAM 13). Stuck / timed out / log reduction (k = 0.1 cm^2/mJ),
+  before -> after:
+  * uncorrected DRW, dtMax 5 ms (origin/main 7f11000 + this fix):
+    239 / 0 / 1.998 -> 0 / 1 / 2.004 (stuck were 114 at the lamp seam,
+    52 at the layer seam, 73 elsewhere);
+  * `randomDisplacement`, dtMax 5 ms (ca68680, merged to main
+    in #88, + this fix): 512 / 12 / 1.494 -> 0 / 8 / 1.481 (203 lamp
+    seam, 236 layer seam, 73 elsewhere, the inlet's among them);
+  * the same at dtMax 0.5 ms: 967 / 3 / 1.472 -> 0 / 7 / 1.477 (430,
+    469, 68), mean dose 46.4 -> 44.6 mJ/cm^2.
+  The seam losses had grown with the number of steps; with the fix
+  every track but the few that time out reaches the outlet at either
+  step size.
 
 The function-object `radiationDose::execute()` seeds the cloud
 (constructing each particle via `meshSearch::New(mesh)` to locate the
@@ -2333,7 +2376,7 @@ The case suite is split into two trees:
   `tests/Alltest`. Synthetic geometries (slabs, boxes) chosen for
   closed-form analytical references plus pairs of bit-for-bit
   cross-case matches. What you re-run when fixing a bug.
-  Thirty-three cases.
+  Thirty-seven cases.
 - **`tutorials/`** -- pedagogical / paper-validation cases, run on
   demand by users via `tutorials/Allrun` (or per-case `./Allrun`).
   Not run by CI. Four cases. Each retains rich `README.md`
@@ -2596,6 +2639,35 @@ radiationDose:
   checks: measured bands 0.970-1.024, wall 1.031, x 0.963-1.041,
   z 0.960-1.035, |dy| 21.7 mm. Without its drift it fails (1.58x in a
   band), as does half its noise (0.72 off). ~6 s with all three.
+- **`doseNonConformalSeam`** — the dose smoke box's channel cut at
+  x = 0.5 by a seam bowed toward +x (arc through x = 0.505 at
+  y = 0.05), meshed 8 x 4 across it on the left and 11 x 5 on the
+  right, coupled by `createNonConformalCouples seamL seamR`; the left
+  side has 0.02 m strips below y = 0 and above y = 0.1 whose ends
+  face nothing on the right (seamL coverage 0.753, seamR 1). G = 10
+  W/m^2 uniform, so every dose is t mJ/cm^2. Two instances: `walk`
+  (U = 0.5 m/s plug flow, DRW with k = epsilon = 2^-5, 1002 particles
+  from the inlet, dtMax 5 ms) and `grazing` (no dispersion,
+  U = (0.5, 0, -0.5) so particles slide along the z = 0 wall into the
+  seam's edge; 500 particles seeded on the plane x = 0.2). Validate:
+  every track escaped, D = t to 1e-9, and every `grazing` residence
+  is 1.6 s within 1 ms (observed 0.15 ms). Measured 2026-10-01 against
+  the tracker before the fix (main 01adab6, the well-mixed walk the
+  default): `walk` 300 stuck (299 on the uncovered strips, 1 on the
+  inlet at t = 0), `grazing` 6 stuck on the coupled seam where it meets
+  the z = 0 wall (with the uncorrected walk, before the well-mixed one
+  landed: 386 and 6). Mutation-checked on the uncorrected walk: with
+  the normal-direction retry removed (every miss reflected), `grazing`
+  residences 5.5 ms off; with uncovered faces marking the track stuck
+  instead of reflecting it, `walk` 392 stuck. Each fails the validate.
+- **`doseInletReturn`** — the dose smoke box's plug flow with a strong
+  DRW (k = epsilon = 0.25: fluctuations ~0.41 m/s on 0.5 m/s), 304
+  particles from the inlet, dtMax 0.05 s. A first step pointing
+  upstream returns the particle to the inlet, its injection patch;
+  it must reflect. Validate: every track escaped, D = t to 1e-9.
+  Before the fix (main 01adab6, well-mixed walk) 40 of 304 ended
+  `stuck` on the inlet, 20 of them at t = 0 (uncorrected walk: 37, all
+  at t = 0).
 - **`doseSmokeBox`** — 1 m × 0.1 m × 0.1 m box with uniform
   `U = (0.5, 0, 0)` m/s, slip walls, uniform `G = 10` W/m². Slip
   walls keep the cell-vertex-interpolated velocity equal to the

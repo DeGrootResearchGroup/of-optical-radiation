@@ -1,0 +1,49 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | radiationDose: across a non-conformal seam      |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volVectorField;
+    object      U;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 1 -1 0 0 0 0];
+
+// Uniform plug flow inlet -> outlet for the random-walk instance. Not a
+// solved flow (it runs into the walls of the left strips): the tracker
+// only needs a velocity to move the particles with.
+internalField   uniform (0.5 0 0);
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        value           uniform (0.5 0 0);
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    walls
+    {
+        type            slip;
+    }
+    seamL
+    {
+        type            zeroGradient;
+    }
+    seamR
+    {
+        type            zeroGradient;
+    }
+}
+
+// ************************************************************************* //

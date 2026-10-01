@@ -429,12 +429,67 @@ bool Foam::dose::dosePathParticle::move
 }
 
 
+bool Foam::dose::dosePathParticle::hitNonConformalOrigPatch
+(
+    dosePathCloud& cloud,
+    trackingData& td
+)
+{
+    // On the original patch of a non-conformal coupling, OpenFOAM's
+    // hitFace has already tried to carry the particle through each of
+    // the coupling's nonConformalCyclic patches, casting a line along
+    // the remaining displacement onto the neighbour side's faces. The
+    // two sides are faceted differently (a gap or overlap of up to the
+    // difference in chord sag on a curved seam), so a displacement
+    // that meets the seam at a grazing angle can cross the neighbour
+    // surface well away from this face, outside the neighbour faces
+    // that overlap it, and miss -- and near where the seam ends on a
+    // wall, a slight lean toward the wall carries the line past the
+    // neighbour surface's edge. The seam is not a boundary of the
+    // fluid: cast again along the face's outward normal, which meets
+    // the neighbour surface opposite the particle.
+    const label patchi = patch(td.mesh);
+    const labelList& nccPatches =
+        cloud.patchNonConformalCyclicPatches()[patchi];
+
+    if (nccPatches.empty())
+    {
+        return false;
+    }
+
+    const vector nOut = td.mesh.faceAreas()[face()];
+
+    forAll(nccPatches, i)
+    {
+        if (hitNonConformalCyclicPatch(nOut, 0, nccPatches[i], cloud, td))
+        {
+            return true;
+        }
+    }
+
+    // Nothing opposite: the particle is on a part of the seam the
+    // other side does not cover (a nonConformalError face). Reflect
+    // specularly, whatever the wall setting -- the seam is an artefact
+    // of the mesh, not an absorbing surface.
+    const vector nf = normal(td.mesh);
+    V_      -= 2.0*(V_      & nf)*nf;
+    V_disp_ -= 2.0*(V_disp_ & nf)*nf;
+
+    return true;
+}
+
+
 void Foam::dose::dosePathParticle::hitWallPatch
 (
     dosePathCloud& cloud,
     trackingData& td
 )
 {
+    if (hitNonConformalOrigPatch(cloud, td))
+    {
+        return;
+    }
+
     if (!cloud.wallReflection())
     {
         // No-reflection mode: any non-escape boundary hit terminates
@@ -479,16 +534,28 @@ void Foam::dose::dosePathParticle::hitBasicPatch
         return;
     }
 
-    const polyPatch& pp = td.mesh.boundaryMesh()[patchi];
-    if (isA<emptyPolyPatch>(pp))
+    if (hitNonConformalOrigPatch(cloud, td))
     {
-        // Empty patches arise from collapsed dimensions on a 2-D mesh
-        // (e.g. the frontAndBack pair on a plan-view channel). The OF
-        // base-class hitFace dispatcher has no emptyPolyPatch branch,
-        // so empties end up here. Reflect specularly: a particle that
-        // drifts out of plane via a 3-component dispersion fluctuation
-        // bounces back into the mesh instead of being marked stuck on
-        // a boundary that isn't physically there.
+        return;
+    }
+
+    // Empty patches arise from collapsed dimensions on a 2-D mesh
+    // (e.g. the frontAndBack pair on a plan-view channel). The OF
+    // base-class hitFace dispatcher has no emptyPolyPatch branch,
+    // so empties end up here. Reflect specularly: a particle that
+    // drifts out of plane via a 3-component dispersion fluctuation
+    // bounces back into the mesh instead of being marked stuck on
+    // a boundary that isn't physically there. The same for a patch
+    // the particles were injected from: a random step back upstream
+    // returns the particle to the flow rather than ending its track
+    // at the inlet.
+    const polyPatch& pp = td.mesh.boundaryMesh()[patchi];
+    if
+    (
+        isA<emptyPolyPatch>(pp)
+     || cloud.injectionPatchIDs().found(patchi)
+    )
+    {
         const vector nf = normal(td.mesh);
         V_      -= 2.0*(V_      & nf)*nf;
         V_disp_ -= 2.0*(V_disp_ & nf)*nf;

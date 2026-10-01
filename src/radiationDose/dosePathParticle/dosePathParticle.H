@@ -283,6 +283,17 @@ public:
 
         // Patch interactions
 
+            //- Handle a hit on the original patch of a non-conformal
+            //  coupling that OpenFOAM's own transfer (along the
+            //  displacement) missed: transfer along the face normal,
+            //  or reflect where the coupling leaves the face uncovered.
+            //  Returns false if the patch is not part of a coupling.
+            bool hitNonConformalOrigPatch
+            (
+                dosePathCloud& cloud,
+                trackingData& td
+            );
+
             //- Specular reflection of V_ about the wall normal.
             //  When the cloud's wallReflection flag is false, this
             //  marks the particle as stuck instead.
@@ -291,8 +302,10 @@ public:
             //- Default boundary-patch interaction. Used for any patch
             //  that isn't specifically a wall, processor, cyclic,
             //  symmetry, etc. — including the user's escape patches.
-            //  Sets endReason_ to escaped (if listed) or stuck
-            //  (otherwise).
+            //  Sets endReason_ to escaped (if listed); reflects off
+            //  empty patches, the patches the particles were injected
+            //  from, and uncovered parts of a non-conformal coupling;
+            //  marks the particle stuck on any other patch.
             void hitBasicPatch(dosePathCloud& cloud, trackingData& td);
 
 

@@ -321,6 +321,20 @@ A coefficient of restitution $e = 1$ is hard-coded today. Generalising
 to $\mathbf{V}_n \leftarrow -e\, \mathbf{V}_n$ is one dictionary key
 when a driver case calls for it.
 
+The same reflection applies, whatever `wallReflection` says, at two
+boundaries that are not physical walls:
+
+- the patch a particle was injected from (a stochastic step can carry
+  it straight back upstream through the inlet), unless that patch is
+  also an escape patch;
+- a non-conformal coupling (a mesh seam, such as those `uvmesh` writes
+  between its structured lamp region and the polyhedral bulk), where
+  the other side does not cover the face. Where it does, the particle
+  crosses: OpenFOAM transfers it along its displacement, and when the
+  differently faceted far side is missed along that line (grazing
+  incidence, or close to where the seam meets a wall) the tracker
+  transfers it along the face normal instead.
+
 ## Composition: dispersion + motion + Brownian
 
 The three stochastic mechanisms operate at distinct physical scales

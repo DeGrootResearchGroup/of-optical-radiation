@@ -95,6 +95,14 @@ public:
         //  rng is the shared RNG so that the function-object's "seed"
         //  reproduces deterministically across stages.
         virtual List<trackPoint> seed(randomGenerator& rng) const = 0;
+
+        //- Boundary patches the particles are injected from. A particle
+        //  that comes back to one of them reflects off it (unless it is
+        //  also an escape patch). None by default.
+        virtual wordList injectionPatches() const
+        {
+            return wordList();
+        }
 };
 
 

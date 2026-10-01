@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Particles cross a non-conformal seam, and reflect where it is uncovered.
+
+The channel of blockMeshDict is cut at x = 0.5 by a bowed seam whose two
+sides are meshed differently and coupled with createNonConformalCouples;
+strips on the left end on parts of the seam that face nothing. G is
+uniform (10 W/m^2), so every track's dose is t mJ/cm^2.
+
+This checks, for both radiationDose instances:
+
+  1. every seeded track escaped through the outlet: none stuck on the
+     seam (the coupled part, where OpenFOAM's transfer along the
+     displacement can miss the other side, or the uncovered part of the
+     strips), on the inlet, or anywhere else;
+  2. every track's dose equals its residence time in mJ/cm^2: no time
+     or dose lost at the seam;
+
+and for `grazing` (no dispersion, every track starting on x = 0.2 at
+0.5 m/s along x), that every residence is 1.6 s to within 1 ms. A track
+reflected off the coupled seam instead of crossing it goes back for the
+rest of its outer step and arrives up to 2 dtMax = 10 ms late (5.5 ms
+observed when the tracker reflects every missed transfer); crossing, the
+residences are within 0.15 ms of 1.6 s, the two sides' facets lying up to
+~0.08 mm apart in x.
+"""
+
+import csv
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from foam_field import find_latest_time, parse_summary
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+T_GRAZING = 1.6     # (1 - 0.2) m at 0.5 m/s
+T_TOL = 1e-3        # s
+
+
+def outputs(func):
+    latest = find_latest_time(os.path.join(HERE, "postProcessing", func))
+    if latest is None:
+        return None, None
+    with open(os.path.join(latest, "doseDistribution.csv")) as f:
+        rows = list(csv.reader(line for line in f if not line.startswith("#")))
+    return parse_summary(os.path.join(latest, "summary.dat")), rows
+
+
+fails = []
+for func, n_min in (("walk", 900), ("grazing", 450)):
+    summary, rows = outputs(func)
+    if summary is None:
+        fails.append(f"{func}: missing radiationDose output")
+        continue
+
+    seeded, escaped = summary["totalSeeded"], summary["escaped"]
+    print(f"  {func}: {escaped:.0f} of {seeded:.0f} tracks escaped "
+          f"(stuck {summary['stuck']:.0f}, timed out {summary['timedOut']:.0f})")
+    if seeded < n_min or escaped != seeded:
+        fails.append(f"{func}: {escaped:.0f} of {seeded:.0f} tracks escaped")
+    for r in rows:
+        if r[1] != "escaped":
+            fails.append(f"{func}: track {r[0]} {r[1]} at ({r[4]}, {r[5]}, {r[6]}) after {r[2]} s")
+            break
+
+    t = [float(r[2]) for r in rows]
+    d = [float(r[3]) for r in rows]
+    worst = max(abs(di - ti) / ti for ti, di in zip(t, d) if ti > 0)
+    print(f"  {func}: worst |D - t|/t = {worst:.2e}")
+    if worst > 1e-9:
+        fails.append(f"{func}: dose differs from residence time (worst {worst:.2e})")
+
+    if func == "grazing":
+        dt = max(abs(ti - T_GRAZING) for ti in t)
+        print(f"  grazing: worst |t - {T_GRAZING}| = {dt:.2e} s")
+        if dt > T_TOL:
+            fails.append(f"grazing: a residence is {dt:.2e} s off {T_GRAZING} s: "
+                         "a track was turned back at the seam")
+
+if fails:
+    for f in fails:
+        print("FAIL:", f)
+    sys.exit(1)
+print("PASS: every track crossed the seam (or reflected off its uncovered part) and escaped")

@@ -62,6 +62,11 @@ class dosePathCloud
         scalar dtMax_;
         scalar cflMax_;
         labelHashSet escapePatchIDs_;
+
+        //- Patches the particles were injected from; a particle that
+        //  returns to one reflects off it
+        labelHashSet injectionPatchIDs_;
+
         scalar maxTime_;
         scalar maxDose_;
         Switch wallReflection_;
@@ -118,6 +123,7 @@ public:
             const scalar dtMax,
             const scalar cflMax,
             const labelHashSet& escapePatchIDs,
+            const labelHashSet& injectionPatchIDs,
             const scalar maxTime,
             const scalar maxDose,
             const Switch wallReflection,
@@ -141,6 +147,10 @@ public:
             inline const labelHashSet& escapePatchIDs() const
             {
                 return escapePatchIDs_;
+            }
+            inline const labelHashSet& injectionPatchIDs() const
+            {
+                return injectionPatchIDs_;
             }
             inline scalar maxTime() const { return maxTime_; }
             inline scalar maxDose() const { return maxDose_; }
