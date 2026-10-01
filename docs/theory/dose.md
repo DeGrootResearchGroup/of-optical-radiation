@@ -205,11 +205,101 @@ held for an eddy lifetime
 
 $$
 \tau_e \;=\; C_\ell\, k / \varepsilon
+\qquad\text{or, from a } k\text{-}\omega \text{ model,}\qquad
+\tau_e \;=\; \frac{C_\ell}{C_\mu\, \omega}
 $$
 
-with $C_\ell$ a model constant (default 0.15). After $\tau_e$ has
-elapsed a fresh sample is drawn. Per-particle eddy state is keyed by
-track ID and is cleared at the start of every `execute()` call.
+with $C_\ell$ a model constant (default 0.15) and $\varepsilon = C_\mu k
+\omega$. After $\tau_e$ has elapsed a fresh sample is drawn. The eddy
+state lives on each track.
+
+A walk of eddies held for $\tau_e$ spreads particles with the diffusivity
+
+$$
+K \;=\; \tfrac{1}{2}\, \sigma_{u'}^2\, \tau_e \;=\; \tfrac{1}{3}\, k\, \tau_e .
+$$
+
+#### The well-mixed condition
+
+Where $K$ varies in space, a walk that only adds $\mathbf{u}'$ to
+$\mathbf{U}$ violates the *well-mixed condition* {cite}`thomson1987`:
+particles spread uniformly through an incompressible flow do not stay
+uniform, but collect where $K$ is small. Near a wall resolved to the
+viscous sublayer both $k$ and $\mathbf{U}$ vanish, and particles that
+reach the first cells barely leave them, so their residence time and
+dose are grossly overstated.
+
+With `wellMixed true` (the default) three corrections keep a uniform
+distribution uniform:
+
+1. **Drift.** The drift velocity $\nabla K$ is added to $\mathbf{u}'$.
+   It is the drift that makes a random walk of diffusivity $K$ well
+   mixed: the flux $\mathbf{u}_d c - \nabla (K c)$ vanishes for uniform
+   $c$ only if $\mathbf{u}_d = \nabla K$. The inhomogeneous-turbulence
+   drift $\tau\, \nabla \sigma^2$ of {cite}`leggraupach1982` and
+   {cite}`macinnesbracco1992` is the part of it from the gradient of
+   $\sigma^2$; the part from the gradient of $\tau_e$ matters wherever
+   the eddy lifetime varies, as it does near every wall. $k$ and
+   $\varepsilon$ (or $\omega$) are interpolated linearly in the
+   particle's tetrahedron, and the drift is the exact gradient of the
+   $K$ formed from them -- the $K$ the eddies actually realise.
+
+2. **Exact eddy accounting.** The displacement over an outer step of
+   duration $\Delta t$ is the exact integral of the piecewise-constant
+   eddy velocity: the rest of the current eddy, then the $m$ whole
+   eddies that fit (their summed displacement is one Gaussian of
+   standard deviation $\sigma_{u'} \tau_e \sqrt{m}$), then the start of
+   the eddy that carries into the next step. The realised diffusivity is
+   then $K$ whatever $\Delta t$ is. A walk that resamples once per step
+   and holds $\mathbf{u}'$ for the whole step has diffusivity
+   $\tfrac12 \sigma_{u'}^2 \Delta t$ wherever $\tau_e < \Delta t$ -- set
+   by the time step, not by the turbulence -- and near a resolved wall
+   $\tau_e$ is microseconds.
+
+3. **Reflection.** When the particle reflects off a wall, the eddy
+   velocity it carries is reflected with it.
+
+`wellMixed false` restores the uncorrected walk: $\mathbf{u}'$ from the
+owning cell's $k$ and dissipation, resampled once the eddy has used up
+its lifetime in steps of $\Delta t_\text{max}$, no drift and no
+reflection of $\mathbf{u}'$.
+
+```{note}
+The drift corrects the walk to first order in the ratio of the eddy
+length $\sigma_{u'} \tau_e$ to the length over which $K$ changes. In the
+buffer layer of a wall-resolved $k$-$\omega$ SST flow that ratio is
+0.1-0.5, and a held eddy can still carry a particle into the viscous
+sublayer, so some excess near-wall occupancy remains there. The random
+displacement model below has no eddies to hold.
+```
+
+### Random displacement model
+
+Dispersion as a diffusion of the same diffusivity $K = \tfrac13 k \tau_e$,
+with no velocity memory. Over a step of duration $\Delta t$ the particle
+moves by
+
+$$
+\Delta \mathbf{x} \;=\; (\mathbf{U} + \nabla K)\, \Delta t
+  + \sqrt{2 K \Delta t}\; \boldsymbol{\xi},
+$$
+
+$\boldsymbol{\xi}$ a unit Gaussian triple drawn afresh each step: the Ito
+form of the diffusion equation, well mixed by construction. It is the
+diffusion limit of the well-mixed Langevin model {cite}`wilsonsawford1996`,
+exact for times long against $\tau_e$, and does not represent the
+ballistic spreading of a particle within one eddy. Over long times it
+spreads particles at the same rate as the discrete random walk, since the
+two share $K$; they differ where an eddy is long compared with the
+distance over which $K$ changes, as next to a resolved wall. $k$ and the
+dissipation are interpolated linearly in the particle's tetrahedron and
+$\nabla K$ is the exact gradient of that $K$.
+
+The step's CFL bound sees only $\mathbf{U} + \nabla K$, never the random
+draw: bounding the step by the draw it is about to take would give large
+draws short steps and spread the particles too little. The step is
+instead limited so that $\sqrt{2 K \Delta t}$ does not exceed the CFL
+displacement.
 
 ```{warning}
 DRW is a *RANS* closure. In an LES driver where the carrier-phase $k$

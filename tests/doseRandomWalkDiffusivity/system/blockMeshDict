@@ -1,0 +1,59 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: random-walk diffusivity
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// A closed 200 mm cube of 5 mm cells. The particles start at its centre and
+// spread a few centimetres in the walk's 1 s, so the walls barely matter.
+
+scale   1;
+
+vertices
+(
+    (0   0   0)
+    (0.2 0   0)
+    (0.2 0.2 0)
+    (0   0.2 0)
+    (0   0   0.2)
+    (0.2 0   0.2)
+    (0.2 0.2 0.2)
+    (0   0.2 0.2)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (40 40 40) simpleGrading (1 1 1)
+);
+
+edges ();
+
+boundary
+(
+    walls
+    {
+        type wall;
+        faces
+        (
+            (0 4 7 3)
+            (1 2 6 5)
+            (0 1 5 4)
+            (3 7 6 2)
+            (0 3 2 1)
+            (4 5 6 7)
+        );
+    }
+);
+
+mergePatchPairs ();
+
+// ************************************************************************* //
