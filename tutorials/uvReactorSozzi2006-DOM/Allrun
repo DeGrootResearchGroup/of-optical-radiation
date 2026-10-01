@@ -49,7 +49,7 @@ echo "Allrun: DOM wrote I and G to t=$DOMTIME"
 
 # Stage 3: bring flow fields forward so radiationDose sees U and G in
 # the same time directory.
-for f in U k epsilon nut p; do
+for f in U k omega nut p; do
     if [ -f "$LATEST/$f" ] && [ ! -f "$DOMTIME/$f" ]; then
         cp "$LATEST/$f" "$DOMTIME/"
     fi
@@ -61,6 +61,6 @@ runApplication foamPostProcess -dict system/postProcess.dict -latestTime
 # Stage 5: convert flow + DOM fields to VTK so ParaView can render
 # the G field and velocity streamlines alongside the trajectories.vtk
 # that the dose tracker already writes.
-runApplication foamToVTK -time "$LATEST,$DOMTIME" -fields "(U G k epsilon p)"
+runApplication foamToVTK -time "$LATEST,$DOMTIME" -fields "(U G k omega p)"
 
 echo "Allrun: done; results in postProcessing/radiationDose/$DOMTIME/"

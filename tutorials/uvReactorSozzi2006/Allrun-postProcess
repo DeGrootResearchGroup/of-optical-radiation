@@ -23,4 +23,4 @@ runApplication foamPostProcess -dict system/postProcess.dict -latestTime
 # DOM sibling case (../uvReactorSozzi2006-DOM) for easy side-by-side
 # comparison.
 LATEST=$(foamListTimes -case . -latestTime)
-runApplication foamToVTK -time "$LATEST" -fields "(U G k epsilon p)"
+runApplication foamToVTK -time "$LATEST" -fields "(U G k omega p)"

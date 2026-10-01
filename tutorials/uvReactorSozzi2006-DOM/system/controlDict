@@ -23,11 +23,12 @@ solver          incompressibleFluid;
 startFrom       latestTime;
 startTime       0;
 
-// Pressure-drop converged by ~iter 1000 on the level-3 mesh.
-// residualControl in fvSolution triggers early stop once tolerances
-// are met; this endTime is the safety cap.
+// residualControl in fvSolution stops the run once its thresholds are
+// met. With realizable k-epsilon that was iteration ~1290 on the level-3
+// mesh; with k-omega SST the residuals level off above the thresholds
+// and the run stops here, at endTime (see fvSolution).
 stopAt          endTime;
-endTime         1000;
+endTime         2500;
 
 deltaT          1;
 

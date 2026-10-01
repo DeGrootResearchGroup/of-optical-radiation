@@ -34,13 +34,13 @@ boundaryField
 
     bodyWall
     {
-        type            kqRWallFunction;
+        type            kLowReWallFunction;
         value           uniform 0.4555;
     }
 
     lampWall
     {
-        type            kqRWallFunction;
+        type            kLowReWallFunction;
         value           uniform 0.4555;
     }
 }

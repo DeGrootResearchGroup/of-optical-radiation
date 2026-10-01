@@ -12,4 +12,7 @@ fi
 runApplication blockMesh
 runApplication surfaceFeatures
 runApplication snappyHexMesh -overwrite
+# snappyHexMesh leaves the cells poorly ordered for the linear solvers
+# (matrix bandwidth ~1.6M on this mesh); renumbering brings it to ~16k.
+runApplication renumberMesh -noFields
 runApplication checkMesh

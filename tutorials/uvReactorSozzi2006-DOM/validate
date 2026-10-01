@@ -10,14 +10,17 @@ This is the DOM-driven sibling of ../uvReactorSozzi2006 (which uses
 setFluenceRate's analytical infinite-line formula). The DOM solve
 correctly attenuates the per-chord path through the medium and
 accounts for end-cap radiation, which the analytical formula
-ignores. Observed: log_red ~1.39 (DOM). On the same mesh and flow the
-analytical formula on the lamp arc only gives 1.58 (see that case's
-validate); the paper reports 1.87.
+ignores. On the tutorial mesh (1,635,909 cells) and its k-omega SST flow
+at iteration 2400, with the tutorial's 64 directions, 1x1 pixels and
+linearUpwind rays, 9,998 particles on 3 OpenMP threads (2026-10-01):
+mean dose 76.0 mJ/cm^2, log reduction 1.54 at k = 0.1. The analytical
+sibling on the same flow gives 61.8 and 1.56; the paper reports 68 and
+1.87.
 
 Targets:
   escape fraction > 0.95                (paper: ~100 %)
-  mean dose       in [55, 85] mJ/cm^2   (paper: 68; DOM ~64)
-  log reduction   in [1.2, 1.7]         (paper: 1.87; DOM ~1.39)
+  mean dose       in [55, 85] mJ/cm^2   (paper: 68; this case 76.0)
+  log reduction   in [1.2, 1.7]         (paper: 1.87; this case 1.54)
   range max/min   > 5                   (paper: ~270/21 ≈ 13)
 
 The script reads postProcessing/radiationDose/<latest>/summary.dat

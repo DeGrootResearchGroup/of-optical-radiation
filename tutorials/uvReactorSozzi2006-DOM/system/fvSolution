@@ -21,13 +21,29 @@ solvers
         smoother        DIC;
         tolerance       1e-7;
         relTol          0.01;
+        // The default coarsest level (10 cells per rank) leaves GAMG
+        // stalling at its 1000-iteration cap on a mesh resolved to the
+        // walls; 1000 cells cut one outer iteration's pressure solves
+        // from 2855 to 294 cycles there (8 ranks).
+        nCellsInCoarsestLevel 1000;
     }
 
-    "(U|k|epsilon).*"
+    "(U|k|omega).*"
     {
         solver          smoothSolver;
         smoother        symGaussSeidel;
         tolerance       1e-6;
+        relTol          0.1;
+    }
+
+    // Solve k every iteration: near-wall cells where k collapses to
+    // ~1e-16 can swamp its normalised residual below an absolute
+    // tolerance, and k then stops being solved.
+    "k.*"
+    {
+        solver          smoothSolver;
+        smoother        symGaussSeidel;
+        tolerance       1e-14;
         relTol          0.1;
     }
 
@@ -45,7 +61,7 @@ solvers
 
 PIMPLE
 {
-    nNonOrthogonalCorrectors 0;
+    nNonOrthogonalCorrectors 2;
     nCorrectors             2;
 
     // LTS: clip per-cell pseudo-time step at maxCo. Smaller maxCo gives
@@ -63,16 +79,26 @@ PIMPLE
     // The pressure-drop monitor in controlDict.functions provides an
     // independent integral check on convergence.
     //
-    // Thresholds chosen against the observed residual plateau on this
-    // mesh (Uy and k plateau near 6e-4, p near 2e-3, eps near 2e-4).
-    // Tighter values won't actually fire early-stop because the
-    // residuals oscillate above them indefinitely; the integral
-    // pressure-drop monitor confirms convergence by then.
+    // The pressure drop is NOT a sufficient check for the dose: it is
+    // set by the pipe and annulus losses and settles (to ~0.3%) long
+    // before the recirculation and turbulence near the lamp do, and the
+    // dose tracker's random walk reads k and omega directly. Measured
+    // with realizable k-epsilon (before the move to SST) on this mesh
+    // (1.64M cells, 8 ranks), the mean dose rose 9% between iterations
+    // 514 and 750 while the pressure drop moved 0.35%, and settled to
+    // within 0.5% by ~1250; these thresholds were first met at ~1290,
+    // with k the last to cross.
+    //
+    // With k-omega SST on the same mesh (8 ranks) they are NOT met: the
+    // first-solve residuals level off from about iteration 2000 (Uy near
+    // 1.3e-3, p near 2.8e-3, k near 2.3e-4, omega near 1e-4) and the run
+    // stops on endTime. Over its last 500 iterations the inlet pressure
+    // stayed within 0.5% (44.72-44.93 m^2/s^2).
     residualControl
     {
-        U               1e-3;
-        p               5e-3;
-        "(k|epsilon)"   1e-3;
+        U               5e-4;
+        p               1e-3;
+        "(k|omega)"     1e-4;
     }
 }
 

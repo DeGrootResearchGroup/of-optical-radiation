@@ -16,6 +16,12 @@ Description
     resampled. Each component of u' is drawn from N(0, sigma) with
     sigma^2 = 2k/3 (isotropic-turbulence assumption).
 
+    The dissipation comes from the turbulence model's own field: the
+    rate epsilon of a k-epsilon model, or the specific rate omega of a
+    k-omega model, with epsilon = Cmu * k * omega. Given omega, the
+    lifetime is tau_e = C_L / (Cmu * omega), the same eddy as
+    C_L * k / epsilon. Name one of the two; epsilon is the default.
+
     Per-particle eddy memory (current u' and remaining lifetime) lives
     on the track object as a DRWState. The model has no shared mutable
     state across tracks, which makes the per-track integration loop
@@ -28,6 +34,15 @@ Usage
         k           k;            // optional, default "k"
         epsilon     epsilon;      // optional, default "epsilon"
         Cl          0.15;         // optional, default 0.15
+    }
+
+    or, for a k-omega model (kOmegaSST, say):
+
+    dispersion
+    {
+        type        discreteRandomWalk;
+        omega       omega;        // instead of epsilon; not both
+        Cmu         0.09;         // optional, default 0.09
     }
 
 \*---------------------------------------------------------------------------*/
@@ -57,8 +72,14 @@ class discreteRandomWalk
         //- Name of the turbulent kinetic energy field [m^2/s^2]
         word kName_;
 
-        //- Name of the turbulent dissipation rate field [m^2/s^3]
-        word epsilonName_;
+        //- True when the dissipation field is omega rather than epsilon
+        bool omega_;
+
+        //- Name of the dissipation field: epsilon [m^2/s^3] or omega [1/s]
+        word dissipationName_;
+
+        //- epsilon = Cmu * k * omega (used only with omega)
+        scalar Cmu_;
 
         //- Eddy lifetime constant: tau_e = Cl * k / epsilon
         scalar Cl_;
@@ -108,22 +129,27 @@ public:
 
     // Member Functions
 
-        //- Static requiredFields. Reads the dict's optional k /
-        //  epsilon entries (defaulting to "k" / "epsilon") and returns
-        //  the names DRW will look up in the registry. Registered in
-        //  the base class's dispatch table at static-init time.
+        //- The dissipation field the dict names: its "omega" entry if
+        //  it has one, else its "epsilon" entry (default "epsilon").
+        //  Naming both is an error.
+        static word dissipationName(const dictionary& dict);
+
+        //- Static requiredFields. Reads the dict's optional k and
+        //  epsilon / omega entries and returns the names DRW will look
+        //  up in the registry. Registered in the base class's dispatch
+        //  table at static-init time.
         static wordList requiredFields(const dictionary& dict)
         {
             return wordList
             ({
                 dict.lookupOrDefault<word>("k", "k"),
-                dict.lookupOrDefault<word>("epsilon", "epsilon")
+                dissipationName(dict)
             });
         }
 
         virtual wordList requiredFields() const
         {
-            return wordList({kName_, epsilonName_});
+            return wordList({kName_, dissipationName_});
         }
 
         virtual autoPtr<dispersionModel::State> newState() const

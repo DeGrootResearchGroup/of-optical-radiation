@@ -39,7 +39,8 @@ radiationDose
     {
         type        discreteRandomWalk;
         k           k;
-        epsilon     epsilon;
+        omega       omega;        // k-omega SST: epsilon = Cmu k omega
+        Cmu         0.09;
         Cl          0.15;
     }
 
