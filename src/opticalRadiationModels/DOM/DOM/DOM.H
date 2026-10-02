@@ -32,6 +32,14 @@ Description
     In 2D the direction of the rays is on X-Y plane (only nPhi is considered)
     In 3D (nPhi and nTheta are considered)
 
+    Angular grid: phi in [0, 2*pi) is divided into 2*nPhi bins of width
+    pi/nPhi, and theta in [0, pi] -- the whole sphere, not one hemisphere --
+    into nTheta bins of width pi/nTheta, giving 2*nPhi*nTheta directions
+    (times nBand rays). The bins are square in angle only when
+    nPhi = nTheta; nPhi = nTheta = n gives 2*n^2 directions, the same grid
+    as n/2 x n/2 theta x phi divisions per octant in other discrete-ordinates
+    codes (Fluent's, for one).
+
     Angular convention (standard / ISO 80000-2):
         theta is measured from the +z axis, in [0, pi]
         phi   is measured from the +x axis (toward +y), in [0, 2*pi)
