@@ -2988,8 +2988,10 @@ mesh tooling:
   reactor, inlet pipe included.
 
   `uvReactorSozzi2006-DOM` (DOM-driven) — `Allrun` solves flow
-  then runs `opticalRadiationFoam` (single-band DOM, 64 directions,
-  1x1 pixels, linearUpwind rays, `constantExtinction` `kappa = 35.67
+  then runs `opticalRadiationFoam` (single-band DOM, 72 directions on
+  a uniform 6 x 6 grid -- nPhi = nTheta, since DOM's nTheta spans the
+  whole sphere, not one hemisphere, so 8 x 4 made the polar bins twice
+  as wide as the azimuthal ones -- 1x1 pixels, linearUpwind rays, `constantExtinction` `kappa = 35.67
   1/m` matching the analytical `sigmaW`, `diffuseEmitter` on
   `lampWall` with `emissivePower = P/(pi D L_arc) = 696.42 W/m^2`).
   Uses `system/controlDict.DOM` for the radiation step (swapped in
@@ -2998,8 +3000,10 @@ mesh tooling:
   finds it; runs for one outer step with `stopAt nextWrite`; then
   carries the flow fields forward into the DOM time directory so
   `radiationDose` sees `U` and `G` in the same time. The DOM solve
-  takes 432 s on 8 ranks. Mean dose **76.0 mJ/cm²**, max 564, log
-  reduction **1.54**; with first-order upwind rays 74.1 and 1.56. The
+  takes 420 s on 8 ranks. Mean dose **76.4 mJ/cm²**, log reduction
+  **1.56** (2026-10-02, the OOR `659ec4a` tracker on 3 threads; the 8 x 4
+  grid gave 76.0, max 564, and 1.54, and with first-order upwind rays
+  74.1 and 1.56; upwind was not rerun on 6 x 6). The
   DOM's mean is higher than the line source's because it is brighter
   near the sleeve and emits past the lamp ends, but the log reduction,
   set by the least-dosed particles, agrees with the line source's to

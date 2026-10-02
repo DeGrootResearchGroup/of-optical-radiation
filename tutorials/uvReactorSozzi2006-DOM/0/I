@@ -17,7 +17,7 @@ FoamFile
 
 // I is a per-ray fluence-rate field [W/m^2] (radiance integrated over
 // the ray's solid-angle bin). DOM allocates one of these per ray
-// (2*nPhi*nTheta*nBand = 64 here) using this entry as a template.
+// (2*nPhi*nTheta*nBand = 72 here) using this entry as a template.
 
 dimensions      [1 0 -3 0 0 0 0];
 

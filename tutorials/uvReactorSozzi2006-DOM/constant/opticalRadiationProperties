@@ -26,8 +26,14 @@ radiationModel          DOM;
 
 DOMCoeffs
 {
-    nPhi          8;     // 2*nPhi azimuthal bins
-    nTheta        4;     // polar bins per hemisphere; 3-D
+    // The polar angle theta in [0, pi] (the whole sphere, not one
+    // hemisphere) is divided into nTheta bins of pi/nTheta, and the
+    // azimuth phi in [0, 2 pi] into 2*nPhi bins of pi/nPhi, giving
+    // 2*nPhi*nTheta directions. The bins are square in angle only when
+    // nPhi = nTheta: 6 x 6 gives 72 directions, matching Fluent's 3 x 3
+    // theta x phi divisions per octant (12 x 12, 288, matches 6 x 6).
+    nPhi          6;
+    nTheta        6;
     convergence   1e-5;
     maxIter       100;
     nBand         1;
