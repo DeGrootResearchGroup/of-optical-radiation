@@ -26,7 +26,15 @@ This checks:
      increments give 2 K T at any T. In the long case its own step limit
      binds (cflMax 0.4), and a CFL bound that saw its random draw would make
      the large draws take short steps and spread too little;
-  3. the uncorrected walk does not -- these are the controls. With
+  3. the Langevin model (shortLangevin, longLangevin, earlyLangevin) matches
+     the closed form for an Ornstein-Uhlenbeck velocity with a stationary
+     start, 2 sigma^2 T_L (t - T_L (1 - e^-t/T_L)) with T_L = tau_e / 2: 2KT
+     in the short case (T_L below its minLagrangianTime, so each step spans
+     several Lagrangian times), 0.975 of it in the long, and 0.176 of 2Kt at t = 10 ms < T_L,
+     where its velocity memory shows; the corrected walk at the same time
+     gives exactly t / tau_e = 0.2 (one eddy, held since t = 0), and a walk
+     without memory would give 1;
+  4. the uncorrected walk does not -- these are the controls. With
      tau_e below the step it resamples once per step and holds u' for the
      whole step, so its diffusivity is set by the step, not by tau_e (about
      sigma^2 dt / 2: some 20 times too large with the CFL-shortened steps);
@@ -34,9 +42,8 @@ This checks:
      shortened the step, so eddies expire early and it spreads too little.
 
 The particles spread about 1.4 mm (short) and 32 mm (long) in each
-component, so the walls 100 mm away barely matter. The end points overshoot
-1 s by at most one step's last segment, which moves the mean square by
-well under 1 %.
+component, so the walls 100 mm away barely matter. Each track ends exactly
+at maxTime: the tracker cuts the last step to the time left.
 """
 
 import os
@@ -57,38 +64,58 @@ def ends(func):
     return rows[:, 1], rows[:, 2].astype(float), rows[:, 4:7].astype(float)
 
 
+def ou_ratio(t, tl):
+    """Mean-square displacement of an Ornstein-Uhlenbeck velocity with a
+    stationary start, 2 sigma^2 T_L (t - T_L (1 - e^-t/T_L)), over
+    sigma^2 tau_e t = 2 sigma^2 T_L t (tau_e = 2 T_L)."""
+    return (t - tl * (1 - np.exp(-t / tl))) / t
+
+
+# (instance, tau_e, run time, expected ratio, or a control's bound)
+CASES = [
+    ("shortWellMixed", TAU["short"], T, 1.0),
+    ("shortRandomDisplacement", TAU["short"], T, 1.0),
+    ("shortLangevin", TAU["short"], T, 1.0),
+    ("longWellMixed", TAU["long"], T, 1.0),
+    ("longRandomDisplacement", TAU["long"], T, 1.0),
+    ("longLangevin", TAU["long"], T, ou_ratio(T, TAU["long"] / 2)),
+    ("earlyLangevin", TAU["long"], 0.01, ou_ratio(0.01, TAU["long"] / 2)),
+    ("earlyWellMixed", TAU["long"], 0.01, 0.01 / TAU["long"]),
+    ("shortUncorrected", TAU["short"], T, ("> 5", lambda r: r > 5)),
+    ("longUncorrected", TAU["long"], T, ("< 0.6", lambda r: r < 0.6)),
+]
+
 fails = []
-for life, tau in TAU.items():
-    expected = SIGMA2 * tau * T
-    for variant in ("WellMixed", "RandomDisplacement", "Uncorrected"):
-        func = life + variant
-        try:
-            reason, t_end, x_end = ends(func)
-        except (OSError, ValueError, IndexError) as e:
-            print(f"FAIL: cannot read {func}'s doseDistribution.csv: {e}")
-            sys.exit(1)
-        if len(reason) < 1990 or np.any(reason != "timedOut") or np.any(np.abs(t_end - T) > 1e-6):
-            fails.append(f"{func}: {len(reason)} tracks, not every one walked to {T} s")
-        dx = x_end - CENTRE
-        msd = np.mean(dx**2)
-        ratio = msd / expected
-        drift = dx.mean(axis=0) / np.sqrt(msd / len(dx))
-        print(f"  {func}: mean-square displacement / (sigma^2 tau_e T) = {ratio:.4f},"
-              f" mean / standard error {np.round(drift, 2).tolist()}")
-        if variant != "Uncorrected":
-            if abs(ratio - 1) > TOL:
-                fails.append(f"{func}: mean-square displacement is {ratio:.4f} of 2 K T"
-                             f" (allowed 1 +- {TOL})")
-            if np.max(np.abs(drift)) > 4.5:
-                fails.append(f"{func}: mean displacement {np.round(drift, 2).tolist()} standard"
-                             " errors: a drift in homogeneous turbulence")
-        elif life == "short" and ratio < 5:
-            fails.append(f"{func}: {ratio:.3f} of 2 K T; the control should over-spread (> 5)")
-        elif life == "long" and ratio > 0.6:
-            fails.append(f"{func}: {ratio:.3f} of 2 K T; the control should under-spread (< 0.6)")
+for func, tau, t_run, expect in CASES:
+    try:
+        reason, t_end, x_end = ends(func)
+    except (OSError, ValueError, IndexError) as e:
+        print(f"FAIL: cannot read {func}'s doseDistribution.csv: {e}")
+        sys.exit(1)
+    if len(reason) < 1990 or np.any(reason != "timedOut") or np.any(np.abs(t_end - t_run) > 1e-6):
+        fails.append(f"{func}: {len(reason)} tracks, not every one walked to {t_run} s")
+    dx = x_end - CENTRE
+    msd = np.mean(dx**2)
+    ratio = msd / (SIGMA2 * tau * t_run)
+    drift = dx.mean(axis=0) / np.sqrt(msd / len(dx))
+    if isinstance(expect, tuple):
+        label, ok = expect
+        print(f"  {func}: mean-square displacement / (sigma^2 tau_e t) = {ratio:.4f} (control: {label})")
+        if not ok(ratio):
+            fails.append(f"{func}: {ratio:.3f} of 2 K t; the control should be {label}")
+        continue
+    print(f"  {func}: mean-square displacement / (sigma^2 tau_e t) = {ratio:.4f}, expected"
+          f" {expect:.4f}; mean / standard error {np.round(drift, 2).tolist()}")
+    if abs(ratio / expect - 1) > TOL:
+        fails.append(f"{func}: mean-square displacement {ratio:.4f} of 2 K t, expected {expect:.4f}"
+                     f" (allowed {TOL:.0%})")
+    if np.max(np.abs(drift)) > 4.5:
+        fails.append(f"{func}: mean displacement {np.round(drift, 2).tolist()} standard"
+                     " errors: a drift in homogeneous turbulence")
 
 if fails:
     for f in fails:
         print("FAIL:", f)
     sys.exit(1)
-print("PASS: the corrected walk and the random displacement model realise K = k tau_e / 3")
+print("PASS: the three walks realise K = k tau_e / 3, and the Langevin model and the corrected"
+      " walk their own short-time spreading")

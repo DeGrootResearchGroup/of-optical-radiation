@@ -301,6 +301,72 @@ draws short steps and spread the particles too little. The step is
 instead limited so that $\sqrt{2 K \Delta t}$ does not exceed the CFL
 displacement.
 
+### Langevin model
+
+A well-mixed Langevin model of the fluctuating velocity
+{cite}`thomson1987`, for isotropic Gaussian turbulence whose variance
+$\sigma^2 = \tfrac23 k$ varies in space. The particle carries a
+normalized velocity $\mathbf{v} = \mathbf{u}'/\sigma$ that relaxes on the
+Lagrangian time scale $T_L$:
+
+$$
+d\mathbf{v} \;=\; \left(-\frac{\mathbf{v}}{T_L} + \nabla \sigma\right) dt
+  + \sqrt{\frac{2}{T_L}}\; d\mathbf{W},
+\qquad \mathbf{u}' = \sigma\, \mathbf{v} .
+$$
+
+It is the first-order model that keeps a uniform distribution of particles
+uniform in such turbulence, and it keeps velocity memory: $\mathbf{u}'$ is
+correlated over about $T_L$, so particles spread as $\sigma^2 t^2$ at first
+and as $2 K t$ once $t \gg T_L$. Unlike the discrete random walk it never
+holds a velocity through an eddy that is long compared with the distance
+over which the turbulence changes. $T_L = \tau_e/2$, so its long-time
+diffusivity $\sigma^2 T_L$ is the walk's $K$.
+
+Each step integrates $\mathbf{v}$ and the displacement exactly with
+$\sigma$, $\nabla\sigma$ and $T_L$ frozen at the step's start (the end
+velocity and the displacement are then jointly Gaussian with known
+moments), and adds what freezing them leaves out, to first order in their
+gradients along the path with $\mathbf{v}$ at its stationary statistics.
+With $h = \Delta t / T_L$, the displacement gains
+
+$$
+\Delta t \left[\psi_1(h)\, \sigma T_L \nabla\sigma
+  + \psi_2(h)\, \sigma^2 \nabla T_L\right],
+\qquad
+\psi_1 = 1 - \frac{1 - e^{-h}}{h}, \quad
+\psi_2 = 1 - \frac{2(1 - e^{-h})}{h} + e^{-h},
+$$
+
+and the end velocity gains $\chi(h)\, \sigma \nabla T_L$ with
+$\chi = 1 - e^{-h} - h e^{-h}$, the mean velocity a $T_L$ that varies along
+the path leaves, which a continuous path carries into the steps that
+follow. All three vanish for $h \ll 1$, where the step is the Langevin
+model's, and $\psi_1, \psi_2 \to 1$ for $h \gg 1$, where the mean drift
+becomes $2\sigma T_L \nabla\sigma + \sigma^2 \nabla T_L = \nabla K$ and the
+step is the random displacement model's with the same $K$. One integrator
+so covers both limits and every step between them, with no switch between
+models.
+
+The step is at most `maxStepFraction` (default 0.02) times
+$\max(T_L, T_\mathrm{min})$, with $T_\mathrm{min}$ = `minLagrangianTime`
+(default $10^{-2}$ s), and at most $\Delta x^2 / 2K$ for the CFL
+displacement $\Delta x$, so that its random spread stays within the
+distance over which the first-order expansion holds. It is continuous in
+space, because a step that changes abruptly between neighbouring positions
+unbalances the particle fluxes across the change and violates the
+well-mixed condition {cite}`thomson1997,postma2015`, and a step that varies
+smoothly along a path whose velocity is still remembered drifts particles
+towards shorter steps by about $-\tfrac12 \sigma^2 \nabla(\Delta t)$
+{cite}`wilsonflesch1993`, which a small `maxStepFraction` keeps small.
+Below $T_\mathrm{min}$ -- next to a wall resolved with a $k$-$\omega$
+model, where $T_L$ reaches microseconds -- the step stops shrinking, which
+keeps the cost near that of the random walks. The first-order correction
+loses accuracy where a step's spread $\sqrt{2K\Delta t}$ is comparable with
+the distance over which $K$ changes: on a wall-resolved reactor mesh the
+default $T_\mathrm{min}$ puts the mean dose 0.6-1.0 % above the bound
+$\int G\,dV / Q$ that a passive tracer cannot exceed in a steady flow.
+
 ```{warning}
 DRW is a *RANS* closure. In an LES driver where the carrier-phase $k$
 spectrum is already resolved by the fluid solver, adding DRW double-counts

@@ -79,11 +79,18 @@ public:
         //- Eddy lifetime [s]
         scalar tau;
 
+        //- Gradient of the eddy lifetime [s/m]
+        vector gradTau;
+
         //- Diffusivity K = k tau_e / 3 [m^2/s]
         scalar K;
 
         //- Gradient of K [m/s]
         vector gradK;
+
+        //- Gradient of sigma [1/s]: grad(k) / (3 sigma), zero where k is
+        //  nil
+        vector gradSigma;
     };
 
 

@@ -1,0 +1,99 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | radiationDose: Langevin drift
+   \\    /   O peration     |
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+
+application     postProcess;
+startTime       0;
+endTime         0;
+deltaT          1;
+writeControl    timeStep;
+writeInterval   1;
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  10;
+
+// The drift of the Langevin model. With an eddy diffusivity K linear in y
+// (makeFields) and no mean flow, particles released at a point drift by
+// exactly grad(K) t. The Langevin model's step integrates the velocity with
+// sigma, grad(sigma) and T_L frozen and adds the mean displacement freezing
+// leaves out; without that correction its drift falls short, to half of
+// grad(K) for steps much longer than T_L when the gradient is all in sigma,
+// and to nothing when it is all in T_L. Each field is walked with steps of
+// 5 ms (minLagrangianTime 0.25, so h = dt / T_L ~ 100), with the model's
+// default steps (h ~ 4), and with the random displacement model, whose
+// Gaussian increments with drift grad(K) realise grad(K) t exactly.
+
+langevin
+{
+    type        langevin;
+    Cmu         0.09;
+    Cl          0.15;
+}
+
+drift
+{
+    type            radiationDose;
+    libs            ("libradiationDose.so");
+    U               U;
+    fluenceRate     G;
+    seed            7;
+    seeding
+    {
+        type        pointInjection;
+        nParticles  40000;
+        // A cell centre; the radius is negligible beside the spread.
+        region      { type sphere; centre (0.051 0.051 0.051); radius 1e-5; }
+    }
+    termination     { escapePatches (); maxTime 1; maxDose 0; wallReflection true; }
+    integration     { dtMax 0.005; cflMax 2; }
+    output          { kInact (0.1); writeVtk false; }
+}
+
+functions
+{
+    // grad(K) from sigma: k linear in y, T_L uniform (50 us)
+    sigmaLongSteps
+    {
+        $drift;
+        dispersion  { $langevin; k kSigma; omega omegaUniform; minLagrangianTime 0.25; }
+    }
+    sigmaDefaultSteps
+    {
+        $drift;
+        dispersion  { $langevin; k kSigma; omega omegaUniform; }
+    }
+    sigmaRandomDisplacement
+    {
+        $drift;
+        dispersion  { $langevin; type randomDisplacement; k kSigma; omega omegaUniform; }
+    }
+
+    // grad(K) from T_L: k uniform, T_L linear in y (50 us at the release)
+    tauLongSteps
+    {
+        $drift;
+        dispersion  { $langevin; k kUniform; omega omegaT; minLagrangianTime 0.25; }
+    }
+    tauDefaultSteps
+    {
+        $drift;
+        dispersion  { $langevin; k kUniform; omega omegaT; }
+    }
+    tauRandomDisplacement
+    {
+        $drift;
+        dispersion  { $langevin; type randomDisplacement; k kUniform; omega omegaT; }
+    }
+}
+
+// ************************************************************************* //

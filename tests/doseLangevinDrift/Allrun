@@ -1,0 +1,9 @@
+#!/bin/sh
+. "$(dirname "$0")/../lib/AllrunPreamble.sh"
+
+# Restore the stock initial fields, then write k and omega
+cp -r 0.orig 0
+./makeFields
+
+runApplication blockMesh
+runApplication foamPostProcess

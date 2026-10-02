@@ -274,16 +274,26 @@ bool Foam::dose::dosePathParticle::move
                 xi
             ).Vdisp
         );
+    // The last step ends at maxTime, so a timed-out track's end point is
+    // where the particle is at maxTime and not up to a step beyond it.
     const scalar maxDisplacement = cloud.cflMax()*cellSize;
+    const scalar dtToMaxTime =
+        (cloud.maxTime() > 0 && cloud.maxTime() > t_)
+      ? cloud.maxTime() - t_
+      : great;
     const scalar dt =
         min
         (
             min
             (
-                cloud.dtMax(),
-                cflSpeed > small ? maxDisplacement/cflSpeed : great
+                min
+                (
+                    cloud.dtMax(),
+                    cflSpeed > small ? maxDisplacement/cflSpeed : great
+                ),
+                dispersion.maxStep(*dispState_, maxDisplacement)
             ),
-            dispersion.maxStep(*dispState_, maxDisplacement)
+            dtToMaxTime
         );
 
     // If CFL tightened the step, redo with the smaller dt so V (for
@@ -360,10 +370,11 @@ bool Foam::dose::dosePathParticle::move
         if (actualDt >= dtToTerm)
         {
             // Cap the accumulator exactly at the threshold rather
-            // than overshooting by up to one inner step. The
-            // particle's spatial position is left at its post-
-            // trackToAndHitFace value (an O(actualDt - dtToTerm)
-            // overshoot in xEnd); only t_ and D_ are pinned.
+            // than overshooting by up to one inner step. The step was
+            // cut to end at maxTime, so a timed-out particle is where
+            // it is at maxTime; at maxDose its position is left at the
+            // post-trackToAndHitFace value (an O(actualDt - dtToTerm)
+            // overshoot in xEnd), and only t_ and D_ are pinned.
             if (dtToMaxTime <= dtToMaxDose)
             {
                 t_ = cloud.maxTime();

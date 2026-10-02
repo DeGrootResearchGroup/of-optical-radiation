@@ -36,7 +36,8 @@ writePrecision  10;
 // `validate` checks the corrected walk realises 2 K T in both, and that the
 // uncorrected one does not; and the same of the random displacement model
 // (randomDisplacement), whose increments are Gaussian, so it realises 2 K T
-// at any T.
+// at any T; and the Langevin model (langevin), whose mean-square displacement
+// has the closed form of an Ornstein-Uhlenbeck velocity.
 
 drw
 {
@@ -102,6 +103,35 @@ functions
         $diffusivity;
         integration { dtMax 0.005; cflMax 0.4; }
         dispersion  { $drw; type randomDisplacement; omega omegaLong; }
+    }
+
+    // The Langevin model: T_L = tau_e / 2, its velocity an Ornstein-Uhlenbeck
+    // process. Short: T_L = 50 us is below minLagrangianTime (10 ms), so its
+    // steps are at their floor, 0.2 ms = 4 T_L, and integrate several
+    // Lagrangian times each. Long: T_L = 25 ms, resolved. Early: the long
+    // case stopped at 10 ms < T_L, where the velocity memory shows -- as it
+    // does for the corrected walk, stopped at the same time (earlyWellMixed).
+    shortLangevin
+    {
+        $diffusivity;
+        dispersion  { $drw; type langevin; omega omegaShort; }
+    }
+    longLangevin
+    {
+        $diffusivity;
+        dispersion  { $drw; type langevin; omega omegaLong; }
+    }
+    earlyLangevin
+    {
+        $diffusivity;
+        termination { escapePatches (); maxTime 0.01; maxDose 0; wallReflection true; }
+        dispersion  { $drw; type langevin; omega omegaLong; }
+    }
+    earlyWellMixed
+    {
+        $diffusivity;
+        termination { escapePatches (); maxTime 0.01; maxDose 0; wallReflection true; }
+        dispersion  { $drw; omega omegaLong; wellMixed true; }
     }
 }
 

@@ -81,6 +81,23 @@ functions
         $wellMixedDrw;
         dispersion  { $drw; type randomDisplacement; }
     }
+    // The Langevin model at its defaults: steps of 0.02 max(T_L, 10 ms). T_L
+    // runs from 50 us on the low-k wall to 25 ms at y = H, so the step is at
+    // its floor (0.2 ms) below y ~ 39 mm, where it is up to 4 T_L long and the
+    // first-order drift correction carries the well-mixed condition, and a
+    // fraction of T_L above. It is judged at its end points (one snapshot at
+    // maxTime), so it is given four times the particles of the others.
+    langevin
+    {
+        $wellMixedDrw;
+        seeding
+        {
+            type        pointInjection;
+            nParticles  20000;
+            region      { type box; centre (0.02 0.05 0.01); size (0.04 0.1 0.02); }
+        }
+        dispersion  { $drw; type langevin; }
+    }
 }
 
 // ************************************************************************* //
