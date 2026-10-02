@@ -1750,7 +1750,7 @@ not optional**: without it the T_L-gradient drift is 0.74-0.78 of grad K at h ~ 
 for h >> 1 and is O(h^2) for h << 1, so only intermediate h shows it) -- found by
 `doseLangevinDrift`, not by the derivation, which first corrected the displacement only.
 Step: `min(maxStepFraction max(T_L, minLagrangianTime), maxDisplacement^2/(2K))`, continuous in
-space. Defaults 0.02 and 1e-2 s, chosen 2026-10-01 by the project owner (see the Sozzi table).
+space. Defaults 0.02 and 1e-2 s, chosen 2026-10-01 by the project owner from a cost test (see the Sozzi paragraph below; that test predates chi).
 
 ⚠️ **History: the first version switched models, and the switch broke the well-mixed condition.**
 It stepped `maxStepFraction` (0.05) x T_L and, below `minLagrangianTime` (1e-4 s), the random
@@ -1775,22 +1775,25 @@ step, the Wilson-Flesch bias. Running the Langevin model to the wall with no zon
 recommendation) was > 8x the cost on the Sozzi uvmesh and was stopped unfinished. The Thomson
 interface rule needs particles stopped AT the switch, an isosurface of T_L inside tets -- hence
 the single integrator instead.
-⚠️ **The first-order correction is not exact for long steps.** In `doseWellMixed`'s box with the
-floor raised (step 200 us / 400 us / 1 ms / 2 ms / 5 ms everywhere, h up to 4 / 8 / 20 / 40 / 100)
+⚠️ **The first-order correction is not exact for long steps.** In `doseWellMixed`'s box (measured with
+the displacement correction but before chi was added -- the box has a T_L gradient, so chi may move
+these) with the floor raised (step 200 us / 400 us / 1 ms / 2 ms / 5 ms everywhere, h up to 4 / 8 / 20 / 40 / 100)
 the worst 10 mm band is 0.02-0.03 / 0.047 / 0.060 / 0.115 / 0.157 off uniform with the correction
 and 0.04 / 0.061 / 0.091 / 0.160 / 0.310 without it (20,000 end points each): it removes a third to
 a half of the long-step error, and the rest grows with the step where sqrt(2 K dt) approaches the
-distance over which K changes (K ~ y^4 there). The same limit shows on the Sozzi bound below.
-**Langevin on the Sozzi reactor, model B (the shipped one)** (2026-10-01; uvmesh line source,
-SST, 1 thread, the other settings as the switch model's below; lib built from this branch's
-working tree; run directory `run_costB.sh`). The bound: integral(G dV)/Q = 44.06 mJ/cm2 for this
-G on this mesh, which a passive tracer's mean dose cannot exceed in a steady flow. Floor 1e-2 s
-(default): 45.32 / 1.478, +2.9 % over the bound, 464 s; floor 1e-3 s: 44.24 / 1.475, +0.4 %,
-2411 s (5x; 5 of 9987 timed out at 300 s). Against: the switch model 44.21 / 1.470 (+0.3 %,
-483 s, same load), randomDisplacement at 0.5 ms 44.56 / 1.477 (+1.1 %). The excess is the
-long-step accuracy limit above, in the sublayer by the sleeve; the log reduction moves by <= 0.008.
-(Timings are wall clock on a loaded machine -- other jobs ran alongside, the same for the three
-compared -- so read them as ratios.)
+distance over which K changes (K ~ y^4 there). On the Sozzi uvmesh it leaves the mean dose 0.6-1.1 % above the bound (below).
+**Langevin on the Sozzi reactor, model B (the shipped one)** (OOR `b23582b`, 2026-10-02; uvmesh,
+SST, 1 thread, the other settings as the switch model's below; `run_lgvB.sh` in the run directory,
+outside the repository; all 9987 seeded escaped, none timed out). The bound integral(G dV)/Q, which
+a passive tracer's mean dose cannot exceed in a steady flow: 44.06 mJ/cm2 for the line source on
+this mesh, 48.27 for DOM 64 (linearUpwind), 48.84 for aquaflux. Line source 44.31 / 1.4705 (+0.6 %),
+DOM 64 with its own patch values 48.78 / 1.4467 (+1.1 %), aquaflux's G 49.33 / 1.490 (+1.0 %); ~6 min
+each with six running at once. Against the switch model: 44.21 / 1.470 and 48.37 / 1.443, so the
+log reductions agree to 0.004. Max dose rose (line source 1715 against 464 mJ/cm2): a few
+long-residence particles by the sleeve.
+⚠️ **A cost test before chi was added measured +2.9 % at this default and +0.4 % with a 1 ms floor
+(at 5x the cost); those figures are of a build without the end-velocity term and do not describe
+`b23582b`.** The 1 ms floor has not been re-measured.
 
 **Langevin on the Sozzi reactor, the switch model** (OOR `ebadf6e`; 2026-10-01; settings as the
 table above, maxStepFraction 0.05, minLagrangianTime 1e-4 s; run directory `results.md`, outside
@@ -1876,8 +1879,7 @@ occupancy breakdowns, and every run's code in `results.md` of the run directory
 | randomDisplacement, dtMax 0.5 ms | 46.4 / 1.47 | | | |
 | langevin, switch model (`ebadf6e`, its defaults) | 44.2 / 1.47 | 46.1 / 1.44 | 48.4 / 1.44 | 50.2 / 1.44 |
 | langevin, switch model, maxStepFraction 0.1 | 44.8 / 1.48 | | | |
-| langevin, model B (defaults: 0.02, floor 1e-2 s) | 45.3 / 1.48 | | | |
-| langevin, model B, floor 1e-3 s | 44.2 / 1.48 | | | |
+| langevin, model B (`b23582b`, defaults: 0.02, floor 1e-2 s) | 44.3 / 1.47 | | 48.8 / 1.45 | |
 
 With `randomDisplacement` the two meshes agree (mean within 2 %, log reduction within 0.04);
 with the corrected DRW the wall-resolved mesh is still 44 % high in mean dose (eddy memory, below).

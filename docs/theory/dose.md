@@ -364,9 +364,8 @@ model, where $T_L$ reaches microseconds -- the step stops shrinking, which
 keeps the cost near that of the random walks. The first-order correction
 loses accuracy where a step's spread $\sqrt{2K\Delta t}$ is comparable with
 the distance over which $K$ changes: on a wall-resolved reactor mesh the
-default $T_\mathrm{min}$ puts the mean dose about 3 % above the bound
-$\int G\,dV / Q$ that a passive tracer cannot exceed, and
-$T_\mathrm{min} = 10^{-3}$ s about 0.4 % above it at five times the cost.
+default $T_\mathrm{min}$ puts the mean dose 0.6-1.0 % above the bound
+$\int G\,dV / Q$ that a passive tracer cannot exceed in a steady flow.
 
 ```{warning}
 DRW is a *RANS* closure. In an LES driver where the carrier-phase $k$
