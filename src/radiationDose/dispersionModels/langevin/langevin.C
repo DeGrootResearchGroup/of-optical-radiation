@@ -41,10 +41,10 @@ Foam::dose::langevin::langevin
 :
     dispersionModel(dict, mesh),
     turbulence_(dict, mesh),
-    maxStepFraction_(dict.lookupOrDefault<scalar>("maxStepFraction", 0.05)),
+    maxStepFraction_(dict.lookupOrDefault<scalar>("maxStepFraction", 0.02)),
     minLagrangianTime_
     (
-        dict.lookupOrDefault<scalar>("minLagrangianTime", 1e-4)
+        dict.lookupOrDefault<scalar>("minLagrangianTime", 1e-2)
     )
 {
     if (maxStepFraction_ <= 0)
@@ -52,6 +52,12 @@ Foam::dose::langevin::langevin
         FatalIOErrorInFunction(dict)
             << "langevin: maxStepFraction must be > 0, got "
             << maxStepFraction_ << exit(FatalIOError);
+    }
+    if (minLagrangianTime_ < 0)
+    {
+        FatalIOErrorInFunction(dict)
+            << "langevin: minLagrangianTime must be >= 0, got "
+            << minLagrangianTime_ << exit(FatalIOError);
     }
 }
 
@@ -102,6 +108,36 @@ void Foam::dose::langevin::integrate
     const vector vInf = T*s.gradSigma;
     Xm = T*oneMinusE*s.v + (dt - T*oneMinusE)*vInf;
     vEnd = (1 - oneMinusE)*s.v + oneMinusE*vInf + n;
+
+    // The mean displacement that freezing sigma and T_L leaves out, to
+    // first order in their gradients with v at its stationary statistics
+    // (in units of sigma): sigma varying along the path adds
+    // psi1 dt T grad(sigma), and T_L varying along it adds
+    // psi2 dt sigma grad(T_L), with
+    //     psi1 = 1 - (1 - e^-h)/h,   psi2 = 1 - 2 (1 - e^-h)/h + e^-h.
+    // Both tend to one for h >> 1, where the step's mean drift becomes
+    // grad(K)/sigma (the random displacement model's), and vanish for
+    // h << 1 (series there, where the closed forms cancel).
+    // T_L varying along the path also leaves a mean velocity at the step's
+    // end, chi sigma grad(T_L) with chi = (1 - e^-h) - h e^-h, which a
+    // continuous path carries into the steps that follow; without it the
+    // T_L gradient's drift falls short for h ~ 1. sigma varying along the
+    // path acts on the displacement only, and leaves none.
+    scalar psi1, psi2, chi;
+    if (h < 1e-2)
+    {
+        psi1 = h/2 - sqr(h)/6 + pow3(h)/24;
+        psi2 = sqr(h)/6 - pow3(h)/12 + pow4(h)/40;
+        chi = sqr(h)/2 - pow3(h)/3 + pow4(h)/8;
+    }
+    else
+    {
+        psi1 = 1 - oneMinusE/h;
+        psi2 = 1 - 2*oneMinusE/h + (1 - oneMinusE);
+        chi = oneMinusE - h*(1 - oneMinusE);
+    }
+    Xm += dt*(psi1*T*s.gradSigma + psi2*s.sigma*s.gradTL);
+    vEnd += chi*s.sigma*s.gradTL;
 }
 
 
@@ -128,13 +164,11 @@ void Foam::dose::langevin::beginStep
     s.sigma = t.sigma;
     s.gradSigma = t.gradSigma;
     s.TL = 0.5*t.tau;
+    s.gradTL = 0.5*t.gradTau;
     s.K = t.K;
-    s.gradK = t.gradK;
-    s.diffusive = s.TL < minLagrangianTime_ || s.sigma <= 0;
 
-    // A track entering the Langevin zone, or starting in it, takes its
-    // velocity from the stationary distribution
-    if (!s.diffusive && !s.hasVelocity)
+    // A new track takes its velocity from the stationary distribution
+    if (!s.hasVelocity)
     {
         s.v = gaussianTriple(rng);
         s.hasVelocity = true;
@@ -153,11 +187,6 @@ Foam::vector Foam::dose::langevin::fluctuation
 {
     const LangevinState& s = dynamic_cast<const LangevinState&>(state);
 
-    if (s.diffusive)
-    {
-        return s.gradK + sqrt(2*s.K/dt)*s.xi1;
-    }
-
     vector Xm, Xn, vEnd;
     integrate(s, dt, Xm, Xn, vEnd);
     return s.sigma*(Xm + Xn)/dt;
@@ -171,11 +200,6 @@ Foam::vector Foam::dose::langevin::cflFluctuation
 ) const
 {
     const LangevinState& s = dynamic_cast<const LangevinState&>(state);
-
-    if (s.diffusive)
-    {
-        return s.gradK;
-    }
 
     vector Xm, Xn, vEnd;
     integrate(s, dt, Xm, Xn, vEnd);
@@ -191,12 +215,14 @@ Foam::scalar Foam::dose::langevin::maxStep
 {
     const LangevinState& s = dynamic_cast<const LangevinState&>(state);
 
-    if (s.diffusive)
-    {
-        return s.K > vSmall ? sqr(maxDisplacement)/(2*s.K) : great;
-    }
-
-    return maxStepFraction_*s.TL;
+    // Continuous in space (see the class description): no switch, and the
+    // T_L floor and the displacement bound are both continuous functions
+    // of position.
+    const scalar langevinStep =
+        maxStepFraction_*max(s.TL, minLagrangianTime_);
+    const scalar spreadStep =
+        s.K > vSmall ? sqr(maxDisplacement)/(2*s.K) : great;
+    return min(langevinStep, spreadStep);
 }
 
 
@@ -207,12 +233,6 @@ void Foam::dose::langevin::endStep
 ) const
 {
     LangevinState& s = dynamic_cast<LangevinState&>(state);
-
-    if (s.diffusive)
-    {
-        s.hasVelocity = false;
-        return;
-    }
 
     vector Xm, Xn, vEnd;
     integrate(s, dt, Xm, Xn, vEnd);

@@ -8,7 +8,8 @@ K = k tau_e / 3 falls as y^4 towards that wall, as in a viscous sublayer
 (makeFields). 5000 particles are seeded uniformly and walked for 10 s, twice
 from the same seed: `wellMixed` (the corrected walk) and `uncorrected`
 (wellMixed false), and once with the random displacement model with the
-same K (`randomDisplacement`) and once with the Langevin model (`langevin`).
+same K (`randomDisplacement`) and once with the Langevin model (`langevin`,
+20000 particles).
 The well-mixed condition says the corrected walk, the random displacement
 model and the Langevin model must stay uniform; the uncorrected walk has no
 drift and collects particles where K is small.
@@ -18,9 +19,11 @@ The distribution is read from the trajectories' recorded vertices, every
 shortened by the CFL bound here (dtMax 5 ms, cflMax 2), so for the two walks
 and the random displacement model the vertices are snapshots at common
 times, not samples weighted towards wherever steps are short. The Langevin
-model's steps are a fraction of the local Lagrangian time scale, so it is
-judged at its end points instead, all at maxTime (one snapshot of 5000
-particles: a standard error of 4 % per 10 mm band).
+model's steps vary with the local Lagrangian time scale, so it is judged at
+its end points instead, all at maxTime: one snapshot of 20000 particles, a
+standard error of 2.1 % per 10 mm band and 3.5 % per 4 mm one, so that its
+limits sit about five standard errors out and a model that is well mixed
+does not fail them by chance.
 
 This checks:
 
@@ -30,8 +33,13 @@ This checks:
   3. both are uniform in y -- ten 10 mm bands, and the 4 mm
      next to the low-k wall -- and in x and z, where the walls bound
      eddies that outlast many steps;
-  4. the uncorrected walk is not: its low-k quarter holds well over its
-     share. This is the control: it shows check 3 can fail.
+  4. the Langevin model is uniform in 4 mm bins too. A step that changes
+     abruptly between neighbouring positions -- the switch to a separate
+     diffusion model this model once had at T_L = 2 ms -- leaves a deficit
+     just below the change and a pile-up just above it (0.82 and 1.20 of
+     uniform in 4 mm bins), narrower than a 10 mm band;
+  5. the uncorrected walk is not uniform: its low-k quarter holds well over
+     its share. This is the control: it shows check 3 can fail.
 """
 
 import os
@@ -44,6 +52,9 @@ L, H, W = 0.04, 0.1, 0.02
 T_FROM = 5.0          # use vertices from the second half of the walk [s]
 TOL_BAND = 0.12       # |occupancy / uniform - 1| allowed per 10 mm band
 TOL_WALL = 0.25       # ... in the 4 mm next to the low-k wall
+TOL_FINE = 0.15       # ... per 4 mm bin, for the Langevin model's 20000 end points
+N_SEEDED = {"wellMixed": 5000, "randomDisplacement": 5000, "langevin": 20000,
+            "uncorrected": 5000}
 MIN_TRAVEL = 0.01     # mean |y_end - y_seed| the walk must reach [m]
 
 
@@ -87,7 +98,7 @@ for func in ("wellMixed", "randomDisplacement", "langevin", "uncorrected"):
         # steps is not a common-time snapshot; judge it at its end points,
         # which are all at maxTime.
         snap = ends
-    if len(seeds) < 4900 or np.any(np.abs(t_end - 10.0) > 1e-6):
+    if len(seeds) < 0.98*N_SEEDED[func] or np.any(np.abs(t_end - 10.0) > 1e-6):
         fails.append(f"{func}: {len(seeds)} tracks, not every one walked to 10 s")
     bands = occupancy(snap[:, 1], H, 10)
     wall = np.mean(snap[:, 1] < 0.004) / (0.004 / H)
@@ -107,6 +118,12 @@ for func in ("wellMixed", "randomDisplacement", "langevin", "uncorrected"):
         if abs(wall - 1) > TOL_WALL:
             fails.append(f"{func}: the 4 mm at the low-k wall holds {wall:.3f} of uniform"
                          f" (allowed 1 +- {TOL_WALL})")
+        if func == "langevin":
+            fine = occupancy(snap[:, 1], H, 25)
+            print(f"  {func}: 4 mm bins {np.round(fine, 3).tolist()}")
+            if np.max(np.abs(fine - 1)) > TOL_FINE:
+                fails.append(f"{func}: a 4 mm bin is {np.max(np.abs(fine - 1)):.3f} off uniform"
+                             f" (allowed {TOL_FINE})")
         for axis, length, name in ((0, L, "x"), (2, W, "z")):
             b = occupancy(snap[:, axis], length, 10)
             print(f"  {func}: {name} bands {np.round(b, 3).tolist()}")

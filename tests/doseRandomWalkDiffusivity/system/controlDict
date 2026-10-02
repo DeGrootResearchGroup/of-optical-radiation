@@ -106,8 +106,9 @@ functions
     }
 
     // The Langevin model: T_L = tau_e / 2, its velocity an Ornstein-Uhlenbeck
-    // process. Short: T_L = 50 us is below minLagrangianTime (100 us), so it
-    // steps the diffusion limit. Long: T_L = 25 ms, resolved. Early: the long
+    // process. Short: T_L = 50 us is below minLagrangianTime (10 ms), so its
+    // steps are at their floor, 0.2 ms = 4 T_L, and integrate several
+    // Lagrangian times each. Long: T_L = 25 ms, resolved. Early: the long
     // case stopped at 10 ms < T_L, where the velocity memory shows -- as it
     // does for the corrected walk, stopped at the same time (earlyWellMixed).
     shortLangevin

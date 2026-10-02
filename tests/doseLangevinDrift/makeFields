@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Write the k and omega fields of the Langevin drift case.
+
+Two turbulence fields, each with an eddy diffusivity K = k tau_e / 3 that is
+linear in y, so that the exact mean displacement of a well-mixed walk from a
+point is grad(K) t:
+
+  kSigma / omegaUniform: k linear in y, tau_e uniform (1e-4 s), so the
+      gradient of K is all from sigma: grad(K) = tau_e grad(k) / 3 = 2e-3 m/s;
+  kUniform / omegaT: k uniform (3 m^2/s^2), tau_e linear in y, so it is all
+      from the Lagrangian time scale: grad(K) = k grad(tau_e) / 3 = 1.5e-3 m/s.
+
+tau_e is given to the model as omega = Cl / (Cmu tau_e) (Cl 0.15, Cmu 0.09,
+as in system/controlDict). Cell centres follow the blockMesh ordering of
+system/blockMeshDict.
+"""
+
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NX, NY, NZ, H = 50, 50, 50, 0.1
+Y0 = 0.051                          # the release height [m]
+CL, CMU = 0.15, 0.09
+K0, DKDY = 4.0, 60.0                # kSigma = K0 + DKDY (y - Y0)
+K_UNIFORM = 3.0
+TAU0, DTAUDY = 1.0e-4, 1.5e-3       # omegaT's tau_e = TAU0 + DTAUDY (y - Y0)
+
+HEADER = """FoamFile
+{{
+    format      ascii;
+    class       volScalarField;
+    object      {name};
+}}
+
+dimensions      {dims};
+
+"""
+
+
+def write(name, dims, profile):
+    ys = [(j + 0.5) * H / NY for j in range(NY)]
+    vals = [profile(ys[j]) for _ in range(NZ) for j in range(NY) for _ in range(NX)]
+    if min(vals) <= 0:
+        raise SystemExit(f"makeFields: {name} is not positive everywhere")
+    with open(os.path.join(HERE, "0", name), "w") as out:
+        out.write(HEADER.format(name=name, dims=dims))
+        out.write(f"internalField   nonuniform List<scalar>\n{len(vals)}\n(\n")
+        out.write("\n".join(f"{v:.10g}" for v in vals))
+        out.write("\n);\n\nboundaryField\n{\n")
+        out.write('    ".*"\n    {\n        type zeroGradient;\n    }\n}\n')
+
+
+K_DIMS, OMEGA_DIMS = "[0 2 -2 0 0 0 0]", "[0 0 -1 0 0 0 0]"
+write("kSigma", K_DIMS, lambda y: K0 + DKDY * (y - Y0))
+write("kUniform", K_DIMS, lambda y: K_UNIFORM)
+write("omegaUniform", OMEGA_DIMS, lambda y: CL / (CMU * TAU0))
+write("omegaT", OMEGA_DIMS, lambda y: CL / (CMU * (TAU0 + DTAUDY * (y - Y0))))

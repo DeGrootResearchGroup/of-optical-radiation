@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""The Langevin model drifts by grad(K) t where the eddy diffusivity varies.
+
+A closed 100 mm cube with no mean flow, and two turbulence fields
+whose eddy diffusivity K = k tau_e / 3 is linear in y (makeFields): one where
+the gradient is all in sigma (k linear, T_L uniform) and one where it is all
+in the Lagrangian time scale (k uniform, T_L linear). 40000 particles are
+released at a point at mid-height and walked for 1 s. For a K linear in y
+the exact mean displacement of a well-mixed walk is grad(K) t: 2 mm and
+1.5 mm here, against a spread of about 15 mm, so its standard error is about
+0.08 mm (4 % and 5 % of grad(K) t).
+
+The Langevin model's step integrates the velocity exactly with sigma,
+grad(sigma) and T_L frozen at its start, and adds the mean displacement that
+freezing them leaves out (to first order along the path). This checks that
+it realises grad(K) t to within 15 % in both fields, with steps of 5 ms
+(h = dt / T_L ~ 100: the diffusion limit, where the correction carries the
+whole of the T_L gradient's drift and half of sigma's) and with its default
+steps (h ~ 4); and that the random displacement model, whose increments are
+Gaussian with drift grad(K), does too -- the control that the expected value
+is right in this box. Without the correction the Langevin model drifts by
+about half of grad(K) t in the sigma field and hardly at all in the T_L field
+at h ~ 100, and by about 0.6 of it in the sigma field at h ~ 4; without the
+mean velocity that a T_L gradient leaves at the end of a step, by about 0.8 of
+it in the T_L field at h ~ 4. It checks also
+that no track drifts in x or z, where nothing varies, and that every track
+was walked to 1 s.
+"""
+
+import os
+import sys
+
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+RELEASE = np.array([0.051, 0.051, 0.051])
+T = 1.0
+GRAD_K = {"sigma": 2.0e-3, "tau": 1.5e-3}   # tau_e grad(k) / 3 and k grad(tau_e) / 3 [m/s]
+TOL = 0.15           # |mean dy / (grad(K) t) - 1| allowed: about 3.7 standard errors
+MAX_SIDE_DRIFT = 4.5 # |mean dx|, |mean dz| allowed, in standard errors
+N = 40000
+
+CASES = [(f"{field}{kind}", field) for field in ("sigma", "tau")
+         for kind in ("LongSteps", "DefaultSteps", "RandomDisplacement")]
+
+
+def ends(func):
+    path = os.path.join(HERE, "postProcessing", func, "0", "doseDistribution.csv")
+    rows = np.genfromtxt(path, delimiter=",", comments="#", dtype=str)
+    return rows[:, 1], rows[:, 2].astype(float), rows[:, 4:7].astype(float)
+
+
+fails = []
+for func, field in CASES:
+    try:
+        reason, t_end, x_end = ends(func)
+    except (OSError, ValueError, IndexError) as e:
+        print(f"FAIL: cannot read {func}'s doseDistribution.csv: {e}")
+        sys.exit(1)
+    if len(reason) < 0.99 * N or np.any(reason != "timedOut") or np.any(np.abs(t_end - T) > 1e-6):
+        fails.append(f"{func}: {len(reason)} tracks, not every one walked to {T} s")
+    d = x_end - RELEASE
+    se = d.std(axis=0) / np.sqrt(len(d))
+    ratio = d[:, 1].mean() / (GRAD_K[field] * T)
+    side = np.abs(d[:, [0, 2]].mean(axis=0)) / se[[0, 2]]
+    print(f"  {func}: mean dy / (grad(K) t) = {ratio:.3f} +- {se[1] / (GRAD_K[field] * T):.3f};"
+          f" mean dx, dz / standard error {np.round(side, 2).tolist()}")
+    if abs(ratio - 1) > TOL:
+        fails.append(f"{func}: drifted {ratio:.3f} of grad(K) t (allowed 1 +- {TOL})")
+    if np.max(side) > MAX_SIDE_DRIFT:
+        fails.append(f"{func}: drifted {np.round(side, 2).tolist()} standard errors in x, z")
+
+if fails:
+    for f in fails:
+        print("FAIL:", f)
+    sys.exit(1)
+print("PASS: the Langevin model drifts by grad(K) t with long and default steps, as the random"
+      " displacement model does, whether K varies through sigma or through T_L")

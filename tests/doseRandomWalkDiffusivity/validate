@@ -29,8 +29,8 @@ This checks:
   3. the Langevin model (shortLangevin, longLangevin, earlyLangevin) matches
      the closed form for an Ornstein-Uhlenbeck velocity with a stationary
      start, 2 sigma^2 T_L (t - T_L (1 - e^-t/T_L)) with T_L = tau_e / 2: 2KT
-     in the short case (T_L below its minLagrangianTime, so the diffusion
-     limit), 0.975 of it in the long, and 0.176 of 2Kt at t = 10 ms < T_L,
+     in the short case (T_L below its minLagrangianTime, so each step spans
+     several Lagrangian times), 0.975 of it in the long, and 0.176 of 2Kt at t = 10 ms < T_L,
      where its velocity memory shows; the corrected walk at the same time
      gives exactly t / tau_e = 0.2 (one eddy, held since t = 0), and a walk
      without memory would give 1;

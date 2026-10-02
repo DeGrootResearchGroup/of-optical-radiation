@@ -1591,13 +1591,15 @@ dispersionModel
 └── langevin               Thomson's well-mixed Langevin model, same K:
                            normalized velocity v = u'/sigma, OU on T_L =
                            tau_e / 2 with drift grad(sigma), integrated
-                           exactly per step (frozen coefficients); keeps
-                           velocity memory; the diffusion limit where T_L <
-                           minLagrangianTime. Config:
+                           exactly per step with frozen coefficients plus
+                           the first-order drift their variation along the
+                           path adds; one integrator for every h = dt/T_L
+                           (h >> 1 is the random displacement model), no
+                           zone switch. Config:
                               type              langevin;
                               omega             omega;   // or epsilon
-                              maxStepFraction   0.05;    // step <= this x T_L
-                              minLagrangianTime 1e-4;    // s; diffusion below
+                              maxStepFraction   0.02;    // step <= this x max(T_L, floor)
+                              minLagrangianTime 1e-2;    // s; the step's T_L floor
 
 motionModel
 ├── tracer                 V = U + u' (algebraic, fluid-following). Default
@@ -1727,36 +1729,72 @@ draw in the CFL, `doseRandomWalkDiffusivity`'s long instance spread at 0.799 of 
 `maxStep` is caught by neither test (both fields are gentle on the step scale): it is an accuracy
 guard, not a correctness condition there.
 
-**`langevin`, the well-mixed Langevin model** (added 2026-10-01, PR after #88, by the project
-owner's choice to keep velocity memory where the DRW's eddies are too long). Thomson's (1987)
-model for isotropic Gaussian turbulence in normalized form, v = u'/sigma:
+**`langevin`, the well-mixed Langevin model** (added 2026-10-01, PR #90, by the project owner's
+choice to keep velocity memory where the DRW's eddies are too long). Thomson's (1987) model for
+isotropic Gaussian turbulence in normalized form, v = u'/sigma:
 `dv = (-v/T_L + grad sigma) dt + sqrt(2/T_L) dW`, u' = sigma v, T_L = tau_e / 2 (so
-sigma^2 T_L = K, the walks' diffusivity; grad sigma = grad k / (3 sigma) from `eddyDiffusivity`).
-Each step is integrated exactly with the coefficients frozen at its start: n (the end velocity's
-random part) and X (its time integral's) jointly Gaussian, var n = 1 - e^-2h,
-var X = 2T^2(h - 2(1 - e^-h) + (1 - e^-2h)/2), cov = T(1 - e^-h)^2, h = dt/T; the conditional
-residual var X - cov^2/var n cancels catastrophically for small h and is the series
-T^2(h^3/6 - h^5/60) below h = 0.01. ⚠️ **Frozen coefficients are consistent only for steps short
-against T_L** -- with dt >> T_L the scheme drops the part of the diffusion-limit drift that comes
-from sigma varying along the path -- so `maxStep` is `maxStepFraction` (0.05) x T_L, and below
-`minLagrangianTime` (1e-4 s) the step is the random displacement model's with the same K, v redrawn
-from N(0,1) on leaving that zone. With k-omega SST, T_L ~ 1 us at a resolved wall, so the diffusion
-zone is the sublayer, where eddies are sub-micron and the two descriptions agree.
-Defaults chosen with the 1-D harness on the Sozzi sleeve and chamber-wall profiles
-(`langevin_profile_1d.py` in the run directory, outside the repository; 10,000 particles, 6 s,
-dtMax 0.5 ms, occupancy from common-time snapshots every 10 ms over the second half), occupancy
-within 20 um / 100 um / 300 um / 1 mm / 3 mm of the wall over uniform:
-chamber h 0.05: 1.32 / 1.13 / 1.07 / 1.08 / 1.03; h 0.1: 1.32 / 1.15 / 1.18 / 1.11 / 1.04;
-h 0.2: 1.32 / 1.16 / 1.33 / 1.18 / 1.06; sleeve h 0.05: 1.26 / 0.84 / 1.00 / 1.03 / 1.02;
-h 0.1: 1.26 / 0.96 / 1.11 / 1.09 / 1.03; h 0.2: 1.26 / 1.17 / 1.29 / 1.16 / 1.06 (all with the
-switch at 100 us; 99 % of the time in Langevin mode; a 10 us switch was no better: sleeve
-1.28 / 1.32 / 1.27 / 1.13 / 1.05 at 60 % more steps). For comparison the Ito walk at dt 0.5 ms:
-chamber 1.38 / 1.22 / 1.07 / 1.03, sleeve 1.41 / -- / -- / 1.02; scatter between runs is
-~0.15 in the 20-100 um bands. Cost: ~3,200 steps per particle-second at h 0.05 against 200 at
-dtMax 5 ms.
+sigma^2 T_L = K, the walks' diffusivity; grad sigma = grad k / (3 sigma) and grad T_L =
+grad tau_e / 2 from `eddyDiffusivity`). Each step is integrated exactly with sigma, grad sigma and
+T_L frozen at its start: n (the end velocity's random part) and X (its time integral's) jointly
+Gaussian, var n = 1 - e^-2h, var X = 2T^2(h - 2(1 - e^-h) + (1 - e^-2h)/2), cov = T(1 - e^-h)^2,
+h = dt/T; the conditional residual var X - cov^2/var n cancels catastrophically for small h and is
+the series T^2(h^3/6 - h^5/60) below h = 0.01. Then it adds what freezing leaves out, derived by
+expanding sigma and T_L to first order along the path with v at its stationary statistics:
+displacement `dt [psi1 sigma T_L grad sigma + psi2 sigma^2 grad T_L]`, psi1 = 1 - (1 - e^-h)/h,
+psi2 = 1 - 2(1 - e^-h)/h + e^-h; and end velocity `chi sigma grad T_L`, chi = 1 - e^-h - h e^-h
+(series below h = 0.01, matched to 1e-7 relative at the switch-over, psi2's to 3e-8). Part of the
+sigma-gradient drift is supplied ACROSS steps (sigma is re-read each step while v remembers), so
+the total is grad K at every h; psi1, psi2 -> 1 for h >> 1, where the step is the random
+displacement model's (mean drift 2 sigma T_L grad sigma + sigma^2 grad T_L = grad K). ⚠️ **chi is
+not optional**: without it the T_L-gradient drift is 0.74-0.78 of grad K at h ~ 4 (it vanishes
+for h >> 1 and is O(h^2) for h << 1, so only intermediate h shows it) -- found by
+`doseLangevinDrift`, not by the derivation, which first corrected the displacement only.
+Step: `min(maxStepFraction max(T_L, minLagrangianTime), maxDisplacement^2/(2K))`, continuous in
+space. Defaults 0.02 and 1e-2 s, chosen 2026-10-01 by the project owner (see the Sozzi table).
 
-**Langevin on the Sozzi reactor** (2026-10-01; settings as the table above, maxStepFraction 0.05,
-minLagrangianTime 1e-4 s; run directory `results.md`, outside the repository). The table's row is
+⚠️ **History: the first version switched models, and the switch broke the well-mixed condition.**
+It stepped `maxStepFraction` (0.05) x T_L and, below `minLagrangianTime` (1e-4 s), the random
+displacement model with dt up to dtMax, redrawing v from N(0,1) on leaving that zone (OOR
+`ebadf6e`, the deck's Sozzi results). `doseWellMixed` (then 5000 particles, switch at 2 ms, step
+0.1 T_L) failed on CI by chance and passed by chance ~60 % of the time: pooled over 20 seeds the
+4 mm just below the switch held 0.82x uniform and just above 1.20x (~25 standard errors), and a
+SHORTER Langevin step made it worse (1.60x), which is the signature of an abrupt step change, not
+of integration error. Literature that names both defects (read in full 2026-10-01): Thomson,
+Physick & Maryon (1997, J. Appl. Meteor. 36, 1284) -- particles leaving an interface must have the
+flux-weighted velocity distribution |u.n| p_a, not p_a, and the method fails if dt changes across
+the interface (their Fig. 8); Postma (2015, BLM 156, 15) -- abrupt dt changes unbalance the fluxes
+(a factor-2 jump in homogeneous turbulence already fails), fixed by linear dt buffers and dt
+randomization; Wilson & Flesch (1993, J. Appl. Meteor. 32, 1695, appendix) -- a dt = mu T(z) that
+varies smoothly drifts particles towards shorter steps, w_B ~ -alpha sigma^2 d(dt)/dz with
+alpha ~ 1/2 (Postma measured 1/3), steady C ~ T^(-alpha mu); Wilson & Yee (2007, BLM 125, 399) --
+the discrete random displacement model is not well mixed next to a wall where K ~ z (deficit
+0.73 in a layer one drift-step thick), and they recommend the Langevin model instead. Measured
+here, same box, 10 s, gradient = mean of the 10-30 mm bands minus the 70-100 mm bands, switch at
+1e-4 s: 0.236 +- 0.012 at step 0.3 T_L, 0.085 at 0.1, 0.011 +- 0.014 at 0.02 -- linear in the
+step, the Wilson-Flesch bias. Running the Langevin model to the wall with no zone (the literature's
+recommendation) was > 8x the cost on the Sozzi uvmesh and was stopped unfinished. The Thomson
+interface rule needs particles stopped AT the switch, an isosurface of T_L inside tets -- hence
+the single integrator instead.
+⚠️ **The first-order correction is not exact for long steps.** In `doseWellMixed`'s box with the
+floor raised (step 200 us / 400 us / 1 ms / 2 ms / 5 ms everywhere, h up to 4 / 8 / 20 / 40 / 100)
+the worst 10 mm band is 0.02-0.03 / 0.047 / 0.060 / 0.115 / 0.157 off uniform with the correction
+and 0.04 / 0.061 / 0.091 / 0.160 / 0.310 without it (20,000 end points each): it removes a third to
+a half of the long-step error, and the rest grows with the step where sqrt(2 K dt) approaches the
+distance over which K changes (K ~ y^4 there). The same limit shows on the Sozzi bound below.
+**Langevin on the Sozzi reactor, model B (the shipped one)** (2026-10-01; uvmesh line source,
+SST, 1 thread, the other settings as the switch model's below; lib built from this branch's
+working tree; run directory `run_costB.sh`). The bound: integral(G dV)/Q = 44.06 mJ/cm2 for this
+G on this mesh, which a passive tracer's mean dose cannot exceed in a steady flow. Floor 1e-2 s
+(default): 45.32 / 1.478, +2.9 % over the bound, 464 s; floor 1e-3 s: 44.24 / 1.475, +0.4 %,
+2411 s (5x; 5 of 9987 timed out at 300 s). Against: the switch model 44.21 / 1.470 (+0.3 %,
+483 s, same load), randomDisplacement at 0.5 ms 44.56 / 1.477 (+1.1 %). The excess is the
+long-step accuracy limit above, in the sublayer by the sleeve; the log reduction moves by <= 0.008.
+(Timings are wall clock on a loaded machine -- other jobs ran alongside, the same for the three
+compared -- so read them as ratios.)
+
+**Langevin on the Sozzi reactor, the switch model** (OOR `ebadf6e`; 2026-10-01; settings as the
+table above, maxStepFraction 0.05, minLagrangianTime 1e-4 s; run directory `results.md`, outside
+the repository). The table's row is
 measured on this branch rebased onto main 256b449, i.e. with #89's seam and inlet fixes: every
 particle escapes but one timed out on the uvmesh, none on the snappy mesh (uvmesh line source
 44.2 / 1.470, DOM 48.4 / 1.443; snappy 46.1 / 1.443 and 50.2 / 1.439; max dose 464 / 637 and
@@ -1765,8 +1803,8 @@ particle escapes but one timed out on the uvmesh, none on the snappy mesh (uvmes
 `randomDisplacement` on both meshes (log reduction within 0.03) and the meshes with each other;
 residence p50 / p90 3.2 / 5.5 s; ~300 s on one thread for the uvmesh line source
 (randomDisplacement at 5 ms: ~100 s).
-⚠️ **Do not judge its near-wall occupancy from trajectory vertices**: its steps differ by orders of
-magnitude between zones, so a vertex every N steps is not a time sample (stride 2500 read 4.6-8.3x
+⚠️ **Do not judge its near-wall occupancy from trajectory vertices** (true of model B too, whose
+steps vary with T_L): the switch model's steps differ by orders of magnitude between zones, so a vertex every N steps is not a time sample (stride 2500 read 4.6-8.3x
 at 200-500 um from the walls, stride 25 ~1.15x there and 0.01-0.4x within 100 um). Use common-time
 snapshots: tracker instances stopped at maxTime, whose end points are exact now (`snapshot_occupancy.py`,
 1.5 / 2 / 2.5 s pooled, ~19,000 particles, 0.1 < x < 0.7 m). Count over the shell's volume share,
@@ -1776,7 +1814,8 @@ DRW 9.95 / 11.0 / 5.93 / 2.06; randomDisplacement at 5 ms 5.45 / 5.66 / 2.65 / 1
 similar, fewer counts). A snapshot after one injection is not uniform next to the walls -- the
 sublayer fills slowly -- so the converged diffusion walk is the reference, not 1: the Langevin model
 matches it to ~2 standard errors (slightly low within 200 um of the chamber wall; not resolved
-whether velocity memory or the zone switch does it), and the over-fills of the DRW and of the 5 ms
+whether velocity memory or the zone switch does it; the box measurements of the switch since --
+deficit just below it, pile-up just above -- point to the switch), and the over-fills of the DRW and of the 5 ms
 diffusion walk are real.
 
 ⚠️ **Hybrids of the DRW and the diffusion walk were tried first and do not work** (1-D harness,
@@ -1835,8 +1874,10 @@ occupancy breakdowns, and every run's code in `results.md` of the run directory
 | DRW wellMixed | 67.6 / 1.52 | 47.1 / 1.45 | 87.6 / 1.48 | 51.7 / 1.44 |
 | randomDisplacement | 45.5 / 1.49 | 46.3 / 1.46 | 49.4 / 1.47 | 50.4 / 1.46 |
 | randomDisplacement, dtMax 0.5 ms | 46.4 / 1.47 | | | |
-| langevin (2026-10-01, defaults) | 44.2 / 1.47 | 46.1 / 1.44 | 48.4 / 1.44 | 50.2 / 1.44 |
-| langevin, maxStepFraction 0.1 | 44.8 / 1.48 | | | |
+| langevin, switch model (`ebadf6e`, its defaults) | 44.2 / 1.47 | 46.1 / 1.44 | 48.4 / 1.44 | 50.2 / 1.44 |
+| langevin, switch model, maxStepFraction 0.1 | 44.8 / 1.48 | | | |
+| langevin, model B (defaults: 0.02, floor 1e-2 s) | 45.3 / 1.48 | | | |
+| langevin, model B, floor 1e-3 s | 44.2 / 1.48 | | | |
 
 With `randomDisplacement` the two meshes agree (mean within 2 %, log reduction within 0.04);
 with the corrected DRW the wall-resolved mesh is still 44 % high in mean dose (eddy memory, below).
@@ -2701,11 +2742,12 @@ radiationDose:
   random draw fails it (0.799), as does half the noise (0.51). Four more (2026-10-01, with the Langevin model) against the closed form
   for an Ornstein-Uhlenbeck velocity with a stationary start,
   2 sigma^2 T_L (t - T_L (1 - e^-t/T_L)), T_L = tau_e / 2:
-  `shortLangevin` (T_L 50 us, below minLagrangianTime, so the
-  diffusion limit) 1.014 of 2KT; `longLangevin` 0.9834 (expected
+  `shortLangevin` (T_L 50 us, below minLagrangianTime, so its steps sit
+  at the 0.2 ms floor, h = 4) 0.9885 of 2KT (model B; the switch model,
+  in its diffusion zone, gave 1.014); `longLangevin` 0.9834 (expected
   0.975); `earlyLangevin`, the long case stopped at 10 ms < T_L,
-  0.1734 (expected 0.1758) -- velocity memory, where a memoryless walk
-  gives 1; and `earlyWellMixed`, the corrected walk at the same time,
+  0.1734 (expected 0.1758; model B 0.1759) -- velocity memory, where a
+  memoryless walk gives 1; and `earlyWellMixed`, the corrected walk at the same time,
   0.2127 (expected exactly t/tau_e = 0.2, one held eddy; seed 5 lands
   high: seeds 6-9 give 1.009/1.028/0.998/0.983 of 0.2, and the Langevin
   1.008/0.997/1.019/1.014 of 0.1758 -- all instances share seed 5, so
@@ -2749,13 +2791,40 @@ radiationDose:
   runs `randomDisplacement` with the same K and is held to the same
   checks: measured bands 0.970-1.024, wall 1.031, x 0.963-1.041,
   z 0.960-1.035, |dy| 21.7 mm. Without its drift it fails (1.58x in a
-  band), as does half its noise (0.72 off). A fourth runs `langevin`
-  with maxStepFraction 0.1 and minLagrangianTime 2e-3 (its defaults
-  would step in microseconds in the low-k half and take minutes; the
-  switch still lies inside the box, near y = 15 mm), judged at its end
-  points: bands 0.946-1.080, wall 1.010, x 0.970-1.042, z 0.970-1.056.
-  Without its grad(sigma) drift it fails (1.49x), without reflecting
-  v (z band 1.65x). ~18 s with all four.
+  band), as does half its noise (0.72 off). A fourth runs `langevin` at
+  its defaults (step 0.02 max(T_L, 10 ms): at the 0.2 ms floor below
+  y ~ 39 mm, h up to 4) with 20,000 particles, judged at its end points
+  (a standard error of 2.1 % per 10 mm band, 3.5 % per 4 mm bin) and
+  held also to 15 % in 4 mm bins of y, narrower than the switch
+  model's artifact: measured 2026-10-01 bands within 2.2 %, 4 mm bins
+  0.929-1.060, x 0.969-1.043, z 0.974-1.026. Mutation-checked: a 25x
+  step jump at the floor fails it (4 mm bin 1.20, band 1.157); the
+  switch model failed it the same way (0.82 / 1.20 in 4 mm bins, pooled
+  over 20 seeds). ⚠️ Dropping the drift correction PASSES it: at the
+  default floor h > 1 only within a few mm of the low-k wall, so the
+  correction has little to do here -- that is what
+  `doseLangevinDrift` is for. 5000 particles were too few: a model
+  that is exactly well mixed fails 12 % bands across 30 of them ~13 %
+  of the time (the CI failure of 2026-10-01 was the switch artifact
+  showing through that noise). ~110 s with all four (4 threads).
+- **`doseLangevinDrift`** — the Langevin model's drift where K varies.
+  A closed 100 mm cube of 2 mm cubes, U = 0, two turbulence fields with
+  K = k tau_e / 3 linear in y (`makeFields`): `kSigma`/`omegaUniform`
+  (k = 4 + 60 (y - 0.051), tau_e 1e-4 s: grad K = 2e-3 m/s, all from
+  sigma) and `kUniform`/`omegaT` (k = 3, tau_e = 1e-4 + 1.5e-3
+  (y - 0.051): grad K = 1.5e-3 m/s, all from T_L). 40,000 particles from
+  the centre cell, 1 s. The exact mean displacement is grad K t; each
+  field is walked with 5 ms steps (minLagrangianTime 0.25, h ~ 100),
+  with the defaults (h ~ 4) and with `randomDisplacement` (the control
+  that the expected value holds in this box). Validate: every track
+  walked to 1 s, mean dy within 15 % of grad K t (~3.7 standard
+  errors), no mean drift in x or z (< 4.5 standard errors). Measured
+  2026-10-01: 1.000 / 0.934 / 0.996 (sigma field: long, default, RDM),
+  1.034 / 0.961 / 1.029 (T_L field). Mutation-checked: no displacement
+  correction 0.511 / 0.561 and 0.055 / 0.433 (fails four); no
+  end-velocity term (chi) 0.736 in the T_L field at h ~ 4 (fails). With
+  20,000 particles and 20 % the chi mutation passed narrowly (0.780),
+  hence 40,000. ~80 s (4 threads).
 - **`doseNonConformalSeam`** — the dose smoke box's channel cut at
   x = 0.5 by a seam bowed toward +x (arc through x = 0.505 at
   y = 0.05), meshed 8 x 4 across it on the left and 11 x 5 on the

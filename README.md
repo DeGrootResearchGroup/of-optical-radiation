@@ -110,8 +110,12 @@ in absorbing/scattering participating media:
   sublayer. `langevin` is Thomson's well-mixed Langevin model with the same
   long-time diffusivity: it keeps the velocity memory the random
   walk has (spreading as sigma^2 t^2 at first) and stays well mixed
-  next to a resolved wall, at the cost of steps that are a fraction
-  of the Lagrangian time scale there.
+  next to a resolved wall. One integrator covers every step length:
+  exact with the coefficients frozen, plus the first-order drift
+  their variation along the path adds, so that steps longer than the
+  Lagrangian time scale reduce to the random displacement model. Its
+  step is `maxStepFraction` (0.02) times the Lagrangian time scale,
+  floored at `minLagrangianTime` (10 ms), and continuous in space.
 - Configurable equation of motion (RTS-selectable `motionModel`:
   `tracer` for fluid-following particles, `inertial` for finite-Stokes
   point particles with Stokes or Schiller-Naumann drag, optional
@@ -494,6 +498,17 @@ radiationDose:
   Boundary-Layer Meteorol. **78**, 191–210. — The random displacement
   model as the diffusion limit of the well-mixed Langevin model, and
   the Langevin model itself.
+- Wilson, J. D. & Flesch, T. K. (1993). *Flow boundaries in
+  random-flight dispersion models: enforcing the well-mixed
+  condition.* J. Appl. Meteorol. **32**, 1695–1707; Thomson, D. J.,
+  Physick, W. L. & Maryon, R. H. (1997). *Treatment of interfaces in
+  random walk dispersion models.* J. Appl. Meteorol. **36**,
+  1284–1295; Postma, J. V. (2015). *Timestep buffering to preserve
+  the well-mixed condition in Lagrangian stochastic simulations.*
+  Boundary-Layer Meteorol. **156**, 15–36. — Why a step that varies
+  in space drifts particles towards shorter steps, and why one that
+  jumps between neighbouring positions breaks the well-mixed
+  condition: the Langevin model's step is continuous for this reason.
 - Schiller, L. & Naumann, A. (1933). *Über die grundlegenden
   Berechnungen bei der Schwerkraftaufbereitung.* Z. Ver. Deutsch.
   Ing. **77**, 318–320. — Re_p-corrected drag.

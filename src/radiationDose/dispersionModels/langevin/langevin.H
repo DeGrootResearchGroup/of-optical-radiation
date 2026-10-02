@@ -35,18 +35,35 @@ Description
     the three dispersion models spread particles at the same rate over
     long times.
 
-    Each step integrates v and the displacement exactly with the
-    coefficients (sigma, grad(sigma), T_L) frozen at the step's start:
-    the end velocity and the displacement are jointly Gaussian with known
-    means, variances and covariance. Frozen coefficients are consistent
-    only on steps short against T_L, so the step is limited to
-    maxStepFraction T_L. Where T_L is shorter than minLagrangianTime --
+    Each step integrates v and the displacement exactly with sigma,
+    grad(sigma) and T_L frozen at the step's start -- the end velocity and
+    the displacement are jointly Gaussian with known means, variances and
+    covariance -- and adds the mean displacement that freezing them
+    leaves out, from expanding sigma and T_L to first order along the
+    path with v at its stationary statistics:
+
+        dt [psi1(h) sigma T_L grad(sigma) + psi2(h) sigma^2 grad(T_L)],
+        psi1 = 1 - (1 - e^-h)/h,   psi2 = 1 - 2 (1 - e^-h)/h + e^-h,
+
+    with h = dt / T_L. Both vanish for h << 1 (psi1 ~ h/2, psi2 ~ h^2/6),
+    where the step is the Langevin model's, and tend to one for h >> 1,
+    where the mean drift becomes sigma T_L grad(sigma) + sigma T_L
+    grad(sigma) + sigma^2 grad(T_L) = grad(K) and the step is the random
+    displacement model's with the same K. One integrator therefore covers
+    both limits and every step between them, with no switch between
+    models.
+
+    The step is at most maxStepFraction max(T_L, minLagrangianTime), and
+    at most maxDisplacement^2 / (2 K) so that the random spread of a step
+    stays within the distance over which the first-order expansion holds.
+    It is continuous in space: a step that jumps between neighbouring
+    positions unbalances the particle fluxes across the jump, and a step
+    that varies with position along a path whose velocity is still
+    remembered drifts particles towards shorter steps by about
+    -sigma^2 grad(dt) / 2 (Wilson and Flesch 1993), which a small
+    maxStepFraction keeps small. Where T_L is below minLagrangianTime --
     next to a resolved wall, where k-omega SST gives microseconds -- the
-    step instead follows the diffusion limit with the same K,
-    dx = grad(K) dt + sqrt(2 K dt) xi, and v is drawn afresh from its
-    stationary distribution N(0, 1) when the particle leaves that zone.
-    Eddies there are far shorter than any step, so the two descriptions
-    agree where they meet.
+    step stops shrinking, and h grows towards the diffusion limit.
 
     The CFL bound sees only the deterministic part of the step's motion,
     never its random draws (a bound by the draw it is about to take would
@@ -57,6 +74,10 @@ Description
         Thomson, D. J. (1987). Criteria for the selection of stochastic
         models of particle trajectories in turbulent flows. Journal of
         Fluid Mechanics, 180, 529-556.
+
+        Wilson, J. D., & Flesch, T. K. (1993). Flow boundaries in
+        random-flight dispersion models: enforcing the well-mixed
+        condition. Journal of Applied Meteorology, 32, 1695-1707.
 
         Wilson, J. D., & Sawford, B. L. (1996). Review of Lagrangian
         stochastic models for trajectories in the turbulent atmosphere.
@@ -70,8 +91,8 @@ Usage
         omega               omega;    // or epsilon (default "epsilon")
         Cmu                 0.09;     // optional, default 0.09 (with omega)
         Cl                  0.15;     // optional, default 0.15
-        maxStepFraction     0.05;     // optional: step <= this x T_L
-        minLagrangianTime   1e-4;     // optional [s]: diffusion below it
+        maxStepFraction     0.02;     // optional: step <= this x T_L
+        minLagrangianTime   1e-2;     // optional [s]: the step's T_L floor
     }
 
 \*---------------------------------------------------------------------------*/
@@ -109,24 +130,21 @@ public:
             //- Normalized velocity u'/sigma
             vector v;
 
-            //- False until v has been drawn: a new track, or one that
-            //  has been in the diffusion zone
+            //- False until v has been drawn from its stationary
+            //  distribution at the track's first step
             bool hasVelocity;
 
             // The current step, set by beginStep()
 
-                //- True when the step follows the diffusion limit
-                bool diffusive;
-
-                //- sigma [m/s], grad(sigma) [1/s] and T_L [s] at the
-                //  step's start
+                //- sigma [m/s], grad(sigma) [1/s], T_L [s] and grad(T_L)
+                //  [s/m] at the step's start
                 scalar sigma;
                 vector gradSigma;
                 scalar TL;
+                vector gradTL;
 
-                //- K [m^2/s] and grad(K) [m/s] at the step's start
+                //- K [m^2/s] at the step's start
                 scalar K;
-                vector gradK;
 
                 //- Unit Gaussian draws for the step
                 vector xi1;
@@ -136,12 +154,11 @@ public:
             :
                 v(vector::zero),
                 hasVelocity(false),
-                diffusive(false),
                 sigma(0),
                 gradSigma(vector::zero),
                 TL(0),
+                gradTL(vector::zero),
                 K(0),
-                gradK(vector::zero),
                 xi1(vector::zero),
                 xi2(vector::zero)
             {}
@@ -158,15 +175,16 @@ private:
         //- Largest step as a fraction of T_L
         scalar maxStepFraction_;
 
-        //- Below this T_L [s] the step follows the diffusion limit
+        //- Below this T_L [s] the step stops shrinking
         scalar minLagrangianTime_;
 
 
     // Private Member Functions
 
-        //- The step's exact Langevin update over dt: the mean of the
-        //  normalized velocity's time integral (Xm), its random part
-        //  (Xn) and the end velocity (vEnd)
+        //- The step's update over dt: the mean of the normalized
+        //  velocity's time integral (Xm, including the first-order
+        //  correction for sigma and T_L varying along the path), its
+        //  random part (Xn) and the end velocity (vEnd)
         void integrate
         (
             const LangevinState& s,
@@ -236,8 +254,8 @@ public:
             scalar dt
         ) const;
 
-        //- maxStepFraction T_L, or in the diffusion zone
-        //  maxDisplacement^2 / (2 K)
+        //- The smaller of maxStepFraction max(T_L, minLagrangianTime)
+        //  and maxDisplacement^2 / (2 K)
         virtual scalar maxStep
         (
             const dispersionModel::State& state,
